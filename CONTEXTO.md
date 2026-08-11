@@ -73,7 +73,17 @@ Escola, turma e disciplina têm `ativa`. Deixar de lecionar é `ativa:false`
 de verdade só é oferecido enquanto não houver nada pendurado no cadastro.
 O mesmo já valia para o aluno transferido (`ate` = período de saída).
 
-**6. O calendário é da turma, não do app.**
+**6. O caderno do simulado é uma prova comum.**
+Um Simulado SAEPE tem UM caderno: um registro de `E.provas` marcado com
+`simulado`, em que `comps[i]` diz se o item `i` é de Língua Portuguesa ou
+de Matemática. É isso que faz
+geração, cartão, QR, leitura e correção continuarem valendo sem cópia de
+código. Em troca, **todo filtro de prova precisa excluir cadernos**:
+`provasDe()` já faz isso, e é por ali que passam a lista de provas, o
+fechamento e a aba Notas. Caderno não tem `periodo` nem `disciplina` — não
+entra na média de bimestre nenhum.
+
+**7. O calendário é da turma, não do app.**
 `turma.periodo = {tipo:"bimestre"|"trimestre", qtd}`. Toda nomenclatura de
 período sai de `nomePeriodo()` / `periodosDe()`, que leem a turma. Turma
 bimestral nunca pode exibir “trimestre”, e vice-versa. Não existe
@@ -125,18 +135,88 @@ de 10 para 14 acertos em 14 cenários de foto adversa.
 
 ---
 
-## Modelo de dados (`localStorage`, chave `dbm_omr_v6`)
+## Simulados SAEPE
+
+Estrutura: **Turma › Simulados SAEPE › Criar simulado**. Cada simulado fixa
+uma etapa (5º EF, 9º EF ou 3º EM) e cria **um caderno**, com a quantidade
+de itens de cada componente escolhida na hora (padrão 13 + 13; o cartão
+comporta até 30 no total). Cada item carrega o componente e o descritor.
+
+**Apuração é sempre separada por componente.** Proficiência, padrão de
+desempenho, distribuição da turma e acerto por descritor saem uma vez para
+Língua Portuguesa e outra para Matemática, cada uma medida só pelos itens
+dela — por isso a classificação é proporcional ao número de itens do
+componente, não do caderno.
+
+Pontos de corte dos padrões (Elementar I, Elementar II, Básico, Desejável),
+oficiais, da Revista do Professor SAEPE 2018:
+
+| Etapa | Língua Portuguesa | Matemática |
+|---|---|---|
+| 5º EF | 125 / 175 / 210 | 150 / 185 / 220 |
+| 9º EF | 200 / 235 / 270 | 225 / 245 / 280 |
+| 3º EM | 225 / 270 / 305 | 250 / 290 / 325 |
+
+### Os dois métodos de proficiência
+
+**TRI de 3 parâmetros (padrão).** É o modelo do Saeb:
+
+`P(acertar | θ) = c + (1 − c) / (1 + e^(−1,7·a·(θ − b)))`
+
+- `c` = 1/nº de alternativas (0,2), fixo — é a correção do chute.
+- `b` (dificuldade) e `a` (discriminação) vêm da conversão clássica de
+  Lord, calculada sobre as respostas da turma: `b = z/r` com
+  `z = Φ⁻¹(1 − p*)` e `p*` a proporção de acerto já descontado o chute;
+  `a = r/√(1 − r²)`, com `r` = correlação do item com o desempenho no
+  RESTO da prova. Limites: `a ∈ [0,4 · 2,5]`, `b ∈ [−3 · 3]`.
+- `θ` de cada estudante por máximo a posteriori (prior N(0,1)), busca em
+  grade de −4 a 4. Grade em vez de Newton porque não diverge com acerto
+  total nem com zero.
+
+O que isso muda em relação ao Rasch que havia antes: **o número de acertos
+deixa de ser estatística suficiente**. Item que poucos acertaram pesa mais;
+item que não separou ninguém quase não conta; e acertar os difíceis errando
+os fáceis é um padrão improvável, que a verossimilhança atribui ao chute.
+Em uma turma de teste, dois estudantes com 6 de 12 acertos ficaram 91
+pontos de escala distantes por causa do padrão de resposta.
+
+**Percentual.** `(acerto − 1/5) / (1 − 1/5)` projetado na faixa da etapa.
+Entra sozinho quando há menos de 8 cartões corrigidos ou menos de 5 itens
+no componente — com pouca gente a calibração não se sustenta.
+
+### A âncora, que é o limite real
+
+Sem itens âncora com parâmetros da rede, **nenhuma conta acerta o ponto da
+escala oficial**. Pior: se `θ` fosse padronizado na própria turma, toda
+turma sairia com a mesma média e uma turma fraca pareceria mediana.
+
+Por isso a escala é montada assim: o **nível da turma** vem do acerto
+absoluto (o método percentual aplicado à média de acertos), e a TRI
+**distribui os estudantes em torno desse centro**, a 50 pontos por
+desvio-padrão de θ — a mesma unidade do Saeb. Mexer nisso sem entender o
+problema da âncora vai produzir números que parecem oficiais e não são.
+
+Os descritores ficam em `E.descritores[comp]` (código → texto), digitados
+uma vez e reaproveitados. O item guarda só o código em `desc[]`, e `habs[]`
+é regerado a partir dele — assim a análise por habilidade que já existia
+funciona no simulado sem alteração nenhuma.
+
+## Modelo de dados (`localStorage`, chave `dbm_omr_v8`)
 
 ```
 E = {
-  v: 6,
+  v: 8,
   escolas: [{id, nome, curto, ativa}],
   turmas:  [{id, escola, nome, serie, ativa,
              disciplinas:[{id, nome, ativa}],
              disciplina,                       // só espelho do nome da 1ª
              periodo:{tipo:"trimestre"|"bimestre", qtd},
              alunos:[{numero, nome, desde, ate}]}],
+  simulados:[{id, turma, titulo, etapa:"5EF"|"9EF"|"3EM", ano,
+             prova:provaId, metodo:"tri"|"pct"}],
+  descritores:{LP:{D1:"texto"}, MAT:{...}},
   provas:  [{id, turma, disciplina, codigo, titulo, periodo, nq, no, gabC,
+             simulado, comps[], desc[],        // só no caderno do simulado
              habs[], pontosObj, pontosDisc,
              questoes:[{enunciado, alternativas[], correta, imagem}],
              discursivas:[{enunciado, pontos, linhas}]}],
@@ -151,7 +231,7 @@ liga a prova à combinação escola + turma + disciplina.
 Aluno transferido **nunca é apagado** (`ate` = período de saída), senão o
 fechamento dos períodos anteriores se perde.
 
-`migrarV6()` sobe qualquer estado v4/v5 (inclusive de cópia de segurança
+`migrarV6()` sobe qualquer estado v4 a v7 (inclusive de cópia de segurança
 importada): cria a lista de disciplinas a partir do campo antigo e liga
 cada prova à primeira delas. Nada é descartado no caminho.
 
@@ -178,7 +258,9 @@ Alcance atual: 5–6 questões em 1 página, 7–14 em 2, 15–20 em 3.
 ## Navegação
 
 **Turmas:** escola › turma › disciplina › provas do período › prova.
-Os estudantes ficam na turma (valem para todas as disciplinas dela).
+Os estudantes ficam na turma (valem para todas as disciplinas dela). Na
+mesma tela da turma fica a entrada **Simulados SAEPE**, ao lado das
+disciplinas.
 
 **Notas:** escola › turma › disciplina › período › média do período, com
 as provas daquele período logo acima e o detalhe por prova um toque à
@@ -197,8 +279,11 @@ por digitação ou por arquivo (Word e PDF lidos localmente, de graça; foto
 pela API da Claude), extração de gráficos e tabelas do PDF, geração de
 provas e de folhas de cartões, leitura por câmera, correção manual, notas
 por escola/turma/disciplina/período, fechamento por período, análise por
-habilidade com parecer automático, exportação CSV, cópia de segurança e uso
-offline.
+habilidade com parecer automático, simulados SAEPE (caderno único com itens
+de Língua Portuguesa e de Matemática, descritores, proficiência por TRI de 3 parâmetros ou
+percentual, padrões de desempenho e acerto por descritor, tudo separado por
+componente),
+exportação CSV, cópia de segurança e uso offline.
 
 ## O que não existe
 
