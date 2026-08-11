@@ -932,9 +932,94 @@ function escalaTRI(sm,theta,thetaMedio,centro){
 
 const TRI_MIN_ALUNOS=8, TRI_MIN_ITENS=5;
 
+const MIN_Q_CARTAO=5;
+
+/* D01, d1, D 1 → D1. Assim o que veio do arquivo e o que foi digitado
+   à mão são o mesmo descritor. */
+function codDesc(x){
+  const m=/^\s*D?\s*0*(\d{1,3})\s*$/i.exec(String(x||"").replace(/[^\dDd]/g,""));
+  return m?("D"+m[1]):String(x||"").trim().toUpperCase();
+}
+
+/* ── leitura do arquivo do simulado ────────────────────────────────
+   O documento traz, nesta ordem: as questões, um bloco GABARITO e um
+   bloco DESCRITORES no formato
+
+     D01 — texto da habilidade — Questões: 1, 5
+
+   As questões em si são lidas pelo MESMO parser das provas comuns. */
+function lerSimuladoDoc(txt){
+  const linhas=String(txt).split(/\r?\n/);
+  const limpo=l=>String(l).replace(/[*_#]/g,"").trim();
+  const acha=re=>linhas.findIndex(l=>re.test(limpo(l)));
+  const iGab=acha(/^gabaritos?\s*:?$/i);
+  const iDes=acha(/^descritor(es)?\s*:?$/i);
+  const cortes=[iGab,iDes].filter(x=>x>=0).sort((a,b)=>a-b);
+  const corpo=linhas.slice(0, cortes.length?cortes[0]:linhas.length).join("\n");
+  const blocoGab=iGab<0?[]:linhas.slice(iGab+1, (iDes>iGab)?iDes:linhas.length);
+  const blocoDes=iDes<0?[]:linhas.slice(iDes+1, (iGab>iDes)?iGab:linhas.length);
+
+  const chave={};
+  blocoGab.forEach(l=>{
+    const m=/^(\d{1,2})\s*[).:\-–—]?\s*([A-Ea-e])(?![A-Za-zÀ-ÿ0-9])/.exec(limpo(l));
+    if(m) chave[+m[1]]=m[2].toUpperCase();
+  });
+
+  const descritores=[], mapa={};
+  blocoDes.forEach(l=>{
+    const t=limpo(l); if(!t) return;
+    const m=/^(D\s*\d{1,3})\s*(.*)$/i.exec(t);
+    if(!m) return;
+    const cod=codDesc(m[1]);
+    let resto=String(m[2]).replace(/^\s*[—–\-:.]\s*/,"");
+    let qs=[];
+    const mq=/quest(?:ões|oes|ão|ao)s?\s*[:\-–—]?\s*([\d\s,;e]+)$/i.exec(resto);
+    if(mq){ qs=(mq[1].match(/\d{1,2}/g)||[]).map(Number); resto=resto.slice(0,mq.index); }
+    const texto=resto.replace(/\s*[—–\-]\s*$/,"").trim();
+    descritores.push({cod,texto,questoes:qs});
+    qs.forEach(n=>{ if(!mapa[n]) mapa[n]=cod; });
+  });
+
+  const lidas=lerQuestoes(corpo);
+  const itens=(lidas.questoes||[]).map((q,i)=>{
+    const letra=chave[i+1]||"";
+    const k="ABCDE".indexOf(letra);
+    if(k>=0) q.correta=k;
+    return {questao:q, gab:letra, desc:mapa[i+1]||""};
+  });
+  return {itens, descritores, chave,
+          semGab:itens.filter(x=>!x.gab).length,
+          semDesc:itens.filter(x=>!x.desc).length,
+          curtas:itens.filter(x=>(x.questao.alternativas||[]).filter(Boolean).length<5).length};
+}
+
+/* Substitui os itens de UM componente, preservando os do outro.
+   A ordem do caderno é sempre Língua Portuguesa e depois Matemática. */
+function aplicarImportacao(sm,comp,itens){
+  const pr=provaDoSim(sm); if(!pr) return null;
+  const outros=[];
+  (pr.comps||[]).forEach((c,i)=>{
+    if(c===comp) return;
+    outros.push({comp:c, questao:(pr.questoes||[])[i]||null,
+      gab:String(pr.gabC||"")[i]||"", desc:(pr.desc||[])[i]||""});
+  });
+  const novos=itens.map(x=>({comp, questao:x.questao, gab:x.gab, desc:x.desc}));
+  const lista=(comp==="LP")?novos.concat(outros):outros.concat(novos);
+  pr.nq=lista.length;
+  pr.no=SAEPE_NO;
+  pr.comps=lista.map(x=>x.comp);
+  pr.desc=lista.map(x=>codDesc(x.desc)||"");
+  pr.gabC=lista.map(x=>x.gab||"A").join("");
+  pr.habs=pr.desc.map((cod,i)=>cod?curtoComp(pr.comps[i])+" "+rotuloDesc(pr.comps[i],cod):"");
+  /* só entrega as questões ao gerador quando TODAS existem — meio caderno
+     sairia impresso com itens em branco */
+  pr.questoes=lista.every(x=>x.questao)?lista.map(x=>x.questao):[];
+  return pr;
+}
+
 /* banco de descritores: código → texto, reaproveitado entre simulados */
 const bancoDesc=comp=>((E.descritores||{})[comp]||{});
-function textoDesc(comp,cod){ return bancoDesc(comp)[String(cod).toUpperCase()]||""; }
+function textoDesc(comp,cod){ return bancoDesc(comp)[codDesc(cod)]||""; }
 function rotuloDesc(comp,cod){
   const t=textoDesc(comp,cod);
   return cod?(cod+(t?" — "+t:"")):"";
@@ -942,7 +1027,9 @@ function rotuloDesc(comp,cod){
 
 function ativar(pid){
   const p=provaDe(pid); if(!p) return;
-  E.ativa=pid; aplicarLayout(p.nq,p.no); salvar(); refletirBarra();
+  E.ativa=pid;
+  if(p.nq>=MIN_Q_CARTAO) aplicarLayout(p.nq,p.no);   // caderno ainda vazio não tem cartão
+  salvar(); refletirBarra();
   const tp=turmaDe(p.turma);           // a aba Notas segue a prova escolhida
   if(tp && !ehCaderno(p) && typeof notaNav!=="undefined") notaNav={escola:tp.escola,
     turma:tp.id, disc:p.disciplina||primeiraDisc(tp), per:p.periodo||1, prova:p.id};
@@ -1089,6 +1176,7 @@ function montarCasaInterno(box){
   if(casaNivel==="novoSim")     return telaNovoSimulado(box);
   if(casaNivel==="simulado")    return telaSimulado(box);
   if(casaNivel==="itens")       return telaItens(box);
+  if(casaNivel==="importar")    return telaImportar(box);
   if(casaNivel==="banco")       return telaBanco(box);
   if(casaNivel==="relSaepe")    return telaRelSaepe(box);
   if(casaNivel==="turmas")   return telaTurmas(box);
@@ -3050,11 +3138,14 @@ function telaNovoSimulado(box){
           e ${et.cortes.MAT[1]} em Matemática</div></button>`).join("")}
     </div>
     <div class="rot">Quantos itens de cada componente</div>
+    <p class="hint" style="margin-top:-4px">Se você for subir o arquivo do caderno,
+      a quantidade do documento substitui a que estiver aqui.</p>
     <label>Língua Portuguesa</label>${cont("sNLP",F.nLP)}
     <label style="margin-top:12px">Matemática</label>${cont("sNMAT",F.nMAT)}
     <p class="hint">Total: <b>${total}</b> ${total>SAEPE_MAX
       ?`— o cartão-resposta comporta no máximo ${SAEPE_MAX}.`
-      :total<SAEPE_MIN?`— o mínimo é ${SAEPE_MIN}.`
+      :total===0?"— caderno vazio; só dá para montá-lo subindo os arquivos."
+      :total<SAEPE_MIN?`— com menos de ${SAEPE_MIN} itens não sai cartão-resposta.`
       :"itens no cartão. A classificação é proporcional: cada componente é medido pelos itens dele."}</p>
     <label style="margin-top:14px">Ano</label>
     <input id="sAno" type="number" inputmode="numeric" value="${F.ano}">
@@ -3076,10 +3167,10 @@ function telaNovoSimulado(box){
     sinc();
     if(!F.titulo.trim()){ alert("Dê um título ao simulado."); return; }
     const n=F.nLP+F.nMAT;
-    if(n<SAEPE_MIN||n>SAEPE_MAX){
-      alert("O caderno precisa ter de "+SAEPE_MIN+" a "+SAEPE_MAX+" itens. Agora está com "+n+"."); return; }
-    if(!F.nLP||!F.nMAT){
-      if(!confirm("Um dos componentes ficou sem itens. Continuar assim?")) return; }
+    if(n>SAEPE_MAX){
+      alert("O cartão-resposta vai até "+SAEPE_MAX+" itens. Agora está com "+n+"."); return; }
+    if(n>0 && n<SAEPE_MIN){
+      alert("Com menos de "+SAEPE_MIN+" itens não sai cartão-resposta. Use 0 para montar pelo arquivo."); return; }
     const sm={id:uid("s"),turma:t.id,titulo:F.titulo.trim(),etapa:F.etapa,ano:F.ano,
       metodo:"tri",criado:Date.now(),prova:null};
     const comps=[].concat(new Array(F.nLP).fill("LP"), new Array(F.nMAT).fill("MAT"));
@@ -3120,6 +3211,10 @@ function telaSimulado(box){
       <span class="p">${idx.length}</span></div>`;
   });
   h+=`<div class="rot">O que você quer fazer</div>
+    <button class="item" id="bImp"><div class="cor">
+      <div class="t1">Subir arquivo do caderno</div>
+      <div class="t2">Word ou PDF, um por componente — traz questões, gabarito e descritores</div>
+      </div><span class="ch">›</span></button>
     <button class="item" id="bItens"><div class="cor">
       <div class="t1">Itens: componente, gabarito e descritor</div>
       <div class="t2">Marcar cada item como Língua Portuguesa ou Matemática</div>
@@ -3153,8 +3248,11 @@ function telaSimulado(box){
   box.innerHTML=h;
   $("#mVolta").onclick=()=>{casaNivel="simulados";montarCasa();};
   $("#bItens").onclick=()=>{casaNivel="itens";montarCasa();};
+  $("#bImp").onclick=()=>{impDados=null;casaNivel="importar";montarCasa();};
   $("#bRel").onclick=()=>{casaNivel="relSaepe";montarCasa();};
   $("#bProva").onclick=()=>{
+    if(pr.nq<MIN_Q_CARTAO){
+      alert("O caderno ainda está vazio. Suba os arquivos ou defina os itens primeiro."); return; }
     if(!pronto){ alert("Preencha o gabarito antes: ele vai dentro do QR de cada cartão."); return; }
     voltaPara.prova="simulado"; casaProva=pr.id; ativar(pr.id);
     casaNivel="prova"; montarCasa(); };
@@ -3173,6 +3271,112 @@ function telaSimulado(box){
     casaNivel="simulados"; montarCasa(); };
 }
 
+/* ── subir o arquivo do caderno ───────────────────────────────────
+   Um arquivo por componente. O mesmo leitor das provas comuns extrai
+   as questões; o bloco GABARITO e o bloco DESCRITORES do documento
+   preenchem o gabarito e os descritores de uma vez. */
+let impComp="LP", impDados=null, impNome="", impAviso="";
+
+function telaImportar(box){
+  const sm=simuladoDe(casaSim);
+  if(!sm){ casaNivel="simulados"; return montarCasa(); }
+  const pr=provaDoSim(sm);
+  const jaTem=c=>pr?itensDe(pr,c).length:0;
+  const corrigidos=pr?resDa(pr.id).length:0;
+  let h=`<div class="migalha"><button id="mVolta">‹ ${esc(sm.titulo)}</button></div>
+    <h2>Subir arquivo do caderno</h2>
+    <p class="sub">Word ou PDF, um arquivo por componente. As questões, o gabarito e
+      os descritores saem do próprio documento.</p>
+    <div class="esco">${COMPONENTES.map(c=>`<button data-c="${c.id}"
+      class="${c.id===impComp?"sel":""}"><div class="t">${esc(c.nome)}</div>
+      <div class="s">${jaTem(c.id)?jaTem(c.id)+" itens no caderno":"nenhum item ainda"}</div>
+      </button>`).join("")}</div>
+    <input type="file" id="impArq" accept=".docx,.pdf,.txt"
+      style="display:none">
+    <button class="btn" id="impEscolher" style="margin-top:14px">Escolher arquivo de
+      ${esc(nomeComp(impComp))}</button>
+    <div id="impInfo"></div>`;
+  if(corrigidos && !impDados)
+    h+=`<div class="aviso" style="margin-top:12px">Este caderno já tem ${corrigidos}
+      cartão(ões) corrigido(s). Subir um arquivo novo muda a ordem dos itens e
+      invalida essas correções.</div>`;
+  h+=`<div class="diag" style="margin-top:14px"><b>Como o documento deve estar</b>
+    As questões numeradas (1., 2., …) com alternativas A) a E). Depois, uma linha
+    escrita <b>GABARITO</b> e a lista “1. C”. Por fim, uma linha escrita
+    <b>DESCRITORES</b> e uma linha por descritor no formato
+    “D01 — texto da habilidade — Questões: 1, 5”.</div>`;
+  box.innerHTML=h;
+  $("#mVolta").onclick=()=>{impDados=null;casaNivel="simulado";montarCasa();};
+  box.querySelectorAll("[data-c]").forEach(b=>b.onclick=()=>{
+    impComp=b.dataset.c; impDados=null; montarCasa(); });
+  $("#impEscolher").onclick=()=>$("#impArq").click();
+  $("#impArq").onchange=async ev=>{
+    const f=ev.target.files&&ev.target.files[0]; if(!f) return;
+    impNome=f.name; impDados=null; impAviso="";
+    const info=t=>{ const el=$("#impInfo"); if(el) el.innerHTML=t; };
+    info('<div class="diag" style="margin-top:12px">Lendo o documento…</div>');
+    try{
+      let txt="";
+      if(/\.docx$/i.test(f.name))      txt=await textoDeDocx(f);
+      else if(/\.pdf$/i.test(f.name))  txt=await textoDePdf(f);
+      else                             txt=await f.text();
+      if(!txt.trim()) throw new Error("o arquivo não devolveu texto");
+      impDados=lerSimuladoDoc(txt);
+      if(!impDados.itens.length) throw new Error("não encontrei questões numeradas");
+      montarCasa(); pintarPreImport();
+    }catch(e){
+      info(`<div class="aviso" style="margin-top:12px">Não consegui ler: ${esc(e.message)}</div>`);
+    }
+  };
+  if(impDados) pintarPreImport();
+}
+
+function pintarPreImport(){
+  const el=$("#impInfo"); if(!el||!impDados) return;
+  const sm=simuladoDe(casaSim), pr=provaDoSim(sm);
+  const d=impDados, n=d.itens.length;
+  const outros=pr?itensDe(pr,impComp==="LP"?"MAT":"LP").length:0;
+  const total=n+outros;
+  const excede=total>SAEPE_MAX;
+  let h=`<div class="diag" style="margin-top:12px"><b>${esc(impNome)}</b>
+    ${n} questões lidas · ${n-d.semGab} com gabarito ·
+    ${n-d.semDesc} com descritor · ${d.descritores.length} descritores no documento</div>`;
+  const alertas=[];
+  if(d.semGab)  alertas.push(d.semGab+" questão(ões) sem letra no gabarito — entram como A");
+  if(d.semDesc) alertas.push(d.semDesc+" sem descritor");
+  if(d.curtas)  alertas.push(d.curtas+" com menos de cinco alternativas");
+  if(excede)    alertas.push("o caderno ficaria com "+total+" itens; o cartão-resposta vai até "+SAEPE_MAX);
+  if(alertas.length)
+    h+=`<div class="aviso" style="margin-top:10px">${alertas.map(esc).join("<br>")}</div>`;
+  h+=`<div class="rot">Primeiras questões</div>`;
+  h+=d.itens.slice(0,3).map((x,i)=>`<div class="item" style="display:block">
+    <div class="t1" style="white-space:normal">${i+1}. ${esc(String(x.questao.enunciado).slice(0,110))}${
+      String(x.questao.enunciado).length>110?"…":""}</div>
+    <div class="t2">${(x.questao.alternativas||[]).filter(Boolean).length} alternativas ·
+      gabarito ${esc(x.gab||"—")} · ${esc(x.desc||"sem descritor")}</div></div>`).join("");
+  h+=`<div class="rot">Descritores encontrados</div>
+    <p class="hint" style="margin-top:-4px">${d.descritores.length
+      ? d.descritores.map(x=>esc(x.cod)).join(" · ")+" — os textos entram no banco de "+esc(nomeComp(impComp))+"."
+      : "Nenhum. Você pode preencher depois na tela de itens."}</p>
+    <button class="btn" id="impOk" ${excede?"disabled":""}
+      style="margin-top:12px">Usar estes ${n} itens em ${esc(nomeComp(impComp))}</button>`;
+  el.innerHTML=h;
+  if($("#impOk")) $("#impOk").onclick=()=>{
+    const corr=resDa(pr.id).length;
+    if(corr && !confirm("Isto substitui os itens de "+nomeComp(impComp)+
+      " e invalida os "+corr+" cartões já corrigidos deste caderno. Continuar?")) return;
+    /* textos dos descritores vão para o banco */
+    E.descritores=E.descritores||{LP:{},MAT:{}};
+    E.descritores[impComp]=E.descritores[impComp]||{};
+    impDados.descritores.forEach(x=>{ if(x.texto) E.descritores[impComp][x.cod]=x.texto; });
+    aplicarImportacao(sm,impComp,impDados.itens);
+    salvar();
+    if(E.ativa===pr.id) ativar(pr.id);
+    impDados=null;
+    casaNivel="simulado"; montarCasa();
+  };
+}
+
 /* ── itens: componente, gabarito e descritor, um por linha ───────── */
 function telaItens(box){
   const sm=simuladoDe(casaSim);
@@ -3182,6 +3386,16 @@ function telaItens(box){
   const gab=(pr.gabC||"").toUpperCase().split("");
   const desc=pr.desc||[], comps=pr.comps||[];
   const letras=["A","B","C","D","E"].slice(0,pr.no);
+  if(!pr.nq){
+    box.innerHTML=`<div class="migalha"><button id="mVolta">‹ ${esc(sm.titulo)}</button></div>
+      <h2>Itens do caderno</h2>
+      <div class="vazio"><b>Caderno vazio</b>Suba o arquivo de cada componente —
+        as questões, o gabarito e os descritores vêm de lá.</div>
+      <button class="btn" id="itImp">Subir arquivo do caderno</button>`;
+    $("#mVolta").onclick=()=>{casaNivel="simulado";montarCasa();};
+    $("#itImp").onclick=()=>{impDados=null;casaNivel="importar";montarCasa();};
+    return;
+  }
   let h=`<div class="migalha"><button id="mVolta">‹ ${esc(sm.titulo)}</button></div>
     <h2>Itens do caderno</h2>
     <p class="sub">${pr.nq} itens · toque na etiqueta para trocar o componente</p>

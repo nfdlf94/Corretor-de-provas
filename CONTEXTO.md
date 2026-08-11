@@ -196,6 +196,31 @@ absoluto (o método percentual aplicado à média de acertos), e a TRI
 desvio-padrão de θ — a mesma unidade do Saeb. Mexer nisso sem entender o
 problema da âncora vai produzir números que parecem oficiais e não são.
 
+### Subir o caderno de arquivo
+
+**Turma › Simulados SAEPE › o simulado › Subir arquivo do caderno**, um
+arquivo por componente (Word, PDF de texto ou txt). O documento traz, nesta
+ordem: as questões numeradas com alternativas A) a E), uma linha
+`GABARITO` com a lista `1. C`, e uma linha `DESCRITORES` com
+
+```
+D01 — texto da habilidade — Questões: 1, 5
+```
+
+As questões são lidas pelo **mesmo** `lerQuestoes()` das provas comuns —
+`lerSimuladoDoc()` só fatia o documento nos três blocos e devolve gabarito
+e descritores. Os textos dos descritores entram no banco daquele
+componente; `codDesc()` normaliza `D01`, `d1` e `D 1` para `D1`, de modo
+que o que veio do arquivo e o que foi digitado à mão sejam o mesmo
+descritor.
+
+`aplicarImportacao()` substitui os itens de UM componente e preserva os do
+outro, remontando o caderno sempre na ordem Língua Portuguesa → Matemática.
+Duas consequências a respeitar: reimportar muda a ordem dos itens e
+**invalida as correções já feitas** (o app avisa e pede confirmação), e as
+questões só são entregues ao gerador quando TODAS existem — meio caderno
+sairia impresso com itens em branco.
+
 Os descritores ficam em `E.descritores[comp]` (código → texto), digitados
 uma vez e reaproveitados. O item guarda só o código em `desc[]`, e `habs[]`
 é regerado a partir dele — assim a análise por habilidade que já existia
