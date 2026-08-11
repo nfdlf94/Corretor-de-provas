@@ -185,32 +185,6 @@ textarea{min-height:132px;resize:vertical;font-family:var(--mono);font-size:12.5
   border:1px solid var(--line);border-radius:8px;padding:5px 9px;font-size:11.5px;
   margin:0 6px 6px 0;font-family:var(--mono)}
 .chip b{color:var(--orange);font-weight:600}
-/* etiqueta solta (fora de .item) — chips de período, atalhos */
-.tag{display:inline-flex;align-items:center;font-family:var(--mono);font-size:10px;
-  letter-spacing:.07em;padding:6px 10px;border-radius:8px;background:var(--slate);
-  color:var(--mute);border:1px solid var(--line)}
-.tag.ok{background:#f9731622;color:var(--orange);border-color:#f9731655}
-
-/* assistente de configuração inicial */
-.passos{display:flex;gap:5px;margin:2px 0 15px}
-.passos i{flex:1;height:3px;border-radius:2px;background:var(--slate)}
-.passos i.on{background:var(--orange)}
-.esco{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:4px}
-.esco button{padding:14px 11px;border:1px solid var(--line);background:var(--navy);
-  border-radius:12px;text-align:left}
-.esco button.sel{border-color:var(--orange);background:#f973160f}
-.esco .t{font-size:14.5px;font-weight:600}
-.esco .s{color:var(--mute);font-size:11px;margin-top:2px;line-height:1.35}
-.cont{display:flex;align-items:center;gap:10px;margin-top:4px}
-.cont button{width:48px;height:48px;border:1px solid var(--line);background:var(--navy);
-  border-radius:12px;font-size:23px;line-height:1;color:var(--orange);
-  display:flex;align-items:center;justify-content:center;flex:0 0 auto}
-.cont input{width:76px;text-align:center;font-family:var(--mono);font-size:19px;flex:0 0 auto}
-.lin{display:flex;gap:8px;align-items:center;margin-bottom:7px}
-.lin .nu{font-family:var(--mono);font-size:11px;color:var(--mute);flex:0 0 16px}
-.lin input{flex:1;min-width:0}
-.lin button{flex:0 0 auto;color:var(--mute);font-size:20px;padding:0 7px}
-.arq{opacity:.6}
 #gabGrade{display:grid;grid-template-columns:repeat(auto-fill,minmax(58px,1fr));gap:6px}
 .gq{background:var(--navy);border:1px solid var(--line);border-radius:10px;
   padding:6px 4px 7px;text-align:center}
@@ -578,66 +552,57 @@ const primeiroNome=n=>String(n).split(" ").slice(0,2).join(" ");
 const uid=p=>p+"-"+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 const ordNum=(a,b)=>String(a).localeCompare(String(b),undefined,{numeric:true});
 
-/* ── estado inicial: vazio ──────────────────────────────────────────
-   Quem instala pelo aparelho novo passa pelo assistente (nome do
-   professor → escolas → turmas → disciplinas → bimestral/trimestral).
-   Nada de turma embutida no código: o app serve a qualquer professor. */
+/* ── semente: as onze turmas das duas escolas ───────────────────── */
+/* Calendário por segmento — o 3º ano fecha em trimestres, a EJA em
+   bimestres (só dois, pelo módulo), e o fundamental em quatro bimestres. */
 function semear(){
-  return {v:6, escolas:[], turmas:[], provas:[], ativa:null, res:[]};
-}
-
-/* ── modelo v6 ──────────────────────────────────────────────────────
-   A disciplina deixou de ser um campo de texto da turma e virou lista:
-   uma mesma turma pode ter várias, e cada prova aponta para uma delas.
-   Escola, turma e disciplina ganham `ativa` — nada é apagado quando o
-   professor deixa de lecionar; fica encerrado e o histórico continua. */
-const QTD_PADRAO={bimestre:4, trimestre:3};
-
-function migrarV6(d){
-  if(!d) return d;
-  (d.escolas||[]).forEach(e=>{ if(e.ativa===undefined) e.ativa=true; });
-  (d.turmas||[]).forEach(t=>{
-    if(t.ativa===undefined) t.ativa=true;
-    if(!Array.isArray(t.disciplinas)||!t.disciplinas.length)
-      t.disciplinas=[{id:uid("d"),nome:t.disciplina||"Matemática",ativa:true}];
-    t.disciplinas.forEach(x=>{ if(x.ativa===undefined) x.ativa=true; });
-    if(!t.periodo) t.periodo={tipo:"bimestre",qtd:4};
-    if(t.periodo.tipo!=="bimestre" && t.periodo.tipo!=="trimestre")
-      t.periodo={tipo:"bimestre",qtd:4};     // semestral não existe mais
-    if(!t.periodo.qtd) t.periodo.qtd=QTD_PADRAO[t.periodo.tipo];
-  });
-  (d.provas||[]).forEach(p=>{
-    if(p.disciplina) return;
-    const t=(d.turmas||[]).find(x=>x.id===p.turma);
-    p.disciplina=(t&&t.disciplinas[0])?t.disciplinas[0].id:null;
-  });
-  d.v=6;
-  return d;
+  const T=(escola,nome,serie,disciplina,tipo,qtd)=>({id:"t-"+nome,escola,nome,serie,
+    disciplina,alunos:[],periodo:{tipo,qtd}});
+  return {
+    v:5,
+    escolas:[
+      {id:"jc",nome:"EREM Senador João Cleofas de Oliveira",curto:"João Cleofas"},
+      {id:"ra",nome:"E.M. Doutor Rodolfo Aureliano",curto:"Rodolfo Aureliano"}],
+    turmas:[
+      T("jc","3A","3º ano","Matemática","trimestre",3),
+      T("jc","3B","3º ano","Matemática","trimestre",3),
+      T("jc","3C","3º ano","Matemática Básica","trimestre",3),
+      T("jc","3D","3º ano","Matemática Básica","trimestre",3),
+      T("jc","M3A","EJA Módulo 3","Matemática","bimestre",2),
+      T("jc","M3B","EJA Módulo 3","Matemática","bimestre",2),
+      T("ra","8A","8º ano","Matemática","bimestre",4),
+      T("ra","8B","8º ano","Matemática","bimestre",4),
+      T("ra","8C","8º ano","Matemática","bimestre",4),
+      T("ra","8D","8º ano","Matemática","bimestre",4),
+      T("ra","9E","9º ano","Matemática","bimestre",4)],
+    provas:[], ativa:null, res:[]
+  };
 }
 
 /* ── carga, com resgate do que existia na versão anterior ───────── */
 let E=(()=>{
-  const novo=guarda.ler("dbm_omr_v6")||guarda.ler("dbm_omr_v5")||guarda.ler("dbm_omr_v4");
+  const novo=guarda.ler("dbm_omr_v5")||guarda.ler("dbm_omr_v4");
   if(novo){ try{ const d=JSON.parse(novo);
-    if(d&&(d.v===4||d.v===5||d.v===6)){
+    if(d&&(d.v===4||d.v===5)){
       if(d.v===4){                       // acrescenta o calendário às turmas
-        d.turmas.forEach(t=>{ if(!t.periodo) t.periodo={tipo:"bimestre",qtd:4}; });
+        const padrao=semear();
+        d.turmas.forEach(t=>{
+          const ref=padrao.turmas.find(x=>x.nome===t.nome);
+          if(!t.periodo) t.periodo=ref?ref.periodo:{tipo:"bimestre",qtd:4};
+        });
         (d.provas||[]).forEach(pr=>{ if(!pr.periodo) pr.periodo=1; });
         d.v=5;
       }
-      return migrarV6(d);                // v5 → v6: disciplinas em lista
+      return d;
     } }catch(e){} }
   const base=semear();
   try{
     const velho=JSON.parse(guarda.ler("dbm_omr_v3")||"null");
     if(velho&&velho.gabC&&velho.gabC.length>=5){
       // reconstrói a prova antiga e devolve os alunos às turmas
-      if(!base.escolas.length)
-        base.escolas.push({id:"esc-1",nome:"Minha escola",curto:"Minha escola",ativa:true});
-      const idEscola=base.escolas[0].id;
       Object.entries(velho.turmas||{}).forEach(([nm,mapa])=>{
         let t=base.turmas.find(x=>x.nome===nm);
-        if(!t){ t={id:"t-"+nm,escola:idEscola,nome:nm,serie:"—",disciplina:"Matemática",
+        if(!t){ t={id:"t-"+nm,escola:"jc",nome:nm,serie:"—",disciplina:"Matemática",
           alunos:[],periodo:{tipo:"bimestre",qtd:4}};
           base.turmas.push(t); }
         Object.entries(mapa).forEach(([num,nome])=>{
@@ -657,14 +622,14 @@ let E=(()=>{
       if(base.provas.length) base.ativa=base.provas[0].id;
     }
   }catch(e){ console.warn("nada a migrar",e); }
-  return migrarV6(base);
+  return base;
 })();
 let avisouEspaco=false;
 function salvar(){
   const txt=JSON.stringify(E);
-  try{ localStorage.setItem("dbm_omr_v6",txt); return true; }
+  try{ localStorage.setItem("dbm_omr_v5",txt); return true; }
   catch(e){
-    guarda.esc("dbm_omr_v6",txt);          // cai para a memória da sessão
+    guarda.esc("dbm_omr_v5",txt);          // cai para a memória da sessão
     if(!avisouEspaco){ avisouEspaco=true;
       alert("O armazenamento do navegador encheu — provavelmente por causa das figuras.\n\n"+
             "O que você fizer agora vale só até fechar o app. Remova figuras de provas antigas "+
@@ -684,30 +649,9 @@ const provasDaTurma=id=>E.provas.filter(p=>p.turma===id).sort((a,b)=>b.criada-a.
 const resDa=pid=>E.res.filter(r=>r.prova===pid);
 const chave=r=>r.prova+"|"+r.turma+"#"+r.numero;
 
-/* ── escola › turma › disciplina ────────────────────────────────────
-   `ativa:false` é encerramento, não exclusão: o cadastro some das
-   listas de trabalho mas continua existindo para as notas antigas. */
-const viva=x=>!x||x.ativa!==false;
-const turmasDa=id=>E.turmas.filter(t=>t.escola===id);
-const disciplinasDe=t=>(t&&t.disciplinas)||[];
-const discDe=(t,id)=>disciplinasDe(t).find(d=>d.id===id)||null;
-const nomeDisc=(t,id)=>{const d=discDe(t,id);
-  return d?d.nome:((t&&t.disciplina)||"Sem disciplina");};
-const provasDe=(tid,did)=>provasDaTurma(tid).filter(p=>!did||p.disciplina===did);
-const temHistorico=(tid,did)=>provasDe(tid,did).length>0;
-/* o que aparece nas listas: o que está ativo, mais o que tem histórico */
-const discVisiveis=t=>disciplinasDe(t).filter(d=>viva(d)||temHistorico(t.id,d.id));
-const turmasVisiveis=id=>turmasDa(id).filter(t=>viva(t)||provasDaTurma(t.id).length);
-const escolasVisiveis=()=>E.escolas.filter(e=>viva(e)||turmasDa(e.id).length);
-const primeiraDisc=t=>{const d=disciplinasDe(t).filter(viva)[0]||disciplinasDe(t)[0];
-  return d?d.id:null;};
-
 function ativar(pid){
   const p=provaDe(pid); if(!p) return;
   E.ativa=pid; aplicarLayout(p.nq,p.no); salvar(); refletirBarra();
-  const tp=turmaDe(p.turma);           // a aba Notas segue a prova escolhida
-  if(tp&&typeof notaNav!=="undefined") notaNav={escola:tp.escola,turma:tp.id,
-    disc:p.disciplina||primeiraDisc(tp),per:p.periodo||1,prova:p.id};
   manAluno=null; pintarResultados(); pintarDesempenho(); montarManual();
 }
 function refletirBarra(){
@@ -718,7 +662,7 @@ function refletirBarra(){
   b.classList.remove("off");
   $("#bCtx1").textContent=(p.titulo||p.codigo)+" · "+t.nome;
   const e=escolaDe(t.escola);
-  $("#bCtx2").textContent=[p.codigo,nomeDisc(t,p.disciplina),p.nq+" questões",
+  $("#bCtx2").textContent=[p.codigo,p.nq+" questões",
     "A–"+LETRAS_ATE(p.no),e?e.curto:""].filter(Boolean).join(" · ");
 }
 const LETRAS_ATE=n=>["A","B","C","D","E"][n-1];
@@ -732,11 +676,9 @@ const naTurmaEm=(a,per)=>entrou(a)<=per && (saiu(a)==null || saiu(a)>=per);
 const ativo=a=>saiu(a)==null;
 function alunosEm(t,per){ return (t.alunos||[]).filter(a=>naTurmaEm(a,per)); }
 function temNotas(t,a){ return E.res.some(r=>r.turma===t.id && r.numero===a.numero); }
-/* A nomenclatura vem da turma: turma bimestral nunca mostra “trimestre”. */
-const nomePeriodo=(t,n)=>n+"º "+(calendario(t).tipo==="trimestre"?"Trimestre":"Bimestre");
-const nomeCalendario=t=>calendario(t).tipo==="trimestre"?"Trimestral":"Bimestral";
+const nomePeriodo=(t,n)=>n+"º "+calendario(t).tipo;
 const periodosDe=t=>Array.from({length:calendario(t).qtd},(_,i)=>i+1);
-const provasDoPeriodo=(tid,n,did)=>provasDe(tid,did).filter(p=>(p.periodo||1)===n);
+const provasDoPeriodo=(tid,n)=>provasDaTurma(tid).filter(p=>(p.periodo||1)===n);
 
 /* ── gabarito individual, a partir do canônico + turma/número ───── */
 function gabaritoDe(nomeTurma,numero){
@@ -827,14 +769,14 @@ const notaMaxima=p=>pontosObj(p)+pontosDisc(p);
 /* ═══════════════════════════════════════════════════════════════════
    5. TELA TURMAS / PROVAS
    ═══════════════════════════════════════════════════════════════════ */
-let casaNivel="turmas", casaTurma=null, casaDisc=null, casaForm=null, casaEscola=null;
+let casaNivel="turmas", casaTurma=null, casaForm=null;
 
 function montarCasa(){
   const box=$("#casaCorpo");
   try{ return montarCasaInterno(box); }
   catch(err){
     console.error("tela falhou:",err);
-    casaNivel="turmas"; casaProva=null; casaTurma=null; casaDisc=null; substituindo=null;
+    casaNivel="turmas"; casaProva=null; casaTurma=null; substituindo=null;
     try{ return telaTurmas(box); }
     catch(e2){
       box.innerHTML='<div class="aviso">Algo deu errado ao montar a tela. '+
@@ -842,11 +784,6 @@ function montarCasa(){
   }
 }
 function montarCasaInterno(box){
-  if(casaNivel==="assistente")  return telaAssistente(box);
-  if(casaNivel==="cadastro")    return telaCadastro(box);
-  if(casaNivel==="escola")      return telaEscola(box);
-  if(casaNivel==="turma")       return telaTurma(box);
-  if(casaNivel==="disciplinas") return telaDisciplinas(box);
   if(casaNivel==="turmas")   return telaTurmas(box);
   if(casaNivel==="provas")   return telaProvas(box);
   if(casaNivel==="alunos")   return telaAlunos(box);
@@ -859,433 +796,6 @@ function montarCasaInterno(box){
   if(casaNivel==="disc")     return telaDiscursivas(box);
   if(casaNivel==="fechamento") return telaFechamento(box);
   if(casaNivel==="editar")   return telaEditar(box);
-}
-
-/* ═══════════════════════════════════════════════════════════════════
-   4b. ASSISTENTE DE CONFIGURAÇÃO INICIAL
-   Nome do professor → escolas → turmas de cada escola → disciplinas de
-   cada turma → bimestral ou trimestral daquela turma. O assistente só
-   ACRESCENTA cadastros; nunca apaga o que já existe.
-   ═══════════════════════════════════════════════════════════════════ */
-const SETUP_FEITO="dbm_setup_v6";
-let assist=null;
-/* de onde o professor entrou no cadastro, para o “‹ Voltar” não mentir */
-const voltaPara={cadastro:"config", turma:"escola"};
-
-const precisaAssistente=()=>!guarda.ler(SETUP_FEITO)&&!E.escolas.length&&!E.turmas.length;
-
-function apelidoEscola(nome){
-  const limpo=String(nome||"").trim();
-  if(limpo.length<=24) return limpo;
-  const semGenerico=limpo.replace(
-    /^(escola\s+(municipal|estadual|de\s+refer[êe]ncia)?|col[ée]gio|centro|e\.?\s?m\.?|e\.?\s?e\.?|erem|ceja)\s+/i,"");
-  const base=semGenerico||limpo;
-  return base.length<=24?base:base.slice(0,23).trim()+"…";
-}
-
-function novaTurmaAssist(){ return {nome:"",serie:"",disciplinas:[""],tipo:"bimestre"}; }
-
-function ajustar(lista, n, criar){
-  while(lista.length<n) lista.push(criar());
-  while(lista.length>n) lista.pop();
-  return lista;
-}
-
-function telaAssistente(box){
-  if(!assist) assist={passo:"prof",prof:lerProfessor(),escolas:[],iE:0,iT:0};
-  const A=assist;
-  const FASES=["prof","qtdEscolas","nomesEscolas","qtdTurmas","nomesTurmas","turma","resumo"];
-  const barra=()=>`<div class="passos">${FASES.map(f=>
-    `<i class="${FASES.indexOf(f)<=FASES.indexOf(A.passo)?"on":""}"></i>`).join("")}</div>`;
-  const escolaAtual=()=>A.escolas[A.iE];
-  const turmaAtual=()=>escolaAtual().turmas[A.iT];
-
-  /* stepper de quantidade: −  N  + */
-  const contador=(id,valor,min,max)=>`<div class="cont">
-      <button data-menos="${id}">−</button>
-      <input id="${id}" type="number" inputmode="numeric" min="${min}" max="${max}" value="${valor}">
-      <button data-mais="${id}">+</button></div>`;
-
-  const ligarContador=(id,ler,gravar)=>{
-    const aplica=v=>{ gravar(Math.max(1,Math.min(30,v||1))); telaAssistente(box); };
-    box.querySelectorAll(`[data-menos="${id}"]`).forEach(b=>b.onclick=()=>aplica(ler()-1));
-    box.querySelectorAll(`[data-mais="${id}"]`).forEach(b=>b.onclick=()=>aplica(ler()+1));
-    const el=$("#"+id); if(el) el.onchange=()=>aplica(parseInt(el.value,10));
-  };
-
-  let h=barra();
-
-  if(A.passo==="prof"){
-    h+=`<h2>Bem-vindo</h2>
-      <p class="sub">Vamos montar o seu cadastro. Leva menos de dois minutos e
-        pode ser corrigido depois, a qualquer momento.</p>
-      <label>Como você se chama?</label>
-      <input id="aProf" placeholder="Natanael Filho" value="${esc(A.prof)}">
-      <p class="hint">Esse nome sai impresso no cabeçalho das provas.</p>
-      <button class="btn" id="aSeg" style="margin-top:18px">Continuar</button>`;
-    box.innerHTML=h;
-    $("#aSeg").onclick=()=>{
-      A.prof=$("#aProf").value.trim();
-      if(!A.prof){ alert("Digite o seu nome para continuar."); return; }
-      A.passo="qtdEscolas"; if(!A.escolas.length) A.escolas=[{nome:"",turmas:[novaTurmaAssist()]}];
-      telaAssistente(box); };
-    return;
-  }
-
-  if(A.passo==="qtdEscolas"){
-    h+=`<h2>Escolas</h2>
-      <p class="sub">Em quantas escolas você trabalha?</p>
-      ${contador("aQE",A.escolas.length,1,20)}
-      <p class="hint">Você cadastra o nome de cada uma na tela seguinte.</p>
-      <div class="duo" style="margin-top:18px">
-        <button class="btn gho" id="aVolta">Voltar</button>
-        <button class="btn" id="aSeg">Continuar</button></div>`;
-    box.innerHTML=h;
-    ligarContador("aQE",()=>A.escolas.length,
-      n=>ajustar(A.escolas,n,()=>({nome:"",turmas:[novaTurmaAssist()]})));
-    $("#aVolta").onclick=()=>{A.passo="prof";telaAssistente(box);};
-    $("#aSeg").onclick=()=>{A.passo="nomesEscolas";telaAssistente(box);};
-    return;
-  }
-
-  if(A.passo==="nomesEscolas"){
-    h+=`<h2>Nome das escolas</h2>
-      <p class="sub">Escreva o nome como ele deve sair no cabeçalho da prova.</p>
-      ${A.escolas.map((e,i)=>`<div class="lin"><span class="nu">${i+1}</span>
-        <input data-esc="${i}" placeholder="Escola ${i+1}" value="${esc(e.nome)}"></div>`).join("")}
-      <div class="duo" style="margin-top:18px">
-        <button class="btn gho" id="aVolta">Voltar</button>
-        <button class="btn" id="aSeg">Continuar</button></div>`;
-    box.innerHTML=h;
-    const sinc=()=>box.querySelectorAll("[data-esc]").forEach(el=>{
-      A.escolas[+el.dataset.esc].nome=el.value.trim(); });
-    box.querySelectorAll("[data-esc]").forEach(el=>el.oninput=sinc);
-    $("#aVolta").onclick=()=>{sinc();A.passo="qtdEscolas";telaAssistente(box);};
-    $("#aSeg").onclick=()=>{
-      sinc();
-      const vazia=A.escolas.findIndex(e=>!e.nome);
-      if(vazia>=0){ alert("Falta o nome da escola "+(vazia+1)+"."); return; }
-      A.iE=0; A.passo="qtdTurmas"; telaAssistente(box); };
-    return;
-  }
-
-  if(A.passo==="qtdTurmas"){
-    const e=escolaAtual();
-    h+=`<div class="migalha"><span>Escola ${A.iE+1} de ${A.escolas.length}</span></div>
-      <h2>${esc(e.nome)}</h2>
-      <p class="sub">Quantas turmas você leciona nesta escola?</p>
-      ${contador("aQT",e.turmas.length,1,30)}
-      <p class="hint">Pode ser diferente em cada escola.</p>
-      <div class="duo" style="margin-top:18px">
-        <button class="btn gho" id="aVolta">Voltar</button>
-        <button class="btn" id="aSeg">Continuar</button></div>`;
-    box.innerHTML=h;
-    ligarContador("aQT",()=>e.turmas.length,n=>ajustar(e.turmas,n,novaTurmaAssist));
-    $("#aVolta").onclick=()=>{
-      if(A.iE>0){ A.iE--; A.iT=escolaAtual().turmas.length-1; A.passo="turma"; }
-      else A.passo="nomesEscolas";
-      telaAssistente(box); };
-    $("#aSeg").onclick=()=>{A.passo="nomesTurmas";telaAssistente(box);};
-    return;
-  }
-
-  if(A.passo==="nomesTurmas"){
-    const e=escolaAtual();
-    h+=`<div class="migalha"><span>${esc(e.nome)}</span></div>
-      <h2>Turmas desta escola</h2>
-      <p class="sub">Use o nome que você usa no dia a dia — 6º Ano A, 3A, M3B.</p>
-      ${e.turmas.map((t,i)=>`<div class="lin"><span class="nu">${i+1}</span>
-        <input data-tur="${i}" placeholder="Turma ${i+1}" value="${esc(t.nome)}"></div>`).join("")}
-      <div class="duo" style="margin-top:18px">
-        <button class="btn gho" id="aVolta">Voltar</button>
-        <button class="btn" id="aSeg">Continuar</button></div>`;
-    box.innerHTML=h;
-    const sinc=()=>box.querySelectorAll("[data-tur]").forEach(el=>{
-      e.turmas[+el.dataset.tur].nome=el.value.trim(); });
-    box.querySelectorAll("[data-tur]").forEach(el=>el.oninput=sinc);
-    $("#aVolta").onclick=()=>{sinc();A.passo="qtdTurmas";telaAssistente(box);};
-    $("#aSeg").onclick=()=>{
-      sinc();
-      const vazia=e.turmas.findIndex(t=>!t.nome);
-      if(vazia>=0){ alert("Falta o nome da turma "+(vazia+1)+"."); return; }
-      A.iT=0; A.passo="turma"; telaAssistente(box); };
-    return;
-  }
-
-  if(A.passo==="turma"){
-    const e=escolaAtual(), t=turmaAtual();
-    h+=`<div class="migalha"><span>${esc(e.nome)}</span><span>·</span>
-        <span>turma ${A.iT+1} de ${e.turmas.length}</span></div>
-      <h2>${esc(t.nome)}</h2>
-      <p class="sub">Quantas disciplinas você leciona nesta turma?</p>
-      ${contador("aQD",t.disciplinas.length,1,10)}
-      <div class="rot">Nome das disciplinas</div>
-      ${t.disciplinas.map((d,i)=>`<div class="lin"><span class="nu">${i+1}</span>
-        <input data-dis="${i}" placeholder="Disciplina ${i+1}" value="${esc(d)}"></div>`).join("")}
-      <div class="rot">Como é organizado o período letivo desta turma?</div>
-      <div class="esco">
-        <button data-tipo="bimestre" class="${t.tipo==="bimestre"?"sel":""}">
-          <div class="t">Bimestral</div><div class="s">4 bimestres no ano</div></button>
-        <button data-tipo="trimestre" class="${t.tipo==="trimestre"?"sel":""}">
-          <div class="t">Trimestral</div><div class="s">3 trimestres no ano</div></button>
-      </div>
-      <p class="hint">Vale só para esta turma. Outra turma, na mesma escola ou em
-        outra, pode ter calendário diferente.</p>
-      <label style="margin-top:16px">Série ou etapa (opcional)</label>
-      <input id="aSerie" placeholder="6º ano, EJA Módulo 3…" value="${esc(t.serie)}">
-      <div class="duo" style="margin-top:18px">
-        <button class="btn gho" id="aVolta">Voltar</button>
-        <button class="btn" id="aSeg">${
-          (A.iT<e.turmas.length-1||A.iE<A.escolas.length-1)?"Próxima turma":"Ver o resumo"}</button></div>`;
-    box.innerHTML=h;
-    const sinc=()=>{
-      box.querySelectorAll("[data-dis]").forEach(el=>{ t.disciplinas[+el.dataset.dis]=el.value.trim(); });
-      const s=$("#aSerie"); if(s) t.serie=s.value.trim(); };
-    box.querySelectorAll("[data-dis]").forEach(el=>el.oninput=sinc);
-    $("#aSerie").oninput=sinc;
-    ligarContador("aQD",()=>t.disciplinas.length,n=>{sinc();ajustar(t.disciplinas,n,()=>"");});
-    box.querySelectorAll("[data-tipo]").forEach(b=>b.onclick=()=>{
-      sinc(); t.tipo=b.dataset.tipo; telaAssistente(box); });
-    $("#aVolta").onclick=()=>{
-      sinc();
-      if(A.iT>0){ A.iT--; } else A.passo="nomesTurmas";
-      telaAssistente(box); };
-    $("#aSeg").onclick=()=>{
-      sinc();
-      const vazia=t.disciplinas.findIndex(d=>!d);
-      if(vazia>=0){ alert("Falta o nome da disciplina "+(vazia+1)+"."); return; }
-      if(A.iT<e.turmas.length-1){ A.iT++; }
-      else if(A.iE<A.escolas.length-1){ A.iE++; A.iT=0; A.passo="qtdTurmas"; }
-      else A.passo="resumo";
-      telaAssistente(box); };
-    return;
-  }
-
-  /* resumo */
-  const nTurmas=A.escolas.reduce((n,e)=>n+e.turmas.length,0);
-  h+=`<h2>Confira o cadastro</h2>
-    <p class="sub">${A.escolas.length} escola${A.escolas.length===1?"":"s"} ·
-      ${nTurmas} turma${nTurmas===1?"":"s"} · professor ${esc(A.prof)}</p>`;
-  A.escolas.forEach((e,i)=>{
-    h+=`<div class="grupo"><div class="esc"><span class="nm">${esc(e.nome)}</span>
-      <span class="ln"></span></div>`;
-    h+=e.turmas.map((t,j)=>`<button class="item" data-ir="${i}:${j}"><div class="cor">
-      <div class="t1">${esc(t.nome)}</div>
-      <div class="t2">${t.disciplinas.filter(Boolean).map(esc).join(" · ")} ·
-        ${t.tipo==="trimestre"?"Trimestral":"Bimestral"}</div>
-      </div><span class="ch">›</span></button>`).join("");
-    h+="</div>";
-  });
-  h+=`<button class="btn" id="aFim" style="margin-top:8px">Concluir cadastro</button>
-      <button class="btn gho" id="aVolta" style="margin-top:9px">Voltar</button>
-      <p class="hint">Depois dá para acrescentar, renomear ou encerrar escolas,
-        turmas e disciplinas em Configurações — sem perder nenhuma nota.</p>`;
-  box.innerHTML=h;
-  box.querySelectorAll("[data-ir]").forEach(b=>b.onclick=()=>{
-    const [i,j]=b.dataset.ir.split(":").map(Number);
-    A.iE=i; A.iT=j; A.passo="turma"; telaAssistente(box); });
-  $("#aVolta").onclick=()=>{
-    A.iE=A.escolas.length-1; A.iT=escolaAtual().turmas.length-1;
-    A.passo="turma"; telaAssistente(box); };
-  $("#aFim").onclick=()=>concluirAssistente();
-}
-
-function concluirAssistente(){
-  const A=assist; if(!A) return;
-  A.escolas.forEach(e=>{
-    const idE=uid("e");
-    E.escolas.push({id:idE,nome:e.nome,curto:apelidoEscola(e.nome),ativa:true});
-    e.turmas.forEach(t=>{
-      const discs=t.disciplinas.filter(Boolean).map(n=>({id:uid("d"),nome:n,ativa:true}));
-      if(!discs.length) discs.push({id:uid("d"),nome:"Disciplina",ativa:true});
-      E.turmas.push({id:uid("t"),escola:idE,nome:t.nome,serie:t.serie||"",
-        disciplina:discs[0].nome, disciplinas:discs, alunos:[],
-        periodo:{tipo:t.tipo,qtd:QTD_PADRAO[t.tipo]}, ativa:true});
-    });
-  });
-  guarda.esc(NOME_PROF,A.prof);
-  guarda.esc(SETUP_FEITO,"1");
-  salvar();
-  assist=null; casaNivel="turmas"; casaTurma=null; casaDisc=null;
-  montarCasa(); pintarResultados(); pintarDesempenho();
-  alert("Cadastro pronto. Agora escolha uma turma e cadastre os estudantes.");
-}
-
-/* ═══════════════════════════════════════════════════════════════════
-   4c. CADASTRO EDITÁVEL — escolas, turmas, disciplinas, calendário
-   Encerrar ≠ excluir. Excluir só é oferecido enquanto não houver
-   nenhuma prova, nota ou estudante pendurado no cadastro.
-   ═══════════════════════════════════════════════════════════════════ */
-function telaCadastro(box){
-  const escolas=escolasVisiveis();
-  let h=`<div class="migalha"><button id="mVolta">‹ Voltar</button></div>
-    <h2>Escolas, turmas e disciplinas</h2>
-    <p class="sub">Mudou de escola, pegou uma turma nova, largou uma disciplina?
-      Ajuste aqui. Nada do que já foi registrado se perde.</p>`;
-  if(!escolas.length){
-    h+='<div class="vazio"><b>Nenhuma escola cadastrada</b>Comece acrescentando a primeira.</div>';
-  }else{
-    h+=escolas.map(e=>{
-      const ts=turmasVisiveis(e.id);
-      const nd=ts.reduce((n,t)=>n+discVisiveis(t).length,0);
-      return `<button class="item ${viva(e)?"":"arq"}" data-e="${e.id}"><div class="cor">
-        <div class="t1">${esc(e.nome)}${viva(e)?"":" · encerrada"}</div>
-        <div class="t2">${ts.length} turma${ts.length===1?"":"s"} ·
-          ${nd} disciplina${nd===1?"":"s"}</div></div><span class="ch">›</span></button>`;
-    }).join("");
-  }
-  h+=`<button class="btn sec" id="cAddE" style="margin-top:12px">Acrescentar escola</button>`;
-  if(!E.turmas.length)
-    h+=`<button class="btn gho" id="cAssist" style="margin-top:9px">Usar o assistente de cadastro</button>`;
-  box.innerHTML=h;
-  $("#mVolta").onclick=()=>{casaNivel=voltaPara.cadastro;montarCasa();};
-  $("#cAddE").onclick=()=>{
-    const nome=prompt("Nome da escola:"); if(!nome||!nome.trim()) return;
-    const e={id:uid("e"),nome:nome.trim(),curto:apelidoEscola(nome),ativa:true};
-    E.escolas.push(e); salvar(); casaEscola=e.id; casaNivel="escola"; montarCasa(); };
-  if($("#cAssist")) $("#cAssist").onclick=()=>{assist=null;casaNivel="assistente";montarCasa();};
-  box.querySelectorAll("[data-e]").forEach(b=>b.onclick=()=>{
-    casaEscola=b.dataset.e; casaNivel="escola"; montarCasa(); });
-}
-
-function telaEscola(box){
-  const e=escolaDe(casaEscola);
-  if(!e){ casaNivel="cadastro"; return montarCasa(); }
-  const ts=turmasVisiveis(e.id);
-  const provas=ts.reduce((n,t)=>n+provasDaTurma(t.id).length,0);
-  box.innerHTML=`<div class="migalha"><button id="mVolta">‹ Escolas</button></div>
-    <h2>${esc(e.nome)}</h2>
-    <p class="sub">${ts.length} turma${ts.length===1?"":"s"} ·
-      ${provas} prova${provas===1?"":"s"} registrada${provas===1?"":"s"}</p>
-    <label>Nome completo</label>
-    <input id="eNome" value="${esc(e.nome)}">
-    <label>Nome curto (aparece nas listas do app)</label>
-    <input id="eCurto" value="${esc(e.curto||"")}" placeholder="${esc(apelidoEscola(e.nome))}">
-    <button class="btn" id="eSalva" style="margin-top:14px">Salvar</button>
-    <div class="rot">Turmas desta escola</div>
-    ${ts.length?ts.map(t=>{
-      const ds=discVisiveis(t);
-      return `<button class="item ${viva(t)?"":"arq"}" data-t="${t.id}"><div class="cor">
-        <div class="t1">${esc(t.nome)}${viva(t)?"":" · encerrada"}</div>
-        <div class="t2">${ds.map(d=>esc(d.nome)).join(" · ")||"sem disciplina"} ·
-          ${esc(nomeCalendario(t))}</div></div><span class="ch">›</span></button>`;
-    }).join(""):'<p class="hint" style="margin:0 0 8px">Nenhuma turma ainda.</p>'}
-    <button class="btn sec" id="eAddT">Acrescentar turma</button>
-    <div class="rot">Situação</div>
-    <button class="btn gho" id="eArq">${viva(e)?"Encerrar esta escola":"Reativar esta escola"}</button>
-    <p class="hint">Encerrar tira a escola das listas de trabalho. As provas, notas e
-      fechamentos continuam guardados e podem ser consultados a qualquer momento.</p>
-    ${(!turmasDa(e.id).length)?'<button class="btn gho" id="eDel" style="margin-top:9px">Excluir escola</button>':""}`;
-  $("#mVolta").onclick=()=>{casaNivel="cadastro";montarCasa();};
-  $("#eSalva").onclick=()=>{
-    const nome=$("#eNome").value.trim();
-    if(!nome){ alert("A escola precisa de um nome."); return; }
-    e.nome=nome; e.curto=$("#eCurto").value.trim()||apelidoEscola(nome);
-    salvar(); refletirBarra(); montarCasa(); };
-  $("#eAddT").onclick=()=>{
-    const nome=prompt("Nome da turma (ex.: 6º Ano A):"); if(!nome||!nome.trim()) return;
-    voltaPara.turma="escola";
-    const t={id:uid("t"),escola:e.id,nome:nome.trim(),serie:"",
-      disciplina:"",disciplinas:[],alunos:[],periodo:{tipo:"bimestre",qtd:4},ativa:true};
-    E.turmas.push(t); salvar(); casaTurma=t.id; casaNivel="turma"; montarCasa(); };
-  $("#eArq").onclick=()=>{
-    e.ativa=!viva(e); salvar(); montarCasa(); };
-  if($("#eDel")) $("#eDel").onclick=()=>{
-    if(!confirm("Excluir a escola "+e.nome+"? Ela não tem nenhuma turma.")) return;
-    E.escolas=E.escolas.filter(x=>x.id!==e.id); salvar();
-    casaNivel="cadastro"; montarCasa(); };
-  box.querySelectorAll("[data-t]").forEach(b=>b.onclick=()=>{
-    voltaPara.turma="escola"; casaTurma=b.dataset.t; casaNivel="turma"; montarCasa(); });
-}
-
-function telaTurma(box){
-  const t=turmaDe(casaTurma);
-  if(!t){ casaNivel="cadastro"; return montarCasa(); }
-  const e=escolaDe(t.escola)||{curto:"",id:null};
-  const cal=calendario(t), ds=disciplinasDe(t);
-  const nProvas=provasDaTurma(t.id).length;
-  box.innerHTML=`<div class="migalha"><button id="mVolta">‹ ${esc(e.curto||"Escola")}</button></div>
-    <h2>${esc(t.nome)}</h2>
-    <p class="sub">${(t.alunos||[]).length} estudante${(t.alunos||[]).length===1?"":"s"} ·
-      ${nProvas} prova${nProvas===1?"":"s"}</p>
-    <label>Nome da turma</label>
-    <input id="tNome" value="${esc(t.nome)}">
-    <label>Série ou etapa</label>
-    <input id="tSerie" value="${esc(t.serie||"")}" placeholder="6º ano, EJA Módulo 3…">
-    <div class="rot">Organização do período letivo</div>
-    <div class="esco">
-      <button data-tipo="bimestre" class="${cal.tipo==="bimestre"?"sel":""}">
-        <div class="t">Bimestral</div><div class="s">4 bimestres no ano</div></button>
-      <button data-tipo="trimestre" class="${cal.tipo==="trimestre"?"sel":""}">
-        <div class="t">Trimestral</div><div class="s">3 trimestres no ano</div></button>
-    </div>
-    <label style="margin-top:14px">Quantos períodos esta turma tem no ano</label>
-    <select id="tQtd">${[2,3,4].map(n=>`<option value="${n}"${n===cal.qtd?" selected":""}>${n} ${
-      cal.tipo==="trimestre"?"trimestres":"bimestres"}</option>`).join("")}</select>
-    <p class="hint">O normal é 4 para bimestral e 3 para trimestral. Use 2 quando o
-      módulo tiver só dois bimestres, como acontece na EJA.</p>
-    <div class="rot">Disciplinas nesta turma</div>
-    ${ds.length?ds.map((d,i)=>`<div class="lin">
-        <input data-dn="${i}" value="${esc(d.nome)}" ${viva(d)?"":'class="arq"'}>
-        <button class="tag${viva(d)?"":" ok"}" data-dtog="${i}">${viva(d)?"encerrar":"reativar"}</button>
-        ${temHistorico(t.id,d.id)?"":`<button data-ddel="${i}" title="excluir">✕</button>`}
-      </div>`).join(""):'<p class="hint" style="margin:0 0 8px">Nenhuma disciplina cadastrada.</p>'}
-    <button class="btn sec" id="tAddD" style="margin-top:6px">Acrescentar disciplina</button>
-    <p class="hint">Encerrar uma disciplina só a tira das listas de criação de prova.
-      As provas e notas dela continuam no histórico da turma.</p>
-    <button class="btn" id="tSalva" style="margin-top:16px">Salvar alterações</button>
-    <div class="rot">Situação</div>
-    <button class="btn gho" id="tArq">${viva(t)?"Encerrar esta turma":"Reativar esta turma"}</button>
-    ${(!nProvas&&!(t.alunos||[]).length)
-      ?'<button class="btn gho" id="tDel" style="margin-top:9px">Excluir turma</button>':""}
-    <p class="hint">Se você deixar de lecionar nesta turma, encerre — assim as notas
-      dos períodos já fechados continuam disponíveis.</p>`;
-  const sinc=()=>{
-    box.querySelectorAll("[data-dn]").forEach(el=>{
-      const d=ds[+el.dataset.dn]; if(d) d.nome=el.value; });
-  };
-  $("#mVolta").onclick=()=>{sinc();casaEscola=t.escola;casaNivel=voltaPara.turma;montarCasa();};
-  box.querySelectorAll("[data-tipo]").forEach(b=>b.onclick=()=>{
-    sinc();
-    const tipo=b.dataset.tipo;
-    t.periodo={tipo,qtd:QTD_PADRAO[tipo]};
-    salvar(); montarCasa(); });
-  $("#tQtd").onchange=()=>{
-    sinc();
-    const qtd=parseInt($("#tQtd").value,10)||QTD_PADRAO[cal.tipo];
-    const fora=provasDaTurma(t.id).filter(p=>(p.periodo||1)>qtd).length;
-    if(fora && !confirm(fora+" prova(s) estão em períodos que deixam de existir.\n\n"+
-      "Elas não serão apagadas: passam a aparecer como “Fora do calendário”.\n\nContinuar?")){
-      $("#tQtd").value=cal.qtd; return; }
-    t.periodo={tipo:cal.tipo,qtd}; salvar(); montarCasa(); };
-  box.querySelectorAll("[data-dtog]").forEach(b=>b.onclick=()=>{
-    sinc(); const d=ds[+b.dataset.dtog]; d.ativa=!viva(d); salvar(); montarCasa(); });
-  box.querySelectorAll("[data-ddel]").forEach(b=>b.onclick=()=>{
-    sinc(); const d=ds[+b.dataset.ddel];
-    if(!confirm("Excluir a disciplina "+d.nome+"? Ela não tem nenhuma prova.")) return;
-    t.disciplinas=ds.filter(x=>x.id!==d.id); salvar(); montarCasa(); });
-  $("#tAddD").onclick=()=>{
-    sinc();
-    const nome=prompt("Nome da disciplina:"); if(!nome||!nome.trim()) return;
-    t.disciplinas=disciplinasDe(t).concat([{id:uid("d"),nome:nome.trim(),ativa:true}]);
-    salvar(); montarCasa(); };
-  $("#tSalva").onclick=()=>{
-    const nome=$("#tNome").value.trim();
-    if(!nome){ alert("A turma precisa de um nome."); return; }
-    sinc();
-    t.disciplinas=disciplinasDe(t).filter(d=>String(d.nome).trim())
-      .map(d=>Object.assign(d,{nome:String(d.nome).trim()}));
-    if(!disciplinasDe(t).length){
-      alert("A turma precisa de pelo menos uma disciplina."); montarCasa(); return; }
-    t.nome=nome; t.serie=$("#tSerie").value.trim();
-    t.disciplina=(disciplinasDe(t).filter(viva)[0]||disciplinasDe(t)[0]).nome;
-    salvar(); refletirBarra(); pintarResultados(); pintarDesempenho();
-    casaEscola=t.escola; casaNivel=voltaPara.turma; montarCasa(); };
-  $("#tArq").onclick=()=>{ sinc(); t.ativa=!viva(t); salvar(); montarCasa(); };
-  if($("#tDel")) $("#tDel").onclick=()=>{
-    if(!confirm("Excluir a turma "+t.nome+"? Ela não tem estudantes nem provas.")) return;
-    E.turmas=E.turmas.filter(x=>x.id!==t.id); salvar();
-    casaEscola=t.escola; casaNivel="escola"; montarCasa(); };
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -1318,12 +828,10 @@ function telaLerArquivo(box){
   const t=turmaDe(casaTurma)||(p?turmaDe(p.turma):null);
   if(!t){ casaNivel="turmas"; return montarCasa(); }   // sem turma não há o que fazer
   casaTurma=t.id;
-  if(p&&p.disciplina) casaDisc=p.disciplina;
-  if(!casaDisc||!discDe(t,casaDisc)) casaDisc=primeiraDisc(t);
   const temChave=!!lerChave();
   box.innerHTML=`<div class="migalha"><button id="mVolta">‹ ${p?"Questões":esc(t.nome)}</button></div>
     <h2>${p?"Ler prova de um arquivo":"Subir prova pronta"}</h2>
-    <p class="sub">Turma ${esc(t.nome)} · ${esc(nomeDisc(t,casaDisc||(p?p.disciplina:null)))}. O resultado vai para
+    <p class="sub">Turma ${esc(t.nome)} · ${esc(t.disciplina)}. O resultado vai para
       revisão — nada é salvo automaticamente.</p>
     <button class="btn sec" id="bEscolher">Escolher arquivo</button>
     <input type="file" id="iaArq" hidden
@@ -1908,7 +1416,7 @@ function telaEditar(box){
   const t=turmaDe(p.turma), n=resDa(p.id).length;
   box.innerHTML=`<div class="migalha"><button id="mVolta">‹ ${esc(p.codigo)}</button></div>
     <h2>Editar a prova</h2>
-    <p class="sub">Turma ${esc(t.nome)} · ${esc(nomeDisc(t,p.disciplina))}${n?` · ${n} estudante${n===1?"":"s"} já corrigido${n===1?"":"s"}`:""}</p>
+    <p class="sub">Turma ${esc(t.nome)}${n?` · ${n} estudante${n===1?"":"s"} já corrigido${n===1?"":"s"}`:""}</p>
     ${n?`<div class="aviso">Corrigir o <b>gabarito</b> é seguro: o app refaz as notas a partir
       das marcações já lidas. Mudar o <b>número de questões</b> ou de <b>alternativas</b> invalida
       os cartões impressos e apaga as ${n} correções.</div>`:""}
@@ -1969,13 +1477,11 @@ function telaEditar(box){
 function telaFechamento(box){
   const t=turmaDe(casaTurma);
   if(!t){ casaNivel="turmas"; return montarCasa(); }
-  if(!casaDisc || !discDe(t,casaDisc)) casaDisc=primeiraDisc(t);
-  const ps=provasDoPeriodo(t.id,casaPeriodo,casaDisc).slice().reverse();  // ordem cronológica
+  const ps=provasDoPeriodo(t.id,casaPeriodo).slice().reverse();  // ordem cronológica
   const comNota=ps.filter(p=>resDa(p.id).length);
   let h=`<div class="migalha"><button id="mVolta">‹ ${esc(t.nome)}</button></div>
     <h2>Fechamento · ${esc(nomePeriodo(t,casaPeriodo))}</h2>
-    <p class="sub">${esc(t.nome)} · ${esc(nomeDisc(t,casaDisc))} ·
-      ${ps.length} prova${ps.length===1?"":"s"} no período,
+    <p class="sub">Turma ${esc(t.nome)} · ${ps.length} prova${ps.length===1?"":"s"} no período,
       ${comNota.length} com correções.</p>
     <div class="linha" style="gap:6px;flex-wrap:wrap;margin-bottom:14px">${
       periodosDe(t).map(n=>`<button class="tag${n===casaPeriodo?" ok":""}" data-per="${n}"
@@ -1988,7 +1494,17 @@ function telaFechamento(box){
       casaPeriodo=+b.dataset.per; telaFechamento(box); });
     return;
   }
-  const linhas=fechamentoDe(t,casaDisc,casaPeriodo).linhas;
+  const linhas=alunosEm(t,casaPeriodo).map(a=>{
+    const notas=comNota.map(p=>{
+      const r=E.res.find(x=>x.prova===p.id&&x.numero===a.numero);
+      if(!r) return null;
+      const nf=(r.nota!=null?r.nota:notaFinal(p,r));
+      return 10*nf/notaMaxima(p);           // tudo na mesma escala de 0 a 10
+    });
+    const val=notas.filter(x=>x!=null);
+    const media=val.length?val.reduce((s,x)=>s+x,0)/val.length:null;
+    return {aluno:a,notas,media,faltam:notas.filter(x=>x==null).length};
+  });
   const cores=v=>v>=6?"var(--mint)":v>=4?"var(--amber)":"var(--coral)";
   h+=`<div class="rot">${comNota.map(p=>esc(p.codigo)).join("  ·  ")}</div>`;
   h+=linhas.map(L=>`<div class="aluno" style="cursor:default">
@@ -2015,16 +1531,15 @@ function telaFechamento(box){
   box.querySelectorAll("[data-per]").forEach(b=>b.onclick=()=>{
     casaPeriodo=+b.dataset.per; telaFechamento(box); });
   $("#bCsvFech").onclick=()=>{
-    const e=escolaDe(t.escola)||{curto:""};
-    const cab=["escola","turma","disciplina","periodo","numero","aluno",
+    const e=escolaDe(t.escola);
+    const cab=["escola","turma","periodo","numero","aluno",
       ...comNota.map(p=>p.codigo),"media"];
     const vg=x=>x==null?"":Number(x).toFixed(2).replace(".",",");
-    const lin=linhas.map(L=>[e.curto,t.nome,nomeDisc(t,casaDisc),
-      nomePeriodo(t,casaPeriodo),L.aluno.numero,
+    const lin=linhas.map(L=>[e.curto,t.nome,nomePeriodo(t,casaPeriodo),L.aluno.numero,
       `"${String(L.aluno.nome).replace(/"/g,'""')}"`,
       ...L.notas.map(vg),vg(L.media)].join(";"));
     baixar([cab.join(";"),...lin].join("\r\n"),
-      `fechamento_${t.nome}_${nomeDisc(t,casaDisc)}_${casaPeriodo}o_periodo.csv`,"text/csv");
+      `fechamento_${t.nome}_${casaPeriodo}o_periodo.csv`,"text/csv");
   };
 }
 
@@ -2109,7 +1624,7 @@ function montarBackup(){
 function baixarBackup(){
   const pacote={
     formato:"desbugando-omr",
-    versao:E.v||6,
+    versao:E.v||5,
     gerado:new Date().toISOString(),
     professor:lerProfessor(),
     dados:E                      // a chave de API fica de fora, de propósito
@@ -2125,7 +1640,7 @@ function validarBackup(txt){
   const E2=d && (d.dados||d);
   if(!E2 || !Array.isArray(E2.turmas) || !Array.isArray(E2.provas))
     throw new Error("este arquivo não é uma cópia do app");
-  return migrarV6(E2);        // cópias antigas ganham a lista de disciplinas
+  return E2;
 }
 
 /* Juntar preserva o que existe aqui e acrescenta o que veio de fora.
@@ -2137,28 +1652,13 @@ function juntarBackup(E2){
     return lista;
   };
   porId(E.escolas, E2.escolas);
-  const trocaTurma={}, trocaDisc={};       // id de fora -> id daqui
   (E2.turmas||[]).forEach(t2=>{
     const t=E.turmas.find(x=>x.id===t2.id || x.nome===t2.nome);
     if(!t){ E.turmas.push(t2); return; }
-    trocaTurma[t2.id]=t.id;
     (t2.alunos||[]).forEach(a2=>{
       if(!t.alunos.some(a=>a.numero===a2.numero)) t.alunos.push(a2); });
     t.alunos.sort((a,b)=>ordNum(a.numero,b.numero));
     if(!t.periodo && t2.periodo) t.periodo=t2.periodo;
-    /* disciplina que já existe aqui (mesmo id ou mesmo nome) não duplica —
-       as provas que vieram de fora passam a apontar para a daqui */
-    t.disciplinas=disciplinasDe(t);
-    (t2.disciplinas||[]).forEach(d2=>{
-      const igual=t.disciplinas.find(d=>d.id===d2.id ||
-        String(d.nome).toLowerCase()===String(d2.nome).toLowerCase());
-      if(igual) trocaDisc[d2.id]=igual.id;
-      else { t.disciplinas.push(d2); trocaDisc[d2.id]=d2.id; }
-    });
-  });
-  (E2.provas||[]).forEach(p2=>{
-    if(trocaTurma[p2.turma]) p2.turma=trocaTurma[p2.turma];
-    if(trocaDisc[p2.disciplina]) p2.disciplina=trocaDisc[p2.disciplina];
   });
   porId(E.provas, E2.provas);
   (E2.res||[]).forEach(r2=>{
@@ -2173,10 +1673,6 @@ function telaConfig(box){
     <h2>Configurações</h2>
     <label>Seu nome (sai impresso no cabeçalho das provas)</label>
     <input id="cfProf" placeholder="Natanael Filho" value="${esc(lerProfessor())}">
-    <button class="item" id="cfCadastro" style="margin-top:14px"><div class="cor">
-      <div class="t1">Escolas, turmas e disciplinas</div>
-      <div class="t2">Acrescentar, renomear, encerrar · bimestral ou trimestral</div>
-      </div><span class="ch">›</span></button>
     <div class="rot">Leitura por IA</div>
     <p class="sub">Opcional. Sem chave, o app funciona igual — só a leitura
       automática da prova deixa de existir.</p>
@@ -2214,9 +1710,6 @@ function telaConfig(box){
   $("#cfModelo").value=lerModelo();
   montarBackup();
   $("#mVolta").onclick=()=>{casaNivel=casaProva?"ler":"turmas";montarCasa();};
-  $("#cfCadastro").onclick=()=>{
-    guarda.esc(NOME_PROF,$("#cfProf").value.trim());
-    voltaPara.cadastro="config"; casaNivel="cadastro"; montarCasa(); };
   $("#cfSalvar").onclick=()=>{
     guarda.esc(NOME_PROF,$("#cfProf").value.trim());
     guarda.esc(CHAVE_API,$("#cfChave").value.trim());
@@ -2256,11 +1749,9 @@ function telaConfig(box){
         if(!confirm("Substituir apaga o que está neste aparelho:\n\n"+
           r0.alunos+" estudantes, "+r0.provas+" provas e "+r0.notas+" notas.\n\n"+
           "Tem certeza? Isso não pode ser desfeito.")) return;
-        E=E2; if(!E.v) E.v=6; salvar();
-        guarda.esc(SETUP_FEITO,"1");
-        notaNav={escola:null,turma:null,disc:null,per:null,prova:null};
+        E=E2; if(!E.v) E.v=5; salvar();
         if(E.ativa && provaDe(E.ativa)) ativar(E.ativa); else { E.ativa=null; refletirBarra(); }
-        casaNivel="turmas"; casaTurma=null; casaDisc=null; casaProva=null;
+        casaNivel="turmas"; casaTurma=null; casaProva=null;
         pintarResultados(); pintarDesempenho(); montarManual();
         alert("Dados restaurados."); irPara("casa"); };
     };
@@ -2283,7 +1774,7 @@ function telaProva(box){
   box.innerHTML=`<div class="migalha"><button id="mVolta">‹ ${esc(t.nome)}</button></div>
     <h2>${esc(p.titulo||p.codigo)}</h2>
     <p class="sub">${esc(p.codigo)} · ${p.nq} questões · A–${LETRAS_ATE(p.no)} ·
-      turma ${esc(t.nome)} · ${esc(nomeDisc(t,p.disciplina))} · ${esc(nomePeriodo(t,p.periodo||1))}</p>
+      turma ${esc(t.nome)} · ${esc(nomePeriodo(t,p.periodo||1))}</p>
     <div class="chip">gabarito <b>${esc(p.gabC)}</b></div>
     <div class="chip">questões digitadas <b>${nq}/${p.nq}</b></div>
     <div class="chip">corrigidos <b>${corrigidos}</b></div>
@@ -2584,7 +2075,7 @@ function gerarPDF(p,t,modo){
     try{
       const e=escolaDe(t.escola);
       const cfg={codigo:p.codigo,titulo:p.titulo,escola:e?e.nome:"",turma:t.nome,
-        disciplina:nomeDisc(t,p.disciplina),professor:lerProfessor(),
+        disciplina:t.disciplina,professor:lerProfessor(),
         periodoLabel:nomePeriodo(t,p.periodo||1),
         gabaritoCanonico:p.gabC,no:p.no,questoes:p.questoes||[],
         discursivas:p.discursivas||[]};
@@ -2629,22 +2120,16 @@ function gerarFolhasDeCartoes(cfg,alunos){
 }
 
 function telaTurmas(box){
-  let h='<h2>Minhas turmas</h2><p class="sub">Escolha a turma e depois a disciplina.</p>';
-  if(!E.turmas.length){
-    h+=`<div class="vazio"><b>Nenhuma turma cadastrada</b>
-      Monte o seu cadastro: escolas, turmas, disciplinas e calendário.</div>
-      <button class="btn" id="bAssist">Fazer o cadastro inicial</button>`;
-  }
-  escolasVisiveis().forEach(e=>{
-    const ts=turmasVisiveis(e.id);
+  let h='<h2>Minhas turmas</h2><p class="sub">Escolha a turma para criar ou abrir uma prova.</p>';
+  E.escolas.forEach(e=>{
+    const ts=E.turmas.filter(t=>t.escola===e.id);
     if(!ts.length) return;
-    h+=`<div class="grupo"><div class="esc"><span class="nm">${esc(e.curto||e.nome)}</span><span class="ln"></span></div>`;
+    h+=`<div class="grupo"><div class="esc"><span class="nm">${esc(e.curto)}</span><span class="ln"></span></div>`;
     h+=ts.map(t=>{
-      const np=provasDaTurma(t.id).length, ds=discVisiveis(t);
-      return `<button class="item ${viva(t)?"":"arq"}" data-t="${t.id}"><div class="cor">
-        <div class="t1">${esc(t.nome)}${viva(t)?"":" · encerrada"}</div>
-        <div class="t2">${ds.map(d=>esc(d.nome)).join(" · ")||"sem disciplina"} ·
-          ${t.alunos.length} estudante${t.alunos.length===1?"":"s"} · ${np} prova${np===1?"":"s"}</div>
+      const np=provasDaTurma(t.id).length;
+      return `<button class="item" data-t="${t.id}"><div class="cor">
+        <div class="t1">${esc(t.nome)} · ${esc(t.disciplina)}</div>
+        <div class="t2">${esc(t.serie)} · ${t.alunos.length} estudante${t.alunos.length===1?"":"s"} · ${np} prova${np===1?"":"s"}</div>
         </div><span class="ch">›</span></button>`;}).join("");
     h+="</div>";
   });
@@ -2655,72 +2140,29 @@ function telaTurmas(box){
       Você tem ${E.res.length} notas guardadas só neste celular
       ${q?"e a última cópia foi há "+diasSemCopia+" dias":"e nenhuma cópia baixada"}.
       Abra Configurações e toque em “Baixar cópia”.</div>`;
-  h+=`<button class="item" id="bCadastro" style="margin-top:6px"><div class="cor">
-    <div class="t1">Escolas, turmas e disciplinas</div>
-    <div class="t2">Acrescentar, renomear, encerrar · bimestral ou trimestral</div>
-    </div><span class="ch">›</span></button>`;
-  h+=`<button class="item" id="bCfg"><div class="cor">
+  h+=`<button class="item" id="bCfg" style="margin-top:6px"><div class="cor">
     <div class="t1">Configurações</div>
     <div class="t2">${lerProfessor()?esc(lerProfessor()):"Sem nome de professor"} · ${
       lerChave()?"chave de IA configurada":"sem chave de IA"}</div>
     </div><span class="ch">›</span></button>`;
   box.innerHTML=h;
   $("#bCfg").onclick=()=>{casaProva=null;casaNivel="config";montarCasa();};
-  $("#bCadastro").onclick=()=>{casaProva=null;voltaPara.cadastro="turmas";
-    casaNivel="cadastro";montarCasa();};
-  if($("#bAssist")) $("#bAssist").onclick=()=>{assist=null;casaNivel="assistente";montarCasa();};
   box.querySelectorAll("[data-t]").forEach(b=>b.onclick=()=>{
-    casaTurma=b.dataset.t; casaDisc=null; casaNivel="disciplinas"; montarCasa(); });
-}
-
-/* ── disciplinas da turma: o degrau entre a turma e as provas ────── */
-function telaDisciplinas(box){
-  const t=turmaDe(casaTurma);
-  if(!t){ casaNivel="turmas"; return montarCasa(); }
-  const e=escolaDe(t.escola)||{curto:""}, ds=discVisiveis(t);
-  let h=`<div class="migalha"><button id="mVolta">‹ Turmas</button><span>·</span>
-      <span>${esc(e.curto||e.nome||"")}</span></div>
-    <h2>${esc(t.nome)}</h2>
-    <p class="sub">${esc(t.serie||"")}${t.serie?" · ":""}${t.alunos.length} estudante${
-      t.alunos.length===1?"":"s"} · ${esc(nomeCalendario(t))} (${calendario(t).qtd} períodos)</p>
-    <button class="item" id="bAlunos"><div class="cor"><div class="t1">Estudantes da turma</div>
-      <div class="t2">${t.alunos.length?"Ver, editar ou substituir a lista"
-        :"Nenhum estudante ainda — toque para cadastrar"}</div>
-      </div><span class="ch">›</span></button>
-    <div class="rot">Disciplinas que você leciona nesta turma</div>`;
-  if(!ds.length){
-    h+='<div class="vazio" style="padding:26px 16px"><b>Nenhuma disciplina</b>Cadastre uma para criar provas.</div>';
-  }else{
-    h+=ds.map(d=>{
-      const np=provasDe(t.id,d.id).length;
-      return `<button class="item ${viva(d)?"":"arq"}" data-d="${d.id}"><div class="cor">
-        <div class="t1">${esc(d.nome)}${viva(d)?"":" · encerrada"}</div>
-        <div class="t2">${np} prova${np===1?"":"s"} registrada${np===1?"":"s"}</div>
-        </div><span class="ch">›</span></button>`;}).join("");
-  }
-  h+=`<button class="btn gho" id="bEditT" style="margin-top:12px">Editar turma e disciplinas</button>`;
-  box.innerHTML=h;
-  $("#mVolta").onclick=()=>{casaNivel="turmas";montarCasa();};
-  $("#bAlunos").onclick=()=>{casaNivel="alunos";montarCasa();};
-  $("#bEditT").onclick=()=>{voltaPara.turma="disciplinas";casaNivel="turma";montarCasa();};
-  box.querySelectorAll("[data-d]").forEach(b=>b.onclick=()=>{
-    casaDisc=b.dataset.d; casaNivel="provas"; montarCasa(); });
+    casaTurma=b.dataset.t; casaNivel="provas"; montarCasa(); });
 }
 
 function telaProvas(box){
   const t=turmaDe(casaTurma);
   if(!t){ casaNivel="turmas"; return montarCasa(); }
-  if(!casaDisc || !discDe(t,casaDisc)) casaDisc=primeiraDisc(t);
-  if(!casaDisc){ casaNivel="disciplinas"; return montarCasa(); }
-  const e=escolaDe(t.escola)||{curto:""}, ps=provasDe(t.id,casaDisc);
-  let h=`<div class="migalha"><button id="mVolta">‹ ${esc(t.nome)}</button><span>·</span><span>${esc(e.curto||"")}</span></div>
-    <h2>${esc(t.nome)} · ${esc(nomeDisc(t,casaDisc))}</h2>
-    <p class="sub">${esc(t.serie||"")}${t.serie?" · ":""}${t.alunos.length} estudante${t.alunos.length===1?"":"s"} ·
-      ${calendario(t).qtd} ${calendario(t).tipo==="trimestre"?"trimestres":"bimestres"} no ano</p>
+  const e=escolaDe(t.escola)||{curto:""}, ps=provasDaTurma(t.id);
+  let h=`<div class="migalha"><button id="mVolta">‹ Turmas</button><span>·</span><span>${esc(e.curto)}</span></div>
+    <h2>${esc(t.nome)} · ${esc(t.disciplina)}</h2>
+    <p class="sub">${esc(t.serie)} · ${t.alunos.length} estudante${t.alunos.length===1?"":"s"} ·
+      ${calendario(t).qtd} ${esc(calendario(t).tipo)}s no ano</p>
     <button class="item" id="bAlunos"><div class="cor"><div class="t1">Estudantes da turma</div>
       <div class="t2">${t.alunos.length?"Ver, editar ou substituir a lista":"Nenhum estudante ainda — toque para cadastrar"}</div>
       </div><span class="ch">›</span></button>
-    <div class="rot">Provas de ${esc(nomeDisc(t,casaDisc))}</div>`;
+    <div class="rot">Provas desta turma</div>`;
   const cartaoProva=p=>{
     const n=resDa(p.id).length, tot=t.alunos.length;
     const tag=!n?'<span class="tag">0 corrigidos</span>'
@@ -2735,7 +2177,7 @@ function telaProvas(box){
     h+='<div class="vazio" style="padding:28px 16px"><b>Nenhuma prova ainda</b>Crie a primeira abaixo.</div>';
   }else{
     periodosDe(t).forEach(n=>{
-      const doPeriodo=provasDoPeriodo(t.id,n,casaDisc);
+      const doPeriodo=provasDoPeriodo(t.id,n);
       h+=`<div class="grupo"><div class="esc"><span class="nm">${esc(nomePeriodo(t,n))}</span>
         <span class="ln"></span>
         ${doPeriodo.length?`<button class="tag" data-fech="${n}">fechamento</button>`:""}</div>`;
@@ -2751,7 +2193,7 @@ function telaProvas(box){
       <p class="hint">Foto, PDF ou Word — o app lê as questões e já preenche o cadastro.</p>
       <button class="btn gho" id="bNova" style="margin-top:10px">Criar prova em branco</button>`;
   box.innerHTML=h;
-  $("#mVolta").onclick=()=>{casaNivel="disciplinas";montarCasa();};
+  $("#mVolta").onclick=()=>{casaNivel="turmas";montarCasa();};
   $("#bAlunos").onclick=()=>{casaNivel="alunos";montarCasa();};
   $("#bNova").onclick=()=>{casaForm=null;casaNivel="nova";montarCasa();};
   $("#bSubir").onclick=()=>{substituindo=null;casaProva=null;casaForm=null;
@@ -2823,7 +2265,7 @@ function telaAlunos(box){
   };
   pintar();
 
-  $("#mVolta").onclick=()=>{casaNivel=casaDisc?"provas":"disciplinas";montarCasa();};
+  $("#mVolta").onclick=()=>{casaNivel="provas";montarCasa();};
   $("#bAddAluno").onclick=()=>{
     const nome=$("#alNome").value.trim().toUpperCase();
     if(!nome){ alert("Digite o nome do estudante."); return; }
@@ -2937,11 +2379,10 @@ function lerListaAlunos(txt){
 function telaNovaProva(box){
   const t=turmaDe(casaTurma);
   if(!t){ casaNivel="turmas"; return montarCasa(); }
-  if(!casaDisc || !discDe(t,casaDisc)) casaDisc=primeiraDisc(t);
   const F=casaForm||(casaForm={codigo:"",titulo:"",nq:10,no:5,gab:"",habs:"",po:10,pd:0,per:ultimoPeriodo});
   box.innerHTML=`<div class="migalha"><button id="mVolta">‹ ${esc(t.nome)}</button></div>
     <h2>${F.substitui?"Substituir a prova":(F.vindoDeArquivo?"Confirmar a prova lida":"Nova prova")}</h2>
-    <p class="sub">Turma ${esc(t.nome)} · ${esc(nomeDisc(t,casaDisc))}</p>
+    <p class="sub">Turma ${esc(t.nome)} · ${esc(t.disciplina)}</p>
     ${F.vindoDeArquivo?`<div class="diag">Li <strong>${F.nq}</strong> questões com
       <strong>${F.no}</strong> alternativas${F.gab?` e o gabarito <strong>${esc(F.gab)}</strong>`:
       `. Não achei o gabarito no arquivo — digite abaixo`}.
@@ -3017,7 +2458,7 @@ Volume do prisma">${esc(F.habs)}</textarea>
     if(F.gab.length!==F.nq){ alert("O gabarito precisa ter exatamente "+F.nq+" letras. Faltam "+(F.nq-F.gab.length)+"."); return; }
     if(!F.codigo){ alert("Dê um código à prova (ex.: 3A-AV2)."); return; }
     const habs=F.habs.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
-    const p={id:uid("p"),turma:t.id,disciplina:casaDisc,codigo:F.codigo,titulo:F.titulo,
+    const p={id:uid("p"),turma:t.id,codigo:F.codigo,titulo:F.titulo,
       nq:F.nq,no:F.no,gabC:F.gab,habs,pontosObj:F.po,pontosDisc:F.pd,periodo:F.per||1,
       questoes:[],discursivas:[],criada:Date.now()};
     if(F.vindoDeArquivo && iaTexto){
@@ -3153,16 +2594,10 @@ function aplicarQR(p){
       || E.provas.find(x=>x.codigo===codigo);
   if(!pr){
     let tu=E.turmas.find(x=>x.nome.toUpperCase()===turma.toUpperCase());
-    if(!tu){
-      if(!E.escolas.length)
-        E.escolas.push({id:uid("e"),nome:"Minha escola",curto:"Minha escola",ativa:true});
-      tu={id:uid("t"),escola:E.escolas[0].id,nome:turma,serie:"",
-        disciplina:"Disciplina",
-        disciplinas:[{id:uid("d"),nome:"Disciplina",ativa:true}],
-        alunos:[],periodo:{tipo:"bimestre",qtd:4},ativa:true};
+    if(!tu){ tu={id:"t-"+turma,escola:"jc",nome:turma,serie:"—",
+      disciplina:"Matemática",alunos:[],periodo:{tipo:"bimestre",qtd:4}};
       E.turmas.push(tu); }
-    pr={id:uid("p"),turma:tu.id,disciplina:primeiraDisc(tu),
-        codigo:codigo||"PROVA",titulo:"",nq,no,
+    pr={id:uid("p"),turma:tu.id,codigo:codigo||"PROVA",titulo:"",nq,no,
         gabC:inferirCanonico(g,turma,numero,nq,no),habs:[],criada:Date.now()};
     E.provas.push(pr);
   }
@@ -3337,10 +2772,11 @@ function montarManual(){
     manAluno=null; montarManual(); irPara("res"); };
 }
 
-/* ═════════ 9. NOTAS ═════════ */
+/* ═════════ 9. RESULTADOS ═════════ */
 
-/* Escolher a prova sem sair da aba. A lista respeita a hierarquia do
-   cadastro: escola › turma › disciplina › período. */
+/* Trocar de turma sem sair da aba. Antes era preciso ir até Turmas,
+   entrar na turma, abrir a prova e voltar — e as notas eram sempre
+   as da última prova aberta. */
 const seletorAberto={};
 
 function pintarSeletor(idCaixa, aoTrocar){
@@ -3352,24 +2788,22 @@ function pintarSeletor(idCaixa, aoTrocar){
   let h=`<button class="item" id="${idCaixa}Btn" style="margin-bottom:10px">
     <div class="cor">
       <div class="t1">${atual?esc(tAtual.nome)+" · "+esc(atual.codigo):"Escolher prova"}</div>
-      <div class="t2">${atual?esc(nomeDisc(tAtual,atual.disciplina))+" · "+
-        esc(atual.titulo||nomePeriodo(tAtual,atual.periodo||1)):"Nenhuma prova selecionada"}</div>
+      <div class="t2">${atual?esc(atual.titulo||nomePeriodo(tAtual,atual.periodo||1)):"Nenhuma prova selecionada"}</div>
     </div><span class="ch">${aberto?"⌃":"⌄"}</span></button>`;
 
   if(aberto){
     h+=`<div style="margin:-4px 0 12px">`;
-    escolasVisiveis().forEach(e=>{
-      const turmas=turmasDa(e.id).filter(x=>provasDaTurma(x.id).length);
+    E.escolas.forEach(e=>{
+      const turmas=E.turmas.filter(x=>x.escola===e.id && provasDaTurma(x.id).length);
       if(!turmas.length) return;
-      h+=`<div class="rot" style="margin:10px 0 6px">${esc(e.curto||e.nome)}</div>`;
+      h+=`<div class="rot" style="margin:10px 0 6px">${esc(e.curto)}</div>`;
       turmas.forEach(t=>{
         provasDaTurma(t.id).forEach(pr=>{
           const n=resDa(pr.id).length, tot=alunosEm(t,pr.periodo||1).length;
           h+=`<button class="item ${pr.id===E.ativa?"sel":""}" data-sel="${pr.id}"
             style="padding:10px 12px;margin-bottom:5px">
             <div class="cor"><div class="t1" style="font-size:13.5px">${esc(t.nome)} · ${esc(pr.codigo)}</div>
-            <div class="t2">${esc(nomeDisc(t,pr.disciplina))} · ${esc(nomePeriodo(t,pr.periodo||1))} ·
-              ${n}${tot?" de "+tot:""} corrigidos</div></div>
+            <div class="t2">${esc(nomePeriodo(t,pr.periodo||1))} · ${n}${tot?" de "+tot:""} corrigidos</div></div>
             <span class="ch">›</span></button>`;
         });
       });
@@ -3384,226 +2818,20 @@ function pintarSeletor(idCaixa, aoTrocar){
     ativar(b.dataset.sel);
     if(aoTrocar) aoTrocar(); });
 }
-
-/* ── ABA NOTAS ──────────────────────────────────────────────────────
-   Escola → Turma → Disciplina → Período → notas. O período mostrado é
-   sempre o da turma escolhida: quatro bimestres ou três trimestres. */
-let notaNav={escola:null,turma:null,disc:null,per:null,prova:null};
-
-function irNotas(campo,valor){
-  const ordem=["escola","turma","disc","per","prova"];
-  const i=ordem.indexOf(campo);
-  ordem.forEach((c,j)=>{ if(j>i) notaNav[c]=null; });
-  notaNav[campo]=valor;
-  pintarResultados();
-}
-
-function migalhaNotas(){
-  const t=notaNav.turma?turmaDe(notaNav.turma):null;
-  const e=notaNav.escola?escolaDe(notaNav.escola):null;
-  const partes=[];
-  if(e) partes.push(`<button data-volta="escola">${esc(e.curto||e.nome)}</button>`);
-  if(t) partes.push(`<button data-volta="turma">${esc(t.nome)}</button>`);
-  if(t&&notaNav.disc) partes.push(`<button data-volta="disc">${esc(nomeDisc(t,notaNav.disc))}</button>`);
-  if(t&&notaNav.per) partes.push(`<button data-volta="per">${esc(nomePeriodo(t,notaNav.per))}</button>`);
-  if(!partes.length) return "";
-  return `<div class="migalha">${partes.join('<span>›</span>')}</div>`;
-}
-
-function ligarMigalha(){
-  document.querySelectorAll("#resSel [data-volta]").forEach(b=>b.onclick=()=>{
-    const alvo=b.dataset.volta;
-    const ordem=["escola","turma","disc","per","prova"];
-    ordem.slice(ordem.indexOf(alvo)+1).forEach(c=>notaNav[c]=null);
-    pintarResultados(); });
-}
-
-function fechamentoDe(t,did,per){
-  const ps=provasDoPeriodo(t.id,per,did).slice().reverse();   // ordem cronológica
-  const comNota=ps.filter(p=>resDa(p.id).length);
-  const linhas=alunosEm(t,per).map(a=>{
-    const notas=comNota.map(p=>{
-      const r=E.res.find(x=>x.prova===p.id&&x.numero===a.numero);
-      if(!r) return null;
-      const nf=(r.nota!=null?r.nota:notaFinal(p,r));
-      return 10*nf/notaMaxima(p);            // tudo na mesma escala de 0 a 10
-    });
-    const val=notas.filter(x=>x!=null);
-    return {aluno:a, notas,
-      media:val.length?val.reduce((s,x)=>s+x,0)/val.length:null,
-      faltam:notas.filter(x=>x==null).length};
-  });
-  return {ps,comNota,linhas};
-}
-
 function pintarResultados(){
-  const sel=$("#resSel"), lista=$("#resLista");
-  if(!sel||!lista) return;
-  $("#resAcoes").hidden=true;
+  const p=provaAtiva(), t=turmaAtiva();
+  pintarSeletor("resSel", ()=>pintarResultados());
+  if(!p){ $("#pill").hidden=true; $("#resAcoes").hidden=true; $("#resSub").textContent="";
+    $("#resLista").innerHTML='<div class="vazio"><b>Nenhuma prova selecionada</b>Escolha a turma e a prova na aba Turmas.</div>'; return; }
 
-  const pa=provaAtiva();
-  const nAtiva=pa?resDa(pa.id).length:0;
-  $("#pill").hidden=!nAtiva; $("#pill").textContent=nAtiva;
-
-  /* o caminho pode ter ficado velho: cadastro apagado, prova excluída */
-  const N=notaNav;
-  if(N.escola && !escolaDe(N.escola)){ N.escola=null; N.turma=null; }
-  let t=N.turma?turmaDe(N.turma):null;
-  if(!t){ N.turma=null; N.disc=null; N.per=null; N.prova=null; }
-  else if(N.escola && t.escola!==N.escola){ N.turma=null; t=null; N.disc=null; N.per=null; N.prova=null; }
-  if(t && N.disc && !discDe(t,N.disc)){ N.disc=null; N.per=null; N.prova=null; }
-  if(N.prova && !provaDe(N.prova)) N.prova=null;
-
-  const cor=v=>v>=6?"var(--mint)":v>=4?"var(--amber)":"var(--coral)";
-
-  /* 1 — escola */
-  if(!N.escola){
-    const es=escolasVisiveis().filter(e=>turmasVisiveis(e.id).length);
-    $("#resSub").textContent="Escolha a escola.";
-    sel.innerHTML="";
-    lista.innerHTML=es.length?es.map(e=>{
-      const ts=turmasVisiveis(e.id);
-      return `<button class="item" data-e="${e.id}"><div class="cor">
-        <div class="t1">${esc(e.nome)}</div>
-        <div class="t2">${ts.length} turma${ts.length===1?"":"s"}</div>
-        </div><span class="ch">›</span></button>`;}).join("")
-      :'<div class="vazio"><b>Nenhuma turma cadastrada</b>Faça o cadastro inicial na aba Turmas.</div>';
-    lista.querySelectorAll("[data-e]").forEach(b=>b.onclick=()=>irNotas("escola",b.dataset.e));
-    return;
-  }
-
-  /* 2 — turma */
-  if(!N.turma){
-    const ts=turmasVisiveis(N.escola);
-    $("#resSub").textContent="Escolha a turma.";
-    sel.innerHTML=migalhaNotas(); ligarMigalha();
-    lista.innerHTML=ts.length?ts.map(x=>{
-      const ds=discVisiveis(x);
-      return `<button class="item ${viva(x)?"":"arq"}" data-t="${x.id}"><div class="cor">
-        <div class="t1">${esc(x.nome)}${viva(x)?"":" · encerrada"}</div>
-        <div class="t2">${ds.map(d=>esc(d.nome)).join(" · ")||"sem disciplina"} ·
-          ${esc(nomeCalendario(x))}</div></div><span class="ch">›</span></button>`;}).join("")
-      :'<div class="vazio"><b>Nenhuma turma nesta escola</b></div>';
-    lista.querySelectorAll("[data-t]").forEach(b=>b.onclick=()=>irNotas("turma",b.dataset.t));
-    return;
-  }
-
-  /* 3 — disciplina */
-  if(!N.disc){
-    const ds=discVisiveis(t);
-    $("#resSub").textContent="Escolha a disciplina.";
-    sel.innerHTML=migalhaNotas(); ligarMigalha();
-    lista.innerHTML=ds.length?ds.map(d=>{
-      const np=provasDe(t.id,d.id).length;
-      return `<button class="item ${viva(d)?"":"arq"}" data-d="${d.id}"><div class="cor">
-        <div class="t1">${esc(d.nome)}${viva(d)?"":" · encerrada"}</div>
-        <div class="t2">${np} prova${np===1?"":"s"}</div>
-        </div><span class="ch">›</span></button>`;}).join("")
-      :'<div class="vazio"><b>Nenhuma disciplina</b>Cadastre em Turmas › Editar turma.</div>';
-    lista.querySelectorAll("[data-d]").forEach(b=>b.onclick=()=>irNotas("disc",b.dataset.d));
-    return;
-  }
-
-  /* 4 — período (nomenclatura da turma) */
-  if(!N.per){
-    $("#resSub").textContent=nomeCalendario(t)==="Trimestral"
-      ? "Turma trimestral — escolha o trimestre."
-      : "Turma bimestral — escolha o bimestre.";
-    sel.innerHTML=migalhaNotas(); ligarMigalha();
-    let h=periodosDe(t).map(n=>{
-      const ps=provasDoPeriodo(t.id,n,N.disc);
-      const corr=ps.reduce((s,x)=>s+resDa(x.id).length,0);
-      return `<button class="item" data-per="${n}"><div class="cor">
-        <div class="t1">${esc(nomePeriodo(t,n))}</div>
-        <div class="t2">${ps.length} prova${ps.length===1?"":"s"} ·
-          ${corr} nota${corr===1?"":"s"} lançada${corr===1?"":"s"}</div>
-        </div><span class="ch">›</span></button>`;}).join("");
-    const fora=provasDe(t.id,N.disc).filter(x=>!periodosDe(t).includes(x.periodo||1));
-    if(fora.length) h+=`<div class="diag" style="margin-top:10px"><b>Fora do calendário</b>
-      ${fora.length} prova(s) desta disciplina estão em períodos que a turma não usa mais.
-      Elas continuam guardadas — abra a turma na aba Turmas para vê-las.</div>`;
-    lista.innerHTML=h;
-    lista.querySelectorAll("[data-per]").forEach(b=>b.onclick=()=>irNotas("per",+b.dataset.per));
-    return;
-  }
-
-  const F=fechamentoDe(t,N.disc,N.per);
-
-  /* 5 — o período inteiro: média por estudante e as provas que a compõem */
-  if(!N.prova){
-    $("#resSub").textContent=`${esc(t.nome)} · ${nomeDisc(t,N.disc)} · ${nomePeriodo(t,N.per)}`;
-    sel.innerHTML=migalhaNotas(); ligarMigalha();
-    let h="";
-    h+=`<div class="rot" style="margin-top:4px">Provas do período</div>`;
-    h+=F.ps.length?F.ps.map(pr=>{
-      const n=resDa(pr.id).length, tot=alunosEm(t,pr.periodo||1).length;
-      const tag=!n?'<span class="tag">0 corrigidos</span>'
-        :(tot&&n>=tot?`<span class="tag ok">${n} de ${tot}</span>`
-                     :`<span class="tag par">${n}${tot?" de "+tot:""}</span>`);
-      return `<button class="item ${pr.id===E.ativa?"sel":""}" data-pr="${pr.id}"><div class="cor">
-        <div class="t1">${esc(pr.titulo||pr.codigo)}</div>
-        <div class="t2">${esc(pr.codigo)} · ${pr.nq} questões</div>
-        </div>${tag}<span class="ch">›</span></button>`;}).join("")
-      :'<p class="hint" style="margin:0 0 6px">Nenhuma prova cadastrada neste período.</p>';
-
-    if(F.comNota.length){
-      h+=`<div class="rot">Média do período — ${F.comNota.map(x=>esc(x.codigo)).join(" · ")}</div>`;
-      h+=F.linhas.map(L=>`<div class="aluno" style="cursor:default">
-        <div style="flex:1;min-width:0">
-          <div class="nm"><span style="color:var(--mute);font-family:var(--mono);font-size:12px">${esc(L.aluno.numero)} </span>${esc(L.aluno.nome)}</div>
-          <div class="rs">${L.notas.map((n,i)=>esc(F.comNota[i].codigo)+": "+
-            (n==null?"—":n.toFixed(1).replace(".",","))).join("  ·  ")}${
-            L.faltam?` · <span style="color:var(--amber)">${L.faltam} sem nota</span>`:""}</div></div>
-        <div class="nt" style="color:${L.media==null?"var(--mute)":cor(L.media)}">${
-          L.media==null?"—":L.media.toFixed(1).replace(".",",")}</div></div>`).join("");
-      const medias=F.linhas.map(L=>L.media).filter(x=>x!=null);
-      if(medias.length){
-        const m=medias.reduce((s,x)=>s+x,0)/medias.length;
-        h+=`<div class="kpi" style="margin-top:14px">
-          <div><div class="v">${m.toFixed(1).replace(".",",")}</div><div class="l">Média da turma</div></div>
-          <div><div class="v">${medias.filter(x=>x>=6).length}<span style="font-size:13px;color:var(--mute)">/${medias.length}</span></div><div class="l">≥ 6,0</div></div>
-          <div><div class="v">${F.linhas.filter(L=>L.faltam).length}</div><div class="l">Com pendência</div></div>
-        </div>`;
-      }
-      h+=`<button class="btn sec" id="bCsvPer" style="margin-top:14px">Baixar CSV do período</button>
-        <p class="hint">Cada prova entra na média convertida para a escala de 0 a 10, mesmo
-          valendo pontuação diferente. Provas sem correção não contam.</p>`;
-    }else if(F.ps.length){
-      h+='<div class="vazio" style="padding:30px 16px"><b>Nada corrigido ainda</b>As médias aparecem depois do primeiro cartão lido.</div>';
-    }
-    lista.innerHTML=h;
-    lista.querySelectorAll("[data-pr]").forEach(b=>b.onclick=()=>{
-      ativar(b.dataset.pr); irNotas("prova",b.dataset.pr); });
-    if($("#bCsvPer")) $("#bCsvPer").onclick=()=>{
-      const e=escolaDe(t.escola)||{curto:""};
-      const cab=["escola","turma","disciplina","periodo","numero","aluno",
-        ...F.comNota.map(x=>x.codigo),"media"];
-      const vg=x=>x==null?"":Number(x).toFixed(2).replace(".",",");
-      const lin=F.linhas.map(L=>[e.curto,t.nome,nomeDisc(t,N.disc),nomePeriodo(t,N.per),
-        L.aluno.numero,`"${String(L.aluno.nome).replace(/"/g,'""')}"`,
-        ...L.notas.map(vg),vg(L.media)].join(";"));
-      baixar([cab.join(";"),...lin].join("\r\n"),
-        `notas_${t.nome}_${nomeDisc(t,N.disc)}_${N.per}o_periodo.csv`,"text/csv");
-    };
-    return;
-  }
-
-  /* 6 — uma prova: quem já foi corrigido e quem falta */
-  const p=provaDe(N.prova);
-  if(E.ativa!==p.id) ativar(p.id);
-  sel.innerHTML=migalhaNotas()+
-    `<button class="item" id="resVoltaPer" style="margin-bottom:10px"><div class="cor">
-      <div class="t1">${esc(p.titulo||p.codigo)}</div>
-      <div class="t2">${esc(p.codigo)} · ${esc(nomePeriodo(t,p.periodo||1))} — toque para ver o período inteiro</div>
-      </div><span class="ch">⌃</span></button>`;
-  ligarMigalha();
-  $("#resVoltaPer").onclick=()=>irNotas("per",N.per);
-
+  /* A lista mostra a TURMA INTEIRA, não só quem já foi corrigido:
+     é assim que dá para ver de relance quem ainda falta. */
   const matriculados=alunosEm(t,p.periodo||1);
   const notas=resDa(p.id);
   const porNumero={}; notas.forEach(r=>porNumero[r.numero]=r);
 
   const linhas=matriculados.map(a=>({aluno:a, res:porNumero[a.numero]||null}));
+  // corrigidos que não estão mais na lista (transferidos) entram no fim
   notas.forEach(r=>{ if(!matriculados.some(a=>a.numero===r.numero))
     linhas.push({aluno:{numero:r.numero,nome:r.nome}, res:r, fora:true}); });
   linhas.sort((x,y)=>ordNum(x.aluno.numero,y.aluno.numero));
@@ -3612,16 +2840,16 @@ function pintarResultados(){
   $("#pill").hidden=!feitos; $("#pill").textContent=feitos;
   $("#resAcoes").hidden=!feitos;
   $("#resSub").textContent = total
-    ? `${feitos} de ${total} corrigidos · ${p.codigo} · ${t.nome} · ${nomeDisc(t,p.disciplina)}`
+    ? `${feitos} de ${total} corrigidos · ${p.codigo} · ${t.nome}`
     : (feitos?`${feitos} corrigidos · ${p.codigo} · ${t.nome}`
              :"Cadastre os estudantes da turma para ver a lista completa.");
 
   if(!linhas.length){
-    lista.innerHTML='<div class="vazio"><b>Sem estudantes</b>Cadastre a turma em Turmas.</div>';
+    $("#resLista").innerHTML='<div class="vazio"><b>Sem estudantes</b>Cadastre a turma em Turmas.</div>';
     return; }
 
   const max=notaMaxima(p);
-  lista.innerHTML=linhas.map((L,i)=>{
+  $("#resLista").innerHTML=linhas.map((L,i)=>{
     const a=L.res;
     if(!a) return `<button class="aluno" data-p="${esc(L.aluno.numero)}" style="opacity:.62">
       <div style="flex:1;min-width:0">
@@ -3633,16 +2861,16 @@ function pintarResultados(){
       <div class="nm"><span style="color:var(--mute);font-family:var(--mono);font-size:12px">${esc(L.aluno.numero)} </span>${esc(L.aluno.nome)}</div>
       <div class="rs">${a.acertos}/${p.nq} acertos${a.notaDisc?" · escrita "+a.notaDisc:""}${
         a.origem==="manual"?" · manual":""}${L.fora?" · transferido":""}</div></div>
-      <div class="nt" style="color:${cor(rel)}">${nf.toFixed(1).replace(".",",")}</div>
+      <div class="nt" style="color:${rel>=6?"var(--mint)":rel>=4?"var(--amber)":"var(--coral)"}">${nf.toFixed(1).replace(".",",")}</div>
     </button><div id="det${i}"></div>`;}).join("");
 
   // pendente: abre direto a correção manual daquele estudante
-  lista.querySelectorAll("[data-p]").forEach(b=>b.onclick=()=>{
+  $("#resLista").querySelectorAll("[data-p]").forEach(b=>b.onclick=()=>{
     manAluno=b.dataset.p;
     manR=new Array(p.nq).fill(null); manDisc=0;
     montarManual(); irPara("man"); });
 
-  lista.querySelectorAll("[data-x]").forEach(b=>b.onclick=()=>{
+  $("#resLista").querySelectorAll("[data-x]").forEach(b=>b.onclick=()=>{
     const i=+b.dataset.x, d=$("#det"+i);
     if(d.innerHTML){ d.innerHTML=""; return; }
     const a=linhas[i].res;
@@ -3754,7 +2982,7 @@ function baixarRelatorio(A,s){
   const p=provaAtiva(), t=turmaAtiva(), e=escolaDe(t.escola);
   const lin=[], L=x=>lin.push(x);
   L("RELATÓRIO DE DESEMPENHO");
-  L(e.nome); L("Turma "+t.nome+" · "+(t.serie||"")+" · "+nomeDisc(t,p.disciplina));
+  L(e.nome); L("Turma "+t.nome+" · "+t.serie+" · "+t.disciplina);
   L("Prova: "+p.codigo+(p.titulo?" — "+p.titulo:"")+"   ("+p.nq+" questões, A–"+LETRAS_ATE(p.no)+")");
   L("Gerado em "+new Date().toLocaleString("pt-BR")); L("");
   L("ESTATÍSTICAS GERAIS");
@@ -3790,7 +3018,7 @@ function baixar(txt,nome,tipo){
 }
 $("#bCsv").onclick=()=>{
   const p=provaAtiva(), t=turmaAtiva(); if(!p) return;
-  const cab=["escola","turma","disciplina","numero","aluno","nota_final","nota_objetiva","nota_escrita","acertos","erros","aproveitamento",
+  const cab=["escola","turma","numero","aluno","nota_final","nota_objetiva","nota_escrita","acertos","erros","aproveitamento",
     "questoes_erradas","origem","prova",...Array.from({length:p.nq},(_,i)=>"Q"+(i+1))];
   const feitos={}; resDa(p.id).forEach(r=>feitos[r.numero]=r);
   const A=alunosEm(t,p.periodo||1).map(al=>feitos[al.numero]||
@@ -3800,7 +3028,7 @@ $("#bCsv").onclick=()=>{
     .sort((a,b)=>ordNum(a.numero,b.numero));
   const e=escolaDe(t.escola);
   const vg=x=>(x==null?"":Number(x).toFixed(2).replace(".",","));
-  const lin=A.map(a=>[e.curto,t.nome,nomeDisc(t,p.disciplina),a.numero,`"${String(a.nome).replace(/"/g,'""')}"`,
+  const lin=A.map(a=>[e.curto,t.nome,a.numero,`"${String(a.nome).replace(/"/g,'""')}"`,
     vg(a.acertos==null?null:(a.nota!=null?a.nota:notaFinal(p,a))),
     vg(a.acertos==null?null:pontosObj(p)*a.acertos/p.nq),
     vg(a.acertos==null?null:(a.notaDisc||0)),
@@ -3854,8 +3082,7 @@ $("#bIniciar").onclick=iniciar; $("#bParar").onclick=parar;
 $("#bTrocar").onclick=()=>{
   const aba=[...document.querySelectorAll("nav button")].find(b=>b.classList.contains("on"));
   const v=aba?aba.dataset.v:"casa";
-  if(v==="res"){ notaNav={escola:null,turma:null,disc:null,per:null,prova:null};
-    pintarResultados(); return; }
+  if(v==="res"){ seletorAberto.resSel=true; pintarResultados(); return; }
   if(v==="des"){ seletorAberto.desSel=true; pintarDesempenho(); return; }
   casaNivel="turmas"; irPara("casa"); };
 
@@ -3931,9 +3158,6 @@ function avisoFlutuante(texto, cls, segundos){
 })();
 
 if(E.ativa && provaDe(E.ativa)) ativar(E.ativa); else refletirBarra();
-/* quem já tinha cadastro não passa pelo assistente */
-if(E.turmas.length) guarda.esc(SETUP_FEITO,"1");
-if(precisaAssistente()) casaNivel="assistente";
 montarCasa(); pintarResultados(); pintarDesempenho(); montarManual();
 faixa("Toque em iniciar câmera",
   provaAtiva()?resDa(E.ativa).length+" cartões salvos":"Escolha a prova na aba Turmas");
