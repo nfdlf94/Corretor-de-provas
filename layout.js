@@ -4,30 +4,50 @@
    ALTERAR AQUI EXIGE ALTERAR layout.py. */
 "use strict";
 
-const LAY_VERSION = 2;
-const PASSO_Y = 9.0, PASSO_X = 9.0, RAIO = 2.6;
-const FID = 10.0, QUIET = 7.0;
-const QR_X = 4.0, QR_Y = 11.0, QR_S = 30.0;
-const Y0 = 12.0, LABEL_X0 = 46.0, LABEL_GAP = 10.0;
-const MARGEM_DIR = 14.0, FOLGA_COL = 22.0;
+const LAY_VERSION = 3;
+
+/* Dois perfis. O clássico é o de sempre e vale até 20 questões — as
+   provas já impressas dependem dele (10x5 continua 164 x 52 mm). Acima
+   disso entra o compacto, de três colunas: um caderno de simulado com
+   26 a 30 itens no perfil antigo ocupava quase metade da página. */
+const PERFIS = {
+  classico: {
+    PASSO_Y: 9.0, PASSO_X: 9.0, RAIO: 2.6, FID: 10.0, QUIET: 7.0,
+    QR_X: 4.0, QR_Y: 11.0, QR_S: 30.0,
+    Y0: 12.0, LABEL_X0: 46.0, LABEL_GAP: 10.0,
+    MARGEM_DIR: 14.0, FOLGA_COL: 22.0,
+    colunas: nq => (nq <= 6 ? 1 : 2)
+  },
+  compacto: {
+    PASSO_Y: 5.6, PASSO_X: 5.6, RAIO: 1.9, FID: 8.5, QUIET: 5.0,
+    QR_X: 3.0, QR_Y: 7.0, QR_S: 26.0,
+    Y0: 9.0, LABEL_X0: 34.0, LABEL_GAP: 6.5,
+    MARGEM_DIR: 6.0, FOLGA_COL: 12.0,
+    colunas: nq => 3
+  }
+};
+const LIMITE_CLASSICO = 20;
+const perfilDe = nq => (nq > LIMITE_CLASSICO ? PERFIS.compacto : PERFIS.classico);
+
 const LETRAS = ["A", "B", "C", "D", "E"];
 const MIN_Q = 5, MAX_Q = 30;
 
-function colunasDe(nq){ return nq <= 6 ? 1 : 2; }
+function colunasDe(nq){ return perfilDe(nq).colunas(nq); }
 
 function montarLayout(nq, no){
   nq = parseInt(nq, 10); no = parseInt(no, 10);
   if (!(nq >= MIN_Q && nq <= MAX_Q)) throw new Error("nq fora de 5..30");
   if (no !== 4 && no !== 5) throw new Error("no deve ser 4 ou 5");
 
-  const ncols = colunasDe(nq);
+  const P = perfilDe(nq);
+  const ncols = P.colunas(nq);
   const nlin = Math.ceil(nq / ncols);
-  const passoCol = (no - 1) * PASSO_X + FOLGA_COL;
+  const passoCol = (no - 1) * P.PASSO_X + P.FOLGA_COL;
 
-  const box_w = LABEL_X0 + (ncols - 1) * passoCol
-              + LABEL_GAP + (no - 1) * PASSO_X + MARGEM_DIR;
-  const row_y = Array.from({length: nlin}, (_, i) => Y0 + i * PASSO_Y);
-  const box_h = Math.max(row_y[nlin - 1] + 4.0, QR_Y + QR_S + 4.0);
+  const box_w = P.LABEL_X0 + (ncols - 1) * passoCol
+              + P.LABEL_GAP + (no - 1) * P.PASSO_X + P.MARGEM_DIR;
+  const row_y = Array.from({length: nlin}, (_, i) => P.Y0 + i * P.PASSO_Y);
+  const box_h = Math.max(row_y[nlin - 1] + 4.0, P.QR_Y + P.QR_S + 4.0);
 
   const groups = [];
   let n = 1;
@@ -35,15 +55,16 @@ function montarLayout(nq, no){
     const qs = [];
     for (let i = 0; i < nlin && n <= nq; i++) qs.push(n++);
     if (qs.length) groups.push({
-      label_x: LABEL_X0 + c * passoCol,
-      first_bubble_x: LABEL_X0 + c * passoCol + LABEL_GAP,
+      label_x: P.LABEL_X0 + c * passoCol,
+      first_bubble_x: P.LABEL_X0 + c * passoCol + P.LABEL_GAP,
       questions: qs
     });
   }
   return {version: LAY_VERSION, n_questions: nq, n_options: no,
-          options: LETRAS.slice(0, no), box_w, box_h, fid_size: FID,
-          quiet_zone: QUIET, bubble_r: RAIO, bubble_dx: PASSO_X,
-          row_y, qr: {x: QR_X, y: QR_Y, size: QR_S}, groups};
+          options: LETRAS.slice(0, no), box_w, box_h, fid_size: P.FID,
+          quiet_zone: P.QUIET, bubble_r: P.RAIO, bubble_dx: P.PASSO_X,
+          label_gap: P.LABEL_GAP, compacto: P === PERFIS.compacto,
+          row_y, qr: {x: P.QR_X, y: P.QR_Y, size: P.QR_S}, groups};
 }
 
 /* Layout normalizado 0..1 — formato que o motor de visão já consome hoje. */

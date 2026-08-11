@@ -1090,10 +1090,23 @@ const nomeCalendario=t=>calendario(t).tipo==="trimestre"?"Trimestral":"Bimestral
 const periodosDe=t=>Array.from({length:calendario(t).qtd},(_,i)=>i+1);
 const provasDoPeriodo=(tid,n,did)=>provasDe(tid,did).filter(p=>(p.periodo||1)===n);
 
-/* ── gabarito individual, a partir do canônico + turma/número ───── */
+/* ── gabarito individual, a partir do canônico + turma/número ─────
+   `ordemDe()` tem de devolver exatamente o que o gerador imprimiu: no
+   caderno de simulado as questões saem agrupadas por componente, e é
+   `comps` que reconstrói esse agrupamento. Divergir aqui faz a turma
+   inteira sair com nota errada sem nenhum erro aparente. */
+const alternaBlocos=p=>{
+  const sm=p&&p.simulado?simuladoDe(p.simulado):null;
+  return !!(sm && sm.alternarBlocos!==false);
+};
+const ordemDe=(p,turma,numero)=>
+  (p && p.comps && p.comps.length===p.nq)
+    ? embaralharEmBlocos(p.nq,p.no,turma,numero,p.comps,alternaBlocos(p))
+    : embaralharProva(p.nq,p.no,turma,numero);
+
 function gabaritoDe(nomeTurma,numero){
   const p=provaAtiva(); if(!p||!p.gabC) return null;
-  const {oq,oa}=embaralharProva(p.nq,p.no,nomeTurma,numero);
+  const {oq,oa}=ordemDe(p,nomeTurma,numero);
   let g="";
   for(let i=0;i<p.nq;i++){
     const certa=LAY.options.indexOf(p.gabC[oq[i]]);
@@ -1103,7 +1116,7 @@ function gabaritoDe(nomeTurma,numero){
 }
 function canonizar(R,nomeTurma,numero){
   const p=provaAtiva(); if(!p) return R.slice();
-  const {oq,oa}=embaralharProva(p.nq,p.no,nomeTurma,numero);
+  const {oq,oa}=ordemDe(p,nomeTurma,numero);
   const out=new Array(p.nq).fill(null);
   for(let i=0;i<p.nq;i++){
     if(!R[i]) continue;
@@ -1121,7 +1134,7 @@ function recalcular(pr){
   const letras=["A","B","C","D","E"].slice(0,pr.no);
   let n=0;
   E.res.filter(r=>r.prova===pr.id).forEach(r=>{
-    const {oq,oa}=embaralharProva(pr.nq,pr.no,t.nome,r.numero);
+    const {oq,oa}=ordemDe(pr,t.nome,r.numero);
     let gab="";
     for(let i=0;i<pr.nq;i++){
       const certa=letras.indexOf(pr.gabC[oq[i]]);
@@ -2816,7 +2829,7 @@ const MARCA_FIG="\u0001FIG";
 
 function lerQuestoes(txtBruto){
   const {corpo:txt, chave}=separarGabarito(txtBruto);
-  const questoes=[]; let gab="", atual=null, ultimaAlt=null, alvo=null;
+  const questoes=[]; let gab="", atual=null, ultimaAlt=null, alvo=null, pulouLinha=false;
   let paginaAtual=0;
   let linhas=String(txt).split(/\r?\n/);
   // descarta cabeçalho/instruções antes da primeira questão numerada,
@@ -2830,7 +2843,11 @@ function lerQuestoes(txtBruto){
       const n=parseInt(l.slice(MARCA_FIG.length),10);
       if(atual && !isNaN(n) && atual.figIdx==null) atual.figIdx=n;
       return; }
-    if(!l){ alvo=null; return; }
+    /* Linha em branco NÃO encerra o enunciado. O Word separa parágrafos
+       por linha vazia, e encerrar aqui fazia sumir todo o texto depois da
+       primeira linha — o enunciado saía impresso só com "Leia o texto.".
+       Ela encerra, sim, a continuação de uma alternativa. */
+    if(!l){ if(alvo==="alt") alvo=null; else if(alvo==="enun") pulouLinha=true; return; }
     const mq=/^(\d{1,2})\s*[.)\-–]\s*(.*)$/.exec(l);
     const ma=/^(\*?)\s*([A-Ea-e])\s*[).\-–]\s+(.*)$/.exec(l);
     if(ma && atual){
@@ -2838,17 +2855,19 @@ function lerQuestoes(txtBruto){
       while(atual.alternativas.length<k) atual.alternativas.push("");
       atual.alternativas[k]=ma[3].trim();
       if(ma[1]==="*") atual.correta=k;
-      ultimaAlt=k; alvo="alt"; return;
+      ultimaAlt=k; alvo="alt"; pulouLinha=false; return;
     }
     if(mq && (!atual || atual.alternativas.length)){
       atual={enunciado:mq[2].trim(),alternativas:[],correta:null,pagina:paginaAtual};
-      questoes.push(atual); ultimaAlt=null; alvo="enun"; return;
+      questoes.push(atual); ultimaAlt=null; alvo="enun"; pulouLinha=false; return;
     }
     if(atual && alvo==="alt" && ultimaAlt!==null){
       atual.alternativas[ultimaAlt]+=" "+l; return; }
     if(atual && alvo==="enun"){
       const ultima=atual.enunciado.split("\n").pop();
-      atual.enunciado += ((pareceTabela(l)||pareceTabela(ultima)) ? "\n" : " ") + l;
+      const quebra=pulouLinha||pareceTabela(l)||pareceTabela(ultima);
+      pulouLinha=false;
+      atual.enunciado += (quebra ? "\n" : " ") + l;
       return; }
     if(!atual){ atual={enunciado:l,alternativas:[],correta:null,pagina:paginaAtual};
       questoes.push(atual); alvo="enun"; }
@@ -2984,7 +3003,10 @@ function gerarPDF(p,t,modo){
           ? "Simulado SAEPE · "+(simuladoDe(p.simulado)||{ano:""}).ano
           : nomePeriodo(t,p.periodo||1),
         gabaritoCanonico:p.gabC,no:p.no,questoes:p.questoes||[],
-        discursivas:p.discursivas||[]};
+        discursivas:p.discursivas||[],
+        comps:ehCaderno(p)?(p.comps||null):null,
+        alternarBlocos:ehCaderno(p)&&alternaBlocos(p),
+        rotulosComp:COMPONENTES.reduce((m,c)=>{m[c.id]=c.nome;return m;},{})};
       const doc = (modo==="cartoes")
         ? gerarFolhasDeCartoes(cfg,t.alunos)
         : gerarProvas(cfg,t.alunos,window.jspdf.jsPDF);
@@ -2993,6 +3015,10 @@ function gerarPDF(p,t,modo){
       let extra="";
       if(doc.avisoCaracteres&&doc.avisoCaracteres.length)
         extra=`<br><b>Atenção:</b> os caracteres ${esc(doc.avisoCaracteres.join(" "))} não existem na fonte e não foram impressos.`;
+      if(doc.avisoPaginas)
+        extra+=`<br><b>Atenção:</b> saiu com ${doc.avisoPaginas} páginas por estudante,
+          acima do limite de 4. A letra já foi reduzida ao mínimo — para caber,
+          corte questões ou encurte os enunciados.`;
       const porAluno=(doc.getNumberOfPages()/Math.max(1,t.alunos.length)).toFixed(0);
       dizer("diag","<b>Pronto</b>"+doc.getNumberOfPages()+" páginas ("+porAluno+
         " por estudante) · corpo "+(doc.corpoUsado||"")+"pt · "+nome+extra);
@@ -3018,6 +3044,7 @@ function gerarFolhasDeCartoes(cfg,alunos){
     const linha=i%porFolha;
     desenharCartao(doc,{x:margem,y:margem+linha*passo,codigo:cfg.codigo,
       gabaritoCanonico:cfg.gabaritoCanonico,no:cfg.no,turma:cfg.turma,
+      comps:cfg.comps||null, alternar:cfg.alternarBlocos,
       numero:a.numero,nome:a.nome});
     doc.setFont("helvetica","normal"); doc.setFontSize(7.5); doc.setTextColor(120,128,140);
     doc.text(a.numero+" · "+a.nome, margem, margem+linha*passo+alt+1.5);
@@ -3223,7 +3250,7 @@ function telaNovoSimulado(box){
     if(n>0 && n<SAEPE_MIN){
       alert("Com menos de "+SAEPE_MIN+" itens não sai cartão-resposta. Use 0 para montar pelo arquivo."); return; }
     const sm={id:uid("s"),turma:t.id,titulo:F.titulo.trim(),etapa:F.etapa,ano:F.ano,
-      metodo:"tri",criado:Date.now(),prova:null};
+      metodo:"tri",alternarBlocos:true,criado:Date.now(),prova:null};
     const comps=[].concat(new Array(F.nLP).fill("LP"), new Array(F.nMAT).fill("MAT"));
     const pr={id:uid("p"),turma:t.id,disciplina:null,simulado:sm.id,
       codigo:F.cod||codigoSugerido(t,F.ano),titulo:F.titulo.trim(),
@@ -3293,6 +3320,14 @@ function telaSimulado(box){
     <label>Etapa</label>
     <select id="smEt">${ETAPAS.map(x=>`<option value="${x.id}"${
       x.id===sm.etapa?" selected":""}>${esc(x.nome)}</option>`).join("")}</select>
+    <label>Ordem dos blocos no caderno</label>
+    <select id="smAlt">
+      <option value="1"${alternaBlocos(pr)?" selected":""}>Alternar — cada estudante começa por um componente</option>
+      <option value="0"${alternaBlocos(pr)?"":" selected"}>Fixa — todos começam por Língua Portuguesa</option>
+    </select>
+    <p class="hint">Alternar dificulta a cola de quem senta ao lado. Só serve para
+      aplicação em dia único: com os blocos em posições diferentes não dá para
+      aplicar um componente por dia.</p>
     <label>Como calcular a proficiência</label>
     <select id="smMet">
       <option value="tri"${sm.metodo!=="pct"?" selected":""}>TRI — 3 parâmetros (como o Saeb)</option>
@@ -3319,6 +3354,15 @@ function telaSimulado(box){
   $("#smSalvar").onclick=()=>{
     const tit=$("#smTit").value.trim();
     if(!tit){ alert("O simulado precisa de um título."); return; }
+    const novaAlt=$("#smAlt").value==="1";
+    if(novaAlt!==alternaBlocos(pr)){
+      const impressos=resDa(pr.id).length;
+      if(!confirm("Trocar a ordem dos blocos muda o caderno de cada estudante.\n\n"+
+        "Os cartões JÁ IMPRESSOS deixam de valer"+
+        (impressos?" e as "+impressos+" correções ficam erradas":"")+
+        ".\n\nContinuar?")) return;
+      sm.alternarBlocos=novaAlt;
+    }
     sm.titulo=tit; sm.etapa=$("#smEt").value; sm.metodo=$("#smMet").value;
     pr.titulo=tit; salvar(); refletirBarra(); montarCasa(); };
   $("#smDel").onclick=()=>{
@@ -3604,7 +3648,8 @@ function apurarComp(sm,comp){
     q:i+1, cod:(pr.desc||[])[i]||"",
     pct:feitos.length?100*feitos.filter(L=>L.res.Rc&&L.res.Rc[i]===g[i]).length/feitos.length:null,
     dif:par?escalaTRI(sm,par[k].b,thMedio,centro):null,
-    a:par?par[k].a:null
+    a:par?par[k].a:null,
+    r:par?par[k].r:null      // correlação item-total: é ela que diz se separa
   }));
   const agrup={};
   itens.forEach(it=>{ if(it.cod&&it.pct!=null) (agrup[it.cod]=agrup[it.cod]||[]).push(it.pct); });
@@ -3651,12 +3696,19 @@ function telaRelSaepe(box){
         : "Calculado pelo percentual de acerto"+(sm.metodo!=="pct"
             ?" — a TRI precisa de pelo menos "+TRI_MIN_ALUNOS+" cartões corrigidos.":".")}
         Cortes desta etapa: ${cortes[0]} · ${cortes[1]} · ${cortes[2]}.</p>`;
+    h+=`<div class="rot" style="margin-top:12px">Distribuição pelos padrões de desempenho</div>`;
     PADROES.forEach((pd,i)=>{
       const n=A.dist[i], pc=A.feitos.length?100*n/A.feitos.length:0;
       h+=`<div class="barra"><span class="lb">${esc(pd.nome)}</span>
         <span class="t"><span class="f" style="width:${pc.toFixed(0)}%;background:${pd.cor}"></span></span>
-        <span class="p">${n}</span></div>`;
+        <span class="p">${pc.toFixed(0)}%</span>
+        <span class="q" style="width:22px;text-align:right">${n}</span></div>`;
     });
+    const abaixo=A.dist[0]+A.dist[1], pcAbaixo=100*abaixo/A.feitos.length;
+    h+=`<div class="diag"><b>Leitura do quadro</b>
+      ${pcAbaixo.toFixed(0)}% da turma (${abaixo} de ${A.feitos.length}) está nos padrões
+      elementares em ${esc(c.nome)} — abaixo do Básico, que começa em ${cortes[1]}.
+      ${A.dist[3]?A.dist[3]+" estudante(s) já estão no Desejável.":""}</div>`;
     if(A.descritores.length){
       h+=`<div class="rot" style="margin-top:14px">Acerto por descritor · ${esc(curtoComp(c.id))}</div>`;
       h+=A.descritores.map(d=>`<div class="barra">
@@ -3686,7 +3738,10 @@ function telaRelSaepe(box){
         <span class="t"><span class="f ${it.pct<50?"baixo":it.pct<75?"medio":""}"
           style="width:${(it.pct||0).toFixed(0)}%"></span></span>
         <span class="p">${Math.round(it.dif)}</span></div>`).join("");
-      const cegos=A.itens.filter(it=>it.a<0.6);
+      /* Um item "separa" quando quem vai bem na prova acerta mais ele do
+         que quem vai mal. A medida é a correlação item-total: abaixo de
+         0,20 é item que não distingue — o limiar usado na literatura. */
+      const cegos=A.itens.filter(it=>it.r!=null && it.r<0.20);
       if(cegos.length) h+=`<div class="diag"><b>Itens que não separaram</b>
         ${cegos.map(it=>"item "+it.q).join(", ")} — quem foi bem e quem foi mal
         responderam parecido. Vale reler o enunciado e as alternativas antes de usar

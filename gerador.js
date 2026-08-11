@@ -54,11 +54,23 @@ function montarPayload(codigo, gabIndividual, turma, numero, nome, no){
           assinaturaLayout(gab.length, no)].join("|");
 }
 
+/* Nomes dos blocos do simulado, para o cabeçalho de cada parte. */
+const NOME_COMP = {LP: "LÍNGUA PORTUGUESA", MAT: "MATEMÁTICA"};
+
+/* A ordem das questões: sorteio de sempre, agrupado por componente
+   quando o caderno tem blocos. Cartão e prova PRECISAM usar esta mesma
+   função — se divergirem, a turma inteira sai com nota errada. */
+function ordemDaProva(nq, no, turma, numero, comps, alternar){
+  return (comps && comps.length === nq)
+    ? embaralharEmBlocos(nq, no, turma, numero, comps, alternar)
+    : embaralharProva(nq, no, turma, numero);
+}
+
 /* ── gabarito individual: espelho de embaralho.py ─────────────────── */
-function gabaritoIndividual(gabCanonico, turma, numero, no){
+function gabaritoIndividual(gabCanonico, turma, numero, no, comps, alternar){
   const gab = String(gabCanonico).toUpperCase(), nq = gab.length;
   const letras = ["A","B","C","D","E"].slice(0, no);
-  const {oq, oa} = embaralharProva(nq, no, turma, numero);
+  const {oq, oa} = ordemDaProva(nq, no, turma, numero, comps, alternar);
   let out = "";
   for(let p = 0; p < nq; p++){
     const certa = letras.indexOf(gab[oq[p]]);
@@ -77,7 +89,7 @@ function desenharCartao(doc, opt){
   const nq = gabC.length, no = opt.no || 5;
   const L = montarLayout(nq, no);
   const W = L.box_w, H = L.box_h, fid = L.fid_size, qz = L.quiet_zone, r = L.bubble_r;
-  const gab = gabaritoIndividual(gabC, opt.turma, opt.numero, no);
+  const gab = gabaritoIndividual(gabC, opt.turma, opt.numero, no, opt.comps, opt.alternar);
 
   const cx = opt.x + fid/2, cy = opt.y + fid/2;      // centro do fiducial ↖
   const P = (mx, my) => [cx + mx, cy + my];
@@ -111,20 +123,24 @@ function desenharCartao(doc, opt){
     if(q.isDark(i, j)) doc.rect(qx + j*passo, qy + i*passo, passo*1.02, passo*1.02, "F");
 
   // rótulos
-  doc.setTextColor(...COR.navy); doc.setFont("helvetica","bold"); doc.setFontSize(7);
-  let [tx,ty] = P(L.qr.x + 2, 7.5); doc.text("CARTÃO-RESPOSTA", tx, ty);
-  doc.setTextColor(...COR.orange); doc.setFontSize(6.5);
-  [tx,ty] = P(L.qr.x + 2, L.qr.y + L.qr.size + 5.5);
+  doc.setTextColor(...COR.navy); doc.setFont("helvetica","bold");
+  doc.setFontSize(L.compacto ? 5.5 : 7);
+  let [tx,ty] = P(L.qr.x + 1, L.compacto ? 4.5 : 7.5); doc.text("CARTÃO-RESPOSTA", tx, ty);
+  doc.setTextColor(...COR.orange); doc.setFontSize(L.compacto ? 5.5 : 6.5);
+  [tx,ty] = P(L.qr.x + 1, L.qr.y + L.qr.size + (L.compacto ? 4.5 : 5.5));
   doc.text(((opt.turma||"") + "  " + (opt.numero||"")).trim() ||
            String(opt.codigo).toUpperCase().slice(0,16), tx, ty);
-  doc.setTextColor(...COR.grey); doc.setFont("helvetica","normal"); doc.setFontSize(5.5);
-  [tx,ty] = P(L.qr.x + 2, L.qr.y + L.qr.size + 10.5);
+  doc.setTextColor(...COR.grey); doc.setFont("helvetica","normal");
+  doc.setFontSize(L.compacto ? 4.8 : 5.5);
+  [tx,ty] = P(L.qr.x + 1, L.qr.y + L.qr.size + (L.compacto ? 8.5 : 10.5));
   doc.text(nq + " questões · A a " + L.options[no-1], tx, ty);
 
   // grade de bolhas
-  const larguraFaixa = L.bubble_dx * (no - 1) + 2*r + 15;
+  const fsNum = L.compacto ? 6 : 8, fsLetra = L.compacto ? 5 : 6;
+  const recuo = L.compacto ? 3.6 : 6;
+  const larguraFaixa = L.label_gap + L.bubble_dx * (no - 1) + 2*r + recuo + 1;
   L.groups.forEach(g => {
-    doc.setTextColor(...COR.grey); doc.setFont("helvetica","bold"); doc.setFontSize(6);
+    doc.setTextColor(...COR.grey); doc.setFont("helvetica","bold"); doc.setFontSize(fsLetra);
     L.options.forEach((letra, k) => {
       const [px,py] = P(g.first_bubble_x + k*L.bubble_dx, L.row_y[0] - r - 2.2);
       doc.text(letra, px, py, {align:"center"});
@@ -133,11 +149,11 @@ function desenharCartao(doc, opt){
       const yy = L.row_y[i];
       if(i % 2 === 1){
         doc.setFillColor(...COR.zebra);
-        const [fx,fy] = P(g.label_x - 6, yy - r - 1.6);
-        doc.rect(fx, fy, larguraFaixa, 2*r + 3.2, "F");
+        const [fx,fy] = P(g.label_x - recuo, yy - r - 1.3);
+        doc.rect(fx, fy, larguraFaixa, 2*r + 2.6, "F");
       }
-      doc.setTextColor(...COR.navy); doc.setFont("helvetica","bold"); doc.setFontSize(8);
-      const [nx,ny] = P(g.label_x, yy + 1.3);
+      doc.setTextColor(...COR.navy); doc.setFont("helvetica","bold"); doc.setFontSize(fsNum);
+      const [nx,ny] = P(g.label_x, yy + r*0.55);
       doc.text(String(qn).padStart(2,"0"), nx, ny, {align:"center"});
 
       doc.setDrawColor(...COR.navy); doc.setLineWidth(0.7); doc.setFillColor(...COR.branco);
@@ -162,6 +178,8 @@ function desenharCartao(doc, opt){
 const MARG = 12, GUT = 7, TOPO = 12, MARGEM_INF = 10;
 const MARGEM_CARTAO = 6;
 const CORPOS = [10.5, 10];   // legibilidade tem piso: nunca menor que 10 pt
+const CORPOS_APERTO = [9.5, 9];  // só entram se 10 pt estourar o limite de folhas
+const MAX_PAGINAS = 4;           // uma prova não passa de quatro páginas por aluno
 
 const larguraColuna = doc =>
   (doc.internal.pageSize.getWidth() - 2 * MARG - GUT) / 2;
@@ -278,8 +296,21 @@ function blocosDaProva(doc, cfg, aluno, fs){
   const gabC = String(cfg.gabaritoCanonico).toUpperCase();
   const nq = gabC.length, no = cfg.no || 5;
   const opcoes = ["A", "B", "C", "D", "E"].slice(0, no);
-  const {oq, oa} = embaralharProva(nq, no, cfg.turma, aluno.numero);
+  const comps = (cfg.comps && cfg.comps.length === nq) ? cfg.comps : null;
+  const {oq, oa} = ordemDaProva(nq, no, cfg.turma, aluno.numero, comps, cfg.alternarBlocos);
   const blocos = [];
+  const ALT_CAB = 8.5;
+
+  /* faixa que abre cada parte do caderno (LÍNGUA PORTUGUESA, MATEMÁTICA).
+     Vai grudada na primeira questão do bloco para nunca ficar órfã no pé
+     de uma coluna. */
+  const cabecalhoBloco = (x, y, texto) => {
+    doc.setFillColor(...COR.navy);
+    doc.rect(x, y, larg, 5.5, "F");
+    doc.setTextColor(...COR.branco); doc.setFont(FONTE_TEXTO, "bold"); doc.setFontSize(6.5);
+    doc.text(String(texto).toUpperCase(), x + 2, y + 3.9);
+    return y + ALT_CAB;
+  };
 
   for(let p = 0; p < nq; p++){
     const base = (cfg.questoes || [])[oq[p]] ||
@@ -287,8 +318,16 @@ function blocosDaProva(doc, cfg, aluno, fs){
     const item = {enunciado: base.enunciado, imagem: base.imagem,
       alternativas: oa[p].map(ci => (base.alternativas || [])[ci])};
     const m = medidasQuestao(doc, item, larg, fs, opcoes);
-    blocos.push({h: m.h + 3.4, juntoComProximo: false,
-      desenhar: (x, y) => desenharQuestaoCol(doc, x, y, p + 1, item, larg, fs, opcoes, m)});
+    const compAtual = comps ? comps[oq[p]] : null;
+    const abre = !!compAtual && (p === 0 || comps[oq[p - 1]] !== compAtual);
+    const rotulo = abre
+      ? ((cfg.rotulosComp || {})[compAtual] || NOME_COMP[compAtual] || compAtual)
+      : null;
+    blocos.push({h: m.h + 3.4 + (abre ? ALT_CAB : 0), juntoComProximo: false,
+      desenhar: (x, y) => {
+        const yy = rotulo ? cabecalhoBloco(x, y, rotulo) : y;
+        return desenharQuestaoCol(doc, x, yy, p + 1, item, larg, fs, opcoes, m);
+      }});
   }
 
   const disc = cfg.discursivas || [];
@@ -353,6 +392,8 @@ function fluir(doc, cfg, aluno, fs, dry){
   if(!dry){
     desenharCartao(doc, {x: MARG + 2, y: y + L.quiet_zone,
       codigo: cfg.codigo, gabaritoCanonico: gabC, no,
+      comps: (cfg.comps && cfg.comps.length === nq) ? cfg.comps : null,
+      alternar: cfg.alternarBlocos,
       turma: cfg.turma, numero: aluno.numero, nome: aluno.nome});
   }
   const topoPrimeira = y + altCartao + 8;   // folga para não colidir com a moldura
@@ -428,12 +469,20 @@ function gerarProvas(cfg, alunos, jsPDFctor){
   const molde = new Ctor({unit: "mm", format: "a4"});
   prepararFontes(molde);
   const referencia = alunos[0] || {numero: "01", nome: "MODELO"};
-  const medidas = CORPOS.map(fs => ({fs, pgs: fluir(molde, cfg, referencia, fs, true)}));
-  const minimo = Math.min(...medidas.map(m => m.pgs));
+  let medidas = CORPOS.map(fs => ({fs, pgs: fluir(molde, cfg, referencia, fs, true)}));
+  let minimo = Math.min(...medidas.map(m => m.pgs));
+  /* Passou de quatro folhas por aluno? Aí sim vale apertar a letra abaixo
+     do piso de 10 pt — é menos ruim do que imprimir uma quinta página. */
+  if(minimo > MAX_PAGINAS){
+    medidas = medidas.concat(
+      CORPOS_APERTO.map(fs => ({fs, pgs: fluir(molde, cfg, referencia, fs, true)})));
+    minimo = Math.min(...medidas.map(m => m.pgs));
+  }
   const escolha = medidas.find(m => m.pgs === minimo);   // CORPOS vem do maior
   const corpo = escolha.fs;
   doc.corpoUsado = corpo;
   doc.paginasPorAluno = escolha.pgs;
+  if(escolha.pgs > MAX_PAGINAS) doc.avisoPaginas = escolha.pgs;
 
   alunos.forEach((aluno, idx) => {
     if(idx) doc.addPage();

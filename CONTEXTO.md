@@ -51,29 +51,59 @@ outro e verifique que as coordenadas normalizadas continuam idênticas.
 Para 10 questões × 5 alternativas o cartão precisa continuar com
 `box_w = 164`, `box_h = 52` — provas já impressas dependem disso.
 
+São **dois perfis**, escolhidos por `nq`: até 20 questões o clássico, de
+sempre (duas colunas); acima disso o **compacto**, de três colunas, passo
+5,6 mm e raio 1,9 mm. No perfil clássico um caderno de 30 itens ficava com
+124 mm de altura — quase metade da folha; no compacto são 63 mm, 24,7% da
+página com a zona de silêncio. **Mudar o limite de 20 invalida os cartões
+já impressos naquela faixa**, porque o scanner reconstrói a geometria a
+partir de `nq`: um cartão de 15 questões impresso no perfil antigo deixa de
+ser lido se 15 passar a ser compacto.
+
 **2. O QR carrega o gabarito INDIVIDUAL, não o canônico.**
 `DBM4|codigo|gabarito_do_aluno|turma|numero|nome|NQxNO`
 Trocar um pelo outro faz a turma inteira sair com nota errada **sem
 nenhum erro aparente**. Por isso `desenharCartao()` recebe o canônico e
 embaralha internamente — nunca monte o payload à mão.
 
-**3. `embaralho.js` é espelho exato de `embaralho.py`.**
+**3. Ordem impressa = ordem do QR.**
+`ordemDaProva()` (gerador) e `ordemDe()` (app) precisam devolver a mesma
+coisa. No caderno de simulado as questões saem **agrupadas por componente**
+— `embaralharEmBlocos()` sorteia como sempre e depois junta os blocos. Com
+`alternarBlocos` (padrão), o bloco que ABRE a prova também é sorteado por
+(turma, número): um estudante começa por Língua Portuguesa, o vizinho por
+Matemática. Só depende de (turma, número, `comps`, `alternar`), então o
+corretor reconstrói igual.
+
+Isso significa que `desenharCartao()` precisa receber `comps` e `alternar`
+em **todos** os pontos de chamada — `fluir()` e `gerarFolhasDeCartoes()`.
+Faltou em `fluir()` na primeira versão: as questões saíam em blocos e o QR
+era montado sem eles, ou seja, cada cartão carregava o gabarito de uma
+prova que não existia. Não dá erro, não dá aviso: a turma inteira sai com
+nota errada. O teste que pega isso é o `teste12`, que espiona o que
+`qrcode.addData()` recebeu de verdade e confere contra a ordem impressa.
+
+Alternar os blocos só serve para **aplicação em dia único**. Trocar essa
+chave depois de imprimir invalida os cartões já distribuídos — a tela pede
+confirmação.
+
+**4. `embaralho.js` é espelho exato de `embaralho.py`.**
 FNV-1a de 32 bits para a semente, LCG para o sorteio, aritmética `>>> 0`.
 Mesma dupla (turma, número) → sempre a mesma prova. É o que permite
 corrigir sabendo apenas turma e número.
 
-**4. Convenção do embaralhamento de alternativas.**
+**5. Convenção do embaralhamento de alternativas.**
 `oa[p][k]` = índice da alternativa canônica impressa na posição `k`.
 Ao gerar: `alternativas[k] = base.alternativas[oa[p][k]]`.
 Ao corrigir: `letraCanonica()` desfaz.
 
-**5. Cadastro se encerra, não se apaga.**
+**6. Cadastro se encerra, não se apaga.**
 Escola, turma e disciplina têm `ativa`. Deixar de lecionar é `ativa:false`
 — as provas, notas e fechamentos continuam existindo e visíveis. Excluir
 de verdade só é oferecido enquanto não houver nada pendurado no cadastro.
 O mesmo já valia para o aluno transferido (`ate` = período de saída).
 
-**6. O caderno do simulado é uma prova comum.**
+**7. O caderno do simulado é uma prova comum.**
 Um Simulado SAEPE tem UM caderno: um registro de `E.provas` marcado com
 `simulado`, em que `comps[i]` diz se o item `i` é de Língua Portuguesa ou
 de Matemática. É isso que faz
@@ -83,7 +113,7 @@ código. Em troca, **todo filtro de prova precisa excluir cadernos**:
 fechamento e a aba Notas. Caderno não tem `periodo` nem `disciplina` — não
 entra na média de bimestre nenhum.
 
-**7. O calendário é da turma, não do app.**
+**8. O calendário é da turma, não do app.**
 `turma.periodo = {tipo:"bimestre"|"trimestre", qtd}`. Toda nomenclatura de
 período sai de `nomePeriodo()` / `periodosDe()`, que leem a turma. Turma
 bimestral nunca pode exibir “trimestre”, e vice-versa. Não existe
@@ -112,6 +142,13 @@ ignorada e o app não abre a frio sem internet. Baixar os arquivos em
 paralelo também derruba os maiores — baixe em série. **Toda publicação
 precisa de um `VERSAO` novo em `sw.js`**, senão o aparelho continua
 servindo o `index.html` velho.
+
+**Linha em branco não encerra enunciado.** O Word separa parágrafos por
+linha vazia, e o leitor tratava isso como fim do enunciado: uma questão que
+começava com "Leia o texto." saía impressa **só com essa frase** — o texto
+de apoio inteiro sumia em silêncio. Hoje a linha vazia vira quebra de
+parágrafo dentro do enunciado e só encerra a continuação de uma
+alternativa.
 
 **Filtro de ruído em PDF.** Normalizar números para achar cabeçalho
 repetido faz `A) f(x) = 3x + 6` e `A) f(x) = 5x + 4` virarem a mesma linha,
@@ -142,11 +179,19 @@ uma etapa (5º EF, 9º EF ou 3º EM) e cria **um caderno**, com a quantidade
 de itens de cada componente escolhida na hora (padrão 13 + 13; o cartão
 comporta até 30 no total). Cada item carrega o componente e o descritor.
 
-**Apuração é sempre separada por componente.** Proficiência, padrão de
-desempenho, distribuição da turma e acerto por descritor saem uma vez para
-Língua Portuguesa e outra para Matemática, cada uma medida só pelos itens
-dela — por isso a classificação é proporcional ao número de itens do
-componente, não do caderno.
+**Apuração é sempre separada por componente**, como o boletim do SAEPE:
+para cada um sai proficiência média, padrão médio, participação, a
+distribuição da turma pelos quatro padrões (em % e em número), o acerto
+por descritor e a lista de estudantes. Cada uma medida só pelos itens
+daquele componente — por isso a classificação é proporcional ao número de
+itens do componente, não do caderno. O banco de descritores também é por
+componente: `D17` é "relações lógico-discursivas" em Língua Portuguesa e
+"equação do 2º grau" em Matemática, e não podem se misturar.
+
+**Item que não separa** é sinalizado pela correlação item-total (`r`),
+abaixo de 0,20 — o limiar usado na literatura. Sinalizar pelo `a` do
+modelo, como fiz na primeira versão, marcava quase todos os itens: `a` só
+passa de 0,6 quando `r` passa de 0,51, que é altíssimo.
 
 Pontos de corte dos padrões (Elementar I, Elementar II, Básico, Desejável),
 oficiais, da Revista do Professor SAEPE 2018:
@@ -246,7 +291,7 @@ E = {
              periodo:{tipo:"trimestre"|"bimestre", qtd},
              alunos:[{numero, nome, desde, ate}]}],
   simulados:[{id, turma, titulo, etapa:"5EF"|"9EF"|"3EM", ano,
-             prova:provaId, metodo:"tri"|"pct"}],
+             prova:provaId, metodo:"tri"|"pct", alternarBlocos}],
   descritores:{LP:{D1:"texto"}, MAT:{...}},
   provas:  [{id, turma, disciplina, codigo, titulo, periodo, nq, no, gabC,
              simulado, comps[], desc[],        // só no caderno do simulado
@@ -284,7 +329,18 @@ Corpo de texto: **10,5 pt, piso de 10 pt**. O app escolhe o tamanho que
 resulta no **menor número de páginas**; empate, letra maior. Nunca gasta
 uma página só para o rascunho.
 
-Alcance atual: 5–6 questões em 1 página, 7–14 em 2, 15–20 em 3.
+**Teto de 4 páginas por estudante** (`MAX_PAGINAS`). Só se 10 pt estourar
+esse teto é que a letra desce para 9,5 e 9 pt — apertar a letra é menos
+ruim do que uma quinta folha. Se nem assim couber, o app gera mesmo assim e
+avisa na tela quantas páginas saíram, pedindo para cortar questões.
+
+Alcance atual: 5–6 questões em 1 página, 7–14 em 2, 15–20 em 3, e o caderno
+de 30 itens do simulado em 4.
+
+No caderno de simulado, cada componente abre com uma **faixa de bloco**
+(LÍNGUA PORTUGUESA, MATEMÁTICA). A faixa é somada à altura da primeira
+questão do bloco, e não é um bloco à parte — assim ela nunca fica órfã no
+pé de uma coluna.
 
 ---
 
