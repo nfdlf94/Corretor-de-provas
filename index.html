@@ -1007,7 +1007,8 @@ function itensDoCaderno(pr){
     comp:(pr.comps||[])[i]||"LP",
     questao:(pr.questoes||[])[i]||null,
     gab:gabs[i]||"",
-    desc:(pr.desc||[])[i]||""
+    desc:(pr.desc||[])[i]||"",
+    orig:(pr.orig||[])[i]||null      // número que a questão tinha no arquivo
   }));
 }
 function gravarCaderno(pr,lista){
@@ -1015,6 +1016,7 @@ function gravarCaderno(pr,lista){
   pr.no=SAEPE_NO;
   pr.comps=lista.map(x=>x.comp);
   pr.desc=lista.map(x=>x.desc?codDesc(x.desc):"");
+  pr.orig=lista.map(x=>x.orig||null);
   pr.gabItens=lista.map(x=>(x.gab||"").toUpperCase());
   pr.gabC=pr.gabItens.map(x=>x||"A").join("");   // o QR precisa de nq letras
   pr.habs=pr.desc.map((cod,i)=>cod?curtoComp(pr.comps[i])+" "+rotuloDesc(pr.comps[i],cod):"");
@@ -1034,14 +1036,101 @@ function faltasDoCaderno(pr){
   return f;
 }
 
+/* ── quantidade pedida pelo professor ──────────────────────────────
+   É ela que manda, não a quantidade que veio no arquivo. */
+const qtdPedida=(sm,comp)=>{
+  const q=(sm&&sm.qtd)||{};
+  const v=parseInt(q[comp],10);
+  return isNaN(v)?0:Math.max(0,v);
+};
+
+/* Sorteio sem viés (Fisher-Yates), para não pegar sempre as primeiras. */
+function sortear(lista,quantos){
+  const p=lista.slice();
+  for(let i=p.length-1;i>0;i--){
+    const j=Math.floor(Math.random()*(i+1));
+    const t=p[i]; p[i]=p[j]; p[j]=t;
+  }
+  return p.slice(0,quantos);
+}
+
+/* Escolhe os itens que vão entrar, respeitando a quantidade pedida.
+   O item viaja INTEIRO — enunciado, alternativas, gabarito, descritor e o
+   número que tinha no arquivo. Separar qualquer um deles do resto faria a
+   correção e a análise por descritor apontarem para a questão errada. */
+function selecionarItens(sm,comp,itens){
+  const pedido=qtdPedida(sm,comp);
+  if(!pedido) return {erro:"Defina quantas questões de "+nomeComp(comp)+
+    " o simulado terá antes de subir o arquivo."};
+  if(itens.length<pedido) return {erro:"O arquivo enviado tem apenas "+itens.length+
+    " questões de "+nomeComp(comp)+", mas você pediu "+pedido+
+    ". Envie um arquivo com mais questões ou reduza a quantidade pedida."};
+  const escolhidos=(itens.length===pedido)
+    ? itens.map((x,i)=>Object.assign({},x,{orig:i+1}))
+    : sortear(itens.map((x,i)=>Object.assign({},x,{orig:i+1})),pedido)
+        .sort((a,b)=>a.orig-b.orig);
+  return {itens:escolhidos, encontradas:itens.length, usadas:escolhidos.length,
+          sorteadas:itens.length>pedido};
+}
+
 /* Substitui os itens de UM componente, preservando os do outro.
    A ordem do caderno é sempre Língua Portuguesa e depois Matemática. */
 function aplicarImportacao(sm,comp,itens){
   const pr=provaDoSim(sm); if(!pr) return null;
   const outros=itensDoCaderno(pr).filter(x=>x.comp!==comp);
-  const novos=itens.map(x=>({comp, questao:x.questao, gab:x.gab, desc:x.desc}));
+  const novos=itens.map(x=>({comp, questao:x.questao, gab:x.gab,
+    desc:x.desc, orig:x.orig||null}));
   const lista=(comp==="LP")?novos.concat(outros):outros.concat(novos);
   return gravarCaderno(pr,lista);
+}
+
+/* Ajusta o caderno quando o professor muda a quantidade pedida: sobra
+   vira item em branco no fim do bloco, falta corta do fim. Nunca mexe no
+   outro componente. */
+function ajustarQuantidade(sm,comp){
+  const pr=provaDoSim(sm); if(!pr) return;
+  const pedido=qtdPedida(sm,comp);
+  const doComp=itensDoCaderno(pr).filter(x=>x.comp===comp);
+  const outros=itensDoCaderno(pr).filter(x=>x.comp!==comp);
+  const novos=doComp.slice(0,pedido);
+  while(novos.length<pedido) novos.push({comp,questao:null,gab:"",desc:"",orig:null});
+  const lista=(comp==="LP")?novos.concat(outros):outros.concat(novos);
+  gravarCaderno(pr,lista);
+}
+
+/* ── nota de participação ──────────────────────────────────────────
+   Proporcional aos acertos: quem acertou tudo leva o valor cheio, quem
+   acertou metade leva metade. Fica FORA da média do período — é um apoio
+   para o professor lançar a pontuação onde quiser. */
+const VALOR_PART_PADRAO=1;
+const valorParticipacao=sm=>{
+  const v=sm&&sm.valorParticipacao;
+  return (v==null||isNaN(v))?VALOR_PART_PADRAO:Number(v);
+};
+function notaParticipacao(sm,acertos,total){
+  if(!total||acertos==null) return null;
+  return Math.round(valorParticipacao(sm)*(acertos/total)*100)/100;
+}
+/* uma linha por estudante, com o total e a quebra por componente */
+function participacaoDe(sm){
+  const pr=provaDoSim(sm), t=turmaDe(sm.turma);
+  if(!pr||!t) return [];
+  const linhas=alunosDaProva(t,pr).map(a=>({aluno:a,
+    res:E.res.find(x=>x.prova===pr.id && x.numero===a.numero)||null}));
+  E.res.filter(r=>r.prova===pr.id).forEach(r=>{
+    if(!linhas.some(L=>L.aluno.numero===r.numero))
+      linhas.push({aluno:{numero:r.numero,nome:r.nome},res:r,fora:true});
+  });
+  return linhas.map(L=>{
+    const porComp={};
+    COMPONENTES.forEach(c=>{
+      const n=itensDe(pr,c.id).length;
+      porComp[c.id]={total:n, acertos:L.res?acertosComp(pr,L.res,c.id):null,
+        nota:L.res?notaParticipacao(sm,acertosComp(pr,L.res,c.id),n):null};
+    });
+    return Object.assign(L,{total:pr.nq, acertos:L.res?L.res.acertos:null,
+      nota:L.res?notaParticipacao(sm,L.res.acertos,pr.nq):null, porComp});
+  }).sort((x,y)=>ordNum(x.aluno.numero,y.aluno.numero));
 }
 
 /* banco de descritores: código → texto, reaproveitado entre simulados */
@@ -1099,10 +1188,16 @@ const alternaBlocos=p=>{
   const sm=p&&p.simulado?simuladoDe(p.simulado):null;
   return !!(sm && sm.alternarBlocos!==false);
 };
-const ordemDe=(p,turma,numero)=>
-  (p && p.comps && p.comps.length===p.nq)
-    ? embaralharEmBlocos(p.nq,p.no,turma,numero,p.comps,alternaBlocos(p))
-    : embaralharProva(p.nq,p.no,turma,numero);
+const tiposDe=p=>{
+  const sm=p&&p.simulado?simuladoDe(p.simulado):null;
+  return sm?(sm.tipos||0):0;
+};
+const ordemDe=(p,turma,numero)=>{
+  const chave=chaveDeOrdem(numero,tiposDe(p));   // com tipos, o tipo é a semente
+  return (p && p.comps && p.comps.length===p.nq)
+    ? embaralharEmBlocos(p.nq,p.no,turma,chave,p.comps,alternaBlocos(p))
+    : embaralharProva(p.nq,p.no,turma,chave);
+};
 
 function gabaritoDe(nomeTurma,numero){
   const p=provaAtiva(); if(!p||!p.gabC) return null;
@@ -1213,10 +1308,10 @@ function montarCasaInterno(box){
   if(casaNivel==="turma")       return telaTurma(box);
   if(casaNivel==="disciplinas") return telaDisciplinas(box);
   if(casaNivel==="simulados")   return telaSimulados(box);
-  if(casaNivel==="novoSim")     return telaNovoSimulado(box);
+
   if(casaNivel==="simulado")    return telaSimulado(box);
   if(casaNivel==="itens")       return telaItens(box);
-  if(casaNivel==="importar")    return telaImportar(box);
+
   if(casaNivel==="banco")       return telaBanco(box);
   if(casaNivel==="relSaepe")    return telaRelSaepe(box);
   if(casaNivel==="turmas")   return telaTurmas(box);
@@ -2710,7 +2805,7 @@ function telaProva(box){
   $("#aQuestoes").onclick=()=>{casaNivel="questoes";montarCasa();};
   $("#aArquivo").onclick=()=>{
     if(ehCaderno(p)){                    // caderno sobe por componente, não inteiro
-      casaSim=p.simulado; impDados=null; casaNivel="importar"; montarCasa(); return; }
+      casaSim=p.simulado; casaNivel="simulado"; montarCasa(); return; }
     casaNivel="ler"; montarCasa(); };
   if($("#aTrocar")) $("#aTrocar").onclick=()=>{
     const n=resDa(p.id).length;
@@ -3006,6 +3101,7 @@ function gerarPDF(p,t,modo){
         discursivas:p.discursivas||[],
         comps:ehCaderno(p)?(p.comps||null):null,
         alternarBlocos:ehCaderno(p)&&alternaBlocos(p),
+        tipos:ehCaderno(p)?((simuladoDe(p.simulado)||{}).tipos||0):0,
         rotulosComp:COMPONENTES.reduce((m,c)=>{m[c.id]=c.nome;return m;},{})};
       const doc = (modo==="cartoes")
         ? gerarFolhasDeCartoes(cfg,t.alunos)
@@ -3045,6 +3141,7 @@ function gerarFolhasDeCartoes(cfg,alunos){
     desenharCartao(doc,{x:margem,y:margem+linha*passo,codigo:cfg.codigo,
       gabaritoCanonico:cfg.gabaritoCanonico,no:cfg.no,turma:cfg.turma,
       comps:cfg.comps||null, alternar:cfg.alternarBlocos,
+      chave:chaveDeOrdem(a.numero,cfg.tipos||0),
       numero:a.numero,nome:a.nome});
     doc.setFont("helvetica","normal"); doc.setFontSize(7.5); doc.setTextColor(120,128,140);
     doc.text(a.numero+" · "+a.nome, margem, margem+linha*passo+alt+1.5);
@@ -3144,7 +3241,7 @@ function telaDisciplinas(box){
    Turma › Simulados SAEPE › Criar simulado. Um caderno, itens marcados
    como Língua Portuguesa ou Matemática, resultados separados.
    ═══════════════════════════════════════════════════════════════════ */
-let casaSim=null, casaComp=null;
+let casaSim=null, casaComp=null, irParticipacao=false;
 
 function telaSimulados(box){
   const t=turmaDe(casaTurma);
@@ -3161,21 +3258,48 @@ function telaSimulados(box){
   }else{
     h+=sims.map(sm=>{
       const pr=provaDoSim(sm), n=pr?resDa(pr.id).length:0;
-      const qtd=COMPONENTES.map(c=>pr?itensDe(pr,c.id).length:0);
+      const fl=pr?faltasDoCaderno(pr):null;
+      const estado=!pr||!pr.nq ? "em branco"
+        : (fl.totalQuestoes||fl.gab) ? "em preparo"
+        : n ? n+" corrigido"+(n===1?"":"s") : "pronto para aplicar";
       return `<button class="item" data-s="${sm.id}"><div class="cor">
         <div class="t1">${esc(sm.titulo)}</div>
         <div class="t2">${esc(etapaDe(sm.etapa).nome)} · ${sm.ano} ·
-          ${qtd[0]} + ${qtd[1]} itens · ${n} corrigido${n===1?"":"s"}</div>
-        </div><span class="ch">›</span></button>`;}).join("");
+          ${COMPONENTES.map(c=>qtdPedida(sm,c.id)).join(" + ")} questões</div>
+        </div><span class="tag${(n||estado==="pronto para aplicar")?" ok":""}">${esc(estado)}</span>
+        <span class="ch">›</span></button>`;}).join("");
   }
   h+=`<button class="btn" id="bNovoSim" style="margin-top:12px">Criar simulado</button>
     <button class="btn gho" id="bBanco" style="margin-top:9px">Banco de descritores</button>`;
   box.innerHTML=h;
   $("#mVolta").onclick=()=>{casaNivel="disciplinas";montarCasa();};
-  $("#bNovoSim").onclick=()=>{casaForm=null;casaNivel="novoSim";montarCasa();};
+  $("#bNovoSim").onclick=()=>{ casaSim=criarSimulado(t).id; casaNivel="simulado"; montarCasa(); };
   $("#bBanco").onclick=()=>{casaComp=casaComp||"LP";casaNivel="banco";montarCasa();};
   box.querySelectorAll("[data-s]").forEach(b=>b.onclick=()=>{
     casaSim=b.dataset.s; casaNivel="simulado"; montarCasa(); });
+}
+
+/* Um simulado novo já nasce gravado, como rascunho: o professor pode sair
+   e voltar sem perder nada, e não existe botão “Salvar” para procurar. */
+function criarSimulado(t){
+  const ano=new Date().getFullYear();
+  const n=simuladosDa(t.id).length+1;
+  const sm={id:uid("s"),turma:t.id,titulo:n+"º Simulado SAEPE",etapa:sugerirEtapa(t),
+    ano, metodo:"tri", alternarBlocos:true, tipos:0,
+    valorParticipacao:VALOR_PART_PADRAO, qtd:{LP:10,MAT:10},
+    fontes:{}, criado:Date.now(), prova:null};
+  const pr={id:uid("p"),turma:t.id,disciplina:null,simulado:sm.id,
+    codigo:codigoSugerido(t,ano),titulo:sm.titulo,
+    nq:0,no:SAEPE_NO,gabC:"",periodo:null,
+    comps:[],desc:[],habs:[],gabItens:[],orig:[],
+    pontosObj:10,pontosDisc:0,questoes:[],discursivas:[],criada:Date.now()};
+  sm.prova=pr.id;
+  E.provas.push(pr);
+  if(!Array.isArray(E.simulados)) E.simulados=[];
+  E.simulados.push(sm);
+  COMPONENTES.forEach(c=>ajustarQuantidade(sm,c.id));
+  salvar();
+  return sm;
 }
 
 function sugerirEtapa(t){
@@ -3188,297 +3312,287 @@ function sugerirEtapa(t){
 const codigoSugerido=(t,ano)=>
   (String(t.nome).toUpperCase().replace(/[^A-Z0-9]/g,"")+"-SAEPE-"+String(ano).slice(2)).slice(0,16);
 
-function telaNovoSimulado(box){
-  const t=turmaDe(casaTurma);
-  if(!t){ casaNivel="turmas"; return montarCasa(); }
-  const hoje=new Date().getFullYear();
-  const F=casaForm||(casaForm={titulo:"Simulado SAEPE",etapa:sugerirEtapa(t),
-    ano:hoje,cod:"",nLP:13,nMAT:13});
-  const total=F.nLP+F.nMAT;
-  const sinc=()=>{
-    F.titulo=$("#sTit").value; F.ano=parseInt($("#sAno").value,10)||hoje;
-    F.cod=$("#sCod").value.trim().toUpperCase();
-  };
-  const cont=(id,valor)=>`<div class="cont">
-      <button data-menos="${id}">−</button>
-      <input id="${id}" type="number" inputmode="numeric" min="0" max="30" value="${valor}">
-      <button data-mais="${id}">+</button></div>`;
-  box.innerHTML=`<div class="migalha"><button id="mVolta">‹ Simulados</button></div>
-    <h2>Novo simulado</h2>
-    <p class="sub">Turma ${esc(t.nome)} · um caderno, cinco alternativas por item.</p>
-    <label>Título</label>
-    <input id="sTit" value="${esc(F.titulo)}" placeholder="Simulado SAEPE — 1ª aplicação">
-    <div class="rot">Etapa avaliada</div>
-    <div class="esco" style="grid-template-columns:1fr">
-      ${ETAPAS.map(et=>`<button data-et="${et.id}" class="${F.etapa===et.id?"sel":""}">
-        <div class="t">${esc(et.nome)}</div>
-        <div class="s">Básico a partir de ${et.cortes.LP[1]} em Língua Portuguesa
-          e ${et.cortes.MAT[1]} em Matemática</div></button>`).join("")}
-    </div>
-    <div class="rot">Quantos itens de cada componente</div>
-    <p class="hint" style="margin-top:-4px">Se você for subir o arquivo do caderno,
-      a quantidade do documento substitui a que estiver aqui.</p>
-    <label>Língua Portuguesa</label>${cont("sNLP",F.nLP)}
-    <label style="margin-top:12px">Matemática</label>${cont("sNMAT",F.nMAT)}
-    <p class="hint">Total: <b>${total}</b> ${total>SAEPE_MAX
-      ?`— o cartão-resposta comporta no máximo ${SAEPE_MAX}.`
-      :total===0?"— caderno vazio; só dá para montá-lo subindo os arquivos."
-      :total<SAEPE_MIN?`— com menos de ${SAEPE_MIN} itens não sai cartão-resposta.`
-      :"itens no cartão. A classificação é proporcional: cada componente é medido pelos itens dele."}</p>
-    <label style="margin-top:14px">Ano</label>
-    <input id="sAno" type="number" inputmode="numeric" value="${F.ano}">
-    <label>Código do caderno</label>
-    <input id="sCod" value="${esc(F.cod)}" placeholder="${esc(codigoSugerido(t,F.ano))}">
-    <p class="hint">Vai impresso no cartão e dentro do QR.</p>
-    <button class="btn" id="sCriar" style="margin-top:16px">Criar simulado</button>`;
-  $("#mVolta").onclick=()=>{sinc();casaNivel="simulados";montarCasa();};
-  ["#sTit","#sAno","#sCod"].forEach(id=>$(id).oninput=sinc);
-  box.querySelectorAll("[data-et]").forEach(b=>b.onclick=()=>{
-    sinc(); F.etapa=b.dataset.et; montarCasa(); });
-  [["sNLP","nLP"],["sNMAT","nMAT"]].forEach(([id,campo])=>{
-    const aplica=v=>{ sinc(); F[campo]=Math.max(0,Math.min(30,v||0)); montarCasa(); };
-    box.querySelector(`[data-menos="${id}"]`).onclick=()=>aplica(F[campo]-1);
-    box.querySelector(`[data-mais="${id}"]`).onclick=()=>aplica(F[campo]+1);
-    $("#"+id).onchange=()=>aplica(parseInt($("#"+id).value,10));
-  });
-  $("#sCriar").onclick=()=>{
-    sinc();
-    if(!F.titulo.trim()){ alert("Dê um título ao simulado."); return; }
-    const n=F.nLP+F.nMAT;
-    if(n>SAEPE_MAX){
-      alert("O cartão-resposta vai até "+SAEPE_MAX+" itens. Agora está com "+n+"."); return; }
-    if(n>0 && n<SAEPE_MIN){
-      alert("Com menos de "+SAEPE_MIN+" itens não sai cartão-resposta. Use 0 para montar pelo arquivo."); return; }
-    const sm={id:uid("s"),turma:t.id,titulo:F.titulo.trim(),etapa:F.etapa,ano:F.ano,
-      metodo:"tri",alternarBlocos:true,criado:Date.now(),prova:null};
-    const comps=[].concat(new Array(F.nLP).fill("LP"), new Array(F.nMAT).fill("MAT"));
-    const pr={id:uid("p"),turma:t.id,disciplina:null,simulado:sm.id,
-      codigo:F.cod||codigoSugerido(t,F.ano),titulo:F.titulo.trim(),
-      nq:0,no:SAEPE_NO,gabC:"",periodo:null,
-      comps:[],desc:[],habs:[],gabItens:[],
-      pontosObj:10,pontosDisc:0,questoes:[],discursivas:[],criada:Date.now()};
-    gravarCaderno(pr, comps.map(c=>({comp:c,questao:null,gab:"",desc:""})));
-    sm.prova=pr.id;
-    E.provas.push(pr);
-    if(!Array.isArray(E.simulados)) E.simulados=[];
-    E.simulados.push(sm); salvar();
-    casaForm=null; casaSim=sm.id; casaNivel="simulado"; montarCasa();
-  };
+/* ── criação e edição do simulado, em uma tela só ──────────────────
+   Era um vaivém entre quatro telas (criar → simulado → importar →
+   itens). Agora é um formulário linear, com as etapas numeradas e tudo
+   gravando sozinho: não há botão “Salvar” que pareça não fazer nada. */
+function avisoSalvo(){
+  const el=$("#smSalvo"); if(!el) return;
+  el.textContent="salvo";
+  el.style.opacity="1";
+  clearTimeout(avisoSalvo._t);
+  avisoSalvo._t=setTimeout(()=>{ if($("#smSalvo")) $("#smSalvo").style.opacity="0"; },1400);
 }
+function guardar(){ salvar(); avisoSalvo(); }
 
 function telaSimulado(box){
   const sm=simuladoDe(casaSim);
   if(!sm){ casaNivel="simulados"; return montarCasa(); }
   const pr=provaDoSim(sm), t=turmaDe(sm.turma);
   if(!pr||!t){ casaNivel="simulados"; return montarCasa(); }
-  const et=etapaDe(sm.etapa);
-  const f=faltasDoCaderno(pr);
-  const pronto=f.completo;
-  const nDesc=(pr.desc||[]).filter(Boolean).length;
-  let h=`<div class="migalha"><button id="mVolta">‹ Simulados</button></div>
-    <h2>${esc(sm.titulo)}</h2>
-    <p class="sub">${esc(t.nome)} · ${esc(et.nome)} · ${sm.ano} · ${esc(pr.codigo)}</p>
-    <div class="chip">itens <b>${pr.nq}</b></div>
-    <div class="chip">questões <b>${pr.nq-f.totalQuestoes}/${pr.nq}</b></div>
-    <div class="chip">gabarito <b>${pr.nq-f.gab}/${pr.nq}</b></div>
-    <div class="chip">descritores <b>${nDesc}/${pr.nq}</b></div>
-    <div class="chip">corrigidos <b>${resDa(pr.id).length}</b></div>
-    ${pronto?"":`<div class="aviso" style="margin-top:12px">${
-      f.totalQuestoes?COMPONENTES.filter(x=>f.questoes[x.id])
-        .map(x=>f.questoes[x.id]+" itens de "+esc(x.nome)+" sem enunciado").join(" · "):""}${
-      (f.totalQuestoes&&f.gab)?" · ":""}${
-      f.gab?f.gab+" sem letra no gabarito":""}${
-      pr.nq<MIN_Q_CARTAO?"O caderno ainda não tem itens.":""}</div>`}
-    <div class="rot">Composição do caderno</div>`;
+  const et=etapaDe(sm.etapa), f=faltasDoCaderno(pr);
+  const corrigidos=resDa(pr.id).length;
+  const nAlunos=(t.alunos||[]).filter(ativo).length;
+
+  const passo=(n,titulo,estado)=>`<div class="rot" style="display:flex;align-items:center;gap:8px">
+    <span class="nu" style="flex:0 0 auto;color:var(--orange)">${n}</span>
+    <span style="flex:1">${titulo}</span>
+    ${estado?`<span class="tag${estado.ok?" ok":""}">${esc(estado.txt)}</span>`:""}</div>`;
+
+  let h=`<div class="migalha"><button id="mVolta">‹ Simulados</button><span>·</span>
+      <span>${esc(t.nome)}</span><span id="smSalvo" class="tag ok"
+      style="opacity:0;transition:opacity .3s;margin-left:auto"></span></div>
+    <h2>${esc(sm.titulo||"Simulado")}</h2>
+    <p class="sub">${esc(et.nome)} · ${nAlunos} estudante${nAlunos===1?"":"s"} na turma</p>`;
+
+  /* 1 — identificação */
+  h+=passo(1,"Identificação")+`
+    <label>Nome do simulado</label>
+    <input id="smTit" value="${esc(sm.titulo||"")}" placeholder="1º Simulado SAEPE">
+    <div class="duo" style="margin-top:10px">
+      <div><label>Etapa avaliada</label>
+        <select id="smEt">${ETAPAS.map(x=>`<option value="${x.id}"${
+          x.id===sm.etapa?" selected":""}>${esc(x.nome)}</option>`).join("")}</select></div>
+      <div><label>Ano</label>
+        <input id="smAno" type="number" inputmode="numeric" value="${sm.ano||new Date().getFullYear()}"></div>
+    </div>
+    <label>Código impresso no cartão</label>
+    <input id="smCod" value="${esc(pr.codigo||"")}">`;
+
+  /* 2 — quantidade de questões */
+  const pedidoTotal=COMPONENTES.reduce((n,c)=>n+qtdPedida(sm,c.id),0);
+  h+=passo(2,"Quantidade de questões",
+      {ok:pedidoTotal>0&&pedidoTotal<=SAEPE_MAX, txt:pedidoTotal+" no total"})+
+    `<p class="hint" style="margin-top:-4px">Esta é a regra: o simulado terá exatamente
+      esta quantidade, mesmo que os arquivos tragam mais questões.</p>
+    <div class="duo">${COMPONENTES.map(c=>`<div>
+      <label>${esc(c.nome)}</label>
+      <input id="smQ${c.id}" type="number" inputmode="numeric" min="0" max="30"
+        value="${qtdPedida(sm,c.id)}"></div>`).join("")}</div>
+    ${pedidoTotal>SAEPE_MAX
+      ? `<div class="aviso" style="margin-top:10px">O cartão-resposta comporta até
+         ${SAEPE_MAX} itens no total. Reduza para caber.</div>`
+      : pedidoTotal&&pedidoTotal<MIN_Q_CARTAO
+      ? `<div class="aviso" style="margin-top:10px">Com menos de ${MIN_Q_CARTAO} itens
+         não sai cartão-resposta.</div>`:""}`;
+
+  /* 3 — arquivos */
+  const pronto3=COMPONENTES.every(c=>!qtdPedida(sm,c.id)||!f.questoes[c.id]);
+  h+=passo(3,"Questões",{ok:pronto3, txt:(pr.nq-f.totalQuestoes)+"/"+pr.nq+" prontas"});
+  h+=`<p class="hint" style="margin-top:-4px">Word ou PDF com as questões numeradas, um
+    bloco <b>GABARITO</b> e um bloco <b>DESCRITORES</b> no fim.</p>`;
   COMPONENTES.forEach(c=>{
-    const idx=itensDe(pr,c.id);
-    h+=`<div class="barra"><span class="lb">${esc(c.nome)}</span>
-      <span class="t"><span class="f" style="width:${pr.nq?100*idx.length/pr.nq:0}%;background:${
-        c.id==="LP"?"var(--sky)":"var(--orange)"}"></span></span>
-      <span class="p">${idx.length}</span></div>`;
+    const pedido=qtdPedida(sm,c.id);
+    const temAgora=itensDe(pr,c.id).filter(i=>temQuestao((pr.questoes||[])[i])).length;
+    const fonte=(sm.fontes||{})[c.id];
+    h+=`<div class="item" style="display:block;cursor:default">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="flex:1;min-width:0">
+          <div class="t1">${esc(c.nome)}</div>
+          <div class="t2">${pedido?pedido+" questões pedidas":"quantidade não definida"}${
+            fonte?" · "+esc(fonte.nome):""}</div>
+        </div>
+        <button class="btn sec" data-arq="${c.id}"
+          style="flex:0 0 auto;width:auto;padding:9px 14px;margin:0">${
+          temAgora?"Trocar":"Enviar"}</button>
+      </div>
+      ${fonte?`<div class="hint" style="margin:8px 0 0">
+        ${fonte.encontradas} questões encontradas no arquivo ·
+        ${fonte.usadas} usadas${fonte.sorteadas?" (sorteadas)":""}</div>`:""}
+      ${(pedido&&!temAgora)?`<div class="hint" style="margin:8px 0 0;color:var(--amber)">
+        Nenhuma questão carregada ainda.</div>`:""}
+    </div>
+    <input type="file" data-inp="${c.id}" accept=".docx,.pdf,.txt" style="display:none">`;
   });
-  h+=`<div class="rot">O que você quer fazer</div>
-    <button class="item" id="bImp"><div class="cor">
-      <div class="t1">Subir arquivo do caderno</div>
-      <div class="t2">Word ou PDF, um por componente — traz questões, gabarito e descritores</div>
-      </div><span class="ch">›</span></button>
-    <button class="item" id="bItens"><div class="cor">
-      <div class="t1">Itens: componente, gabarito e descritor</div>
-      <div class="t2">Marcar cada item como Língua Portuguesa ou Matemática</div>
-      </div><span class="ch">›</span></button>
-    <button class="item" id="bProva"><div class="cor">
-      <div class="t1">Gerar o caderno, imprimir e corrigir</div>
-      <div class="t2">${pronto?"Tudo pronto — abre como uma prova comum"
-        :"Abre como uma prova comum (ainda falta completar o caderno)"}</div>
-      </div><span class="ch">›</span></button>
-    <button class="item" id="bRel"><div class="cor">
-      <div class="t1">Resultados por componente</div>
-      <div class="t2">Proficiência, padrões de desempenho e acerto por descritor</div>
-      </div><span class="ch">›</span></button>
-    <div class="rot">Simulado</div>
-    <label>Título</label><input id="smTit" value="${esc(sm.titulo)}">
-    <label>Etapa</label>
-    <select id="smEt">${ETAPAS.map(x=>`<option value="${x.id}"${
-      x.id===sm.etapa?" selected":""}>${esc(x.nome)}</option>`).join("")}</select>
-    <label>Ordem dos blocos no caderno</label>
+  h+=`<div id="impInfo"></div>`;
+
+  /* 4 — gabarito e descritores */
+  const nDesc=(pr.desc||[]).filter(Boolean).length;
+  h+=passo(4,"Gabarito e descritores",
+      {ok:!f.gab&&nDesc===pr.nq&&pr.nq>0, txt:(pr.nq-f.gab)+" gab · "+nDesc+" desc"})+
+    `<p class="hint" style="margin-top:-4px">Vêm prontos do arquivo. Confira ou ajuste
+      item a item se precisar.</p>
+    <button class="btn gho" id="bItens">Conferir os ${pr.nq} itens</button>
+    <button class="btn gho" id="bBanco" style="margin-top:8px">Banco de descritores</button>`;
+
+  /* 5 — tipos de prova */
+  const tipos=sm.tipos||0;
+  h+=passo(5,"Tipos de prova",{ok:true, txt:tipos?tipos+" tipos":"um por estudante"})+
+    `<select id="smTipos">
+      <option value="0"${!tipos?" selected":""}>Um caderno por estudante (mais seguro)</option>
+      ${[2,3,4,5,6].map(n=>`<option value="${n}"${tipos===n?" selected":""}>${n} tipos de prova</option>`).join("")}
+    </select>
+    <p class="hint">Com tipos, você imprime ${tipos||"N"} cadernos e tira cópias; números
+      vizinhos caem sempre em tipos diferentes. Um por estudante embaralha para cada um,
+      o que protege mais, mas exige uma impressão diferente por aluno.</p>
+    <label>Ordem dos blocos</label>
     <select id="smAlt">
-      <option value="1"${alternaBlocos(pr)?" selected":""}>Alternar — cada estudante começa por um componente</option>
-      <option value="0"${alternaBlocos(pr)?"":" selected"}>Fixa — todos começam por Língua Portuguesa</option>
+      <option value="1"${alternaBlocos(pr)?" selected":""}>Alternar entre Língua Portuguesa e Matemática</option>
+      <option value="0"${alternaBlocos(pr)?"":" selected"}>Fixa — sempre Língua Portuguesa primeiro</option>
     </select>
-    <p class="hint">Alternar dificulta a cola de quem senta ao lado. Só serve para
-      aplicação em dia único: com os blocos em posições diferentes não dá para
-      aplicar um componente por dia.</p>
-    <label>Como calcular a proficiência</label>
-    <select id="smMet">
-      <option value="tri"${sm.metodo!=="pct"?" selected":""}>TRI — 3 parâmetros (como o Saeb)</option>
-      <option value="pct"${sm.metodo==="pct"?" selected":""}>Percentual de acerto</option>
-    </select>
-    <p class="hint">Na TRI, item que poucos acertaram vale mais, item que não separou
-      ninguém quase não conta, e acertar o difícil errando os fáceis é lido como chute.
-      Com menos de ${TRI_MIN_ALUNOS} cartões corrigidos o app volta sozinho para o
-      percentual, que é mais honesto com pouca gente.</p>
-    <button class="btn sec" id="smSalvar" style="margin-top:12px">Salvar</button>
-    <button class="btn gho" id="smDel" style="margin-top:9px">Excluir simulado</button>
-    <p class="hint">Excluir apaga o caderno e as correções dele. As notas das provas
-      normais não são afetadas.</p>`;
+    <p class="hint">Alternar só serve para aplicação em dia único.</p>`;
+
+  /* 6 — resumo e geração */
+  const impedimentos=[];
+  COMPONENTES.forEach(c=>{
+    const pedido=qtdPedida(sm,c.id);
+    if(!pedido) return;
+    const faltam=f.questoes[c.id]||0;
+    if(faltam) impedimentos.push(faltam+" questões de "+nomeComp(c.id)+" sem enunciado");
+  });
+  if(!pedidoTotal) impedimentos.push("a quantidade de questões não foi definida");
+  if(pedidoTotal>SAEPE_MAX) impedimentos.push("são "+pedidoTotal+" itens, acima do limite de "+SAEPE_MAX);
+  if(pedidoTotal&&pedidoTotal<MIN_Q_CARTAO) impedimentos.push("menos de "+MIN_Q_CARTAO+" itens");
+  if(f.gab) impedimentos.push(f.gab+" itens sem letra no gabarito");
+  if(!nAlunos) impedimentos.push("a turma não tem estudantes cadastrados");
+
+  h+=passo(6,"Gerar o simulado")+
+    `<div class="card"><div class="linha" style="justify-content:space-between">
+      <span>${esc(sm.titulo||"Simulado")}</span><b>${sm.ano||""}</b></div>
+      ${COMPONENTES.map(c=>`<div class="linha" style="justify-content:space-between">
+        <span style="color:var(--mute)">${esc(c.nome)}</span>
+        <b>${qtdPedida(sm,c.id)} questões</b></div>`).join("")}
+      <div class="linha" style="justify-content:space-between">
+        <span style="color:var(--mute)">Total</span><b>${pedidoTotal} questões</b></div>
+      <div class="linha" style="justify-content:space-between">
+        <span style="color:var(--mute)">Tipos de prova</span>
+        <b>${tipos?tipos:nAlunos+" (um por estudante)"}</b></div>
+      <div class="linha" style="justify-content:space-between">
+        <span style="color:var(--mute)">Cartão-resposta</span><b>1 por estudante</b></div>
+      <div class="linha" style="justify-content:space-between">
+        <span style="color:var(--mute)">Páginas por estudante</span>
+        <b id="smPag">—</b></div>
+    </div>`;
+  if(impedimentos.length){
+    h+=`<div class="aviso">Falta para poder gerar:<br>${
+      impedimentos.map(x=>"· "+esc(x)).join("<br>")}</div>`;
+  }
+  h+=`<button class="btn" id="bGerar" ${impedimentos.length?"disabled":""}
+      style="margin-top:12px">Gerar simulado</button>
+    ${corrigidos?`<button class="btn sec" id="bRel" style="margin-top:9px">Ver resultados (${corrigidos} corrigidos)</button>
+      <button class="btn gho" id="bPart" style="margin-top:9px">Nota de participação</button>`:""}
+    <button class="btn gho" id="smDel" style="margin-top:18px">Excluir simulado</button>
+    <p class="hint">Excluir apaga o caderno e as correções dele. As provas normais não
+      são afetadas.</p>`;
   box.innerHTML=h;
+
+  /* ── tudo grava sozinho ─────────────────────────────────────────── */
+  const trocouTit=()=>{ const v=$("#smTit").value.trim();
+    sm.titulo=v; pr.titulo=v||"Simulado"; guardar(); };
+  $("#smTit").onchange=trocouTit;
+  $("#smEt").onchange=()=>{ sm.etapa=$("#smEt").value; guardar(); montarCasa(); };
+  $("#smAno").onchange=()=>{ sm.ano=parseInt($("#smAno").value,10)||sm.ano; guardar(); };
+  $("#smCod").onchange=()=>{ pr.codigo=$("#smCod").value.trim().toUpperCase()||pr.codigo;
+    guardar(); refletirBarra(); };
+  COMPONENTES.forEach(c=>{
+    $("#smQ"+c.id).onchange=()=>{
+      const v=Math.max(0,Math.min(30,parseInt($("#smQ"+c.id).value,10)||0));
+      sm.qtd=sm.qtd||{}; sm.qtd[c.id]=v;
+      ajustarQuantidade(sm,c.id);
+      guardar(); montarCasa(); };
+  });
+  $("#smTipos").onchange=()=>{
+    const n=parseInt($("#smTipos").value,10)||0;
+    if(corrigidos && !confirm("Mudar os tipos de prova muda o caderno de cada estudante. "+
+      "Os cartões já impressos deixam de valer e as "+corrigidos+
+      " correções ficam erradas.\n\nContinuar?")){ montarCasa(); return; }
+    sm.tipos=n; guardar(); montarCasa(); };
+  $("#smAlt").onchange=()=>{
+    const v=$("#smAlt").value==="1";
+    if(corrigidos && !confirm("Mudar a ordem dos blocos invalida os cartões já impressos "+
+      "e as "+corrigidos+" correções.\n\nContinuar?")){ montarCasa(); return; }
+    sm.alternarBlocos=v; guardar(); montarCasa(); };
+
   $("#mVolta").onclick=()=>{casaNivel="simulados";montarCasa();};
   $("#bItens").onclick=()=>{casaNivel="itens";montarCasa();};
-  $("#bImp").onclick=()=>{impDados=null;casaNivel="importar";montarCasa();};
-  $("#bRel").onclick=()=>{casaNivel="relSaepe";montarCasa();};
-  $("#bProva").onclick=()=>{
-    if(pr.nq<MIN_Q_CARTAO){
-      alert("O caderno ainda está vazio. Suba os arquivos ou defina os itens primeiro."); return; }
-    voltaPara.prova="simulado"; casaProva=pr.id; ativar(pr.id);
-    casaNivel="prova"; montarCasa(); };
-  $("#smSalvar").onclick=()=>{
-    const tit=$("#smTit").value.trim();
-    if(!tit){ alert("O simulado precisa de um título."); return; }
-    const novaAlt=$("#smAlt").value==="1";
-    if(novaAlt!==alternaBlocos(pr)){
-      const impressos=resDa(pr.id).length;
-      if(!confirm("Trocar a ordem dos blocos muda o caderno de cada estudante.\n\n"+
-        "Os cartões JÁ IMPRESSOS deixam de valer"+
-        (impressos?" e as "+impressos+" correções ficam erradas":"")+
-        ".\n\nContinuar?")) return;
-      sm.alternarBlocos=novaAlt;
-    }
-    sm.titulo=tit; sm.etapa=$("#smEt").value; sm.metodo=$("#smMet").value;
-    pr.titulo=tit; salvar(); refletirBarra(); montarCasa(); };
+  $("#bBanco").onclick=()=>{casaComp=casaComp||"LP";casaNivel="banco";montarCasa();};
+  if($("#bRel")) $("#bRel").onclick=()=>{irParticipacao=false;casaNivel="relSaepe";montarCasa();};
+  if($("#bPart")) $("#bPart").onclick=()=>{irParticipacao=true;casaNivel="relSaepe";montarCasa();};
   $("#smDel").onclick=()=>{
-    if(!confirm("Excluir “"+sm.titulo+"” e as correções dele?")) return;
+    if(!confirm("Excluir “"+(sm.titulo||"simulado")+"” e as correções dele?")) return;
     E.provas=E.provas.filter(x=>x.id!==pr.id);
     E.res=E.res.filter(r=>r.prova!==pr.id);
     E.simulados=E.simulados.filter(x=>x.id!==sm.id);
     if(E.ativa===pr.id){ E.ativa=null; refletirBarra(); }
     salvar(); pintarResultados(); pintarDesempenho();
     casaNivel="simulados"; montarCasa(); };
-}
 
-/* ── subir o arquivo do caderno ───────────────────────────────────
-   Um arquivo por componente. O mesmo leitor das provas comuns extrai
-   as questões; o bloco GABARITO e o bloco DESCRITORES do documento
-   preenchem o gabarito e os descritores de uma vez. */
-let impComp="LP", impDados=null, impNome="", impAviso="";
-
-function telaImportar(box){
-  const sm=simuladoDe(casaSim);
-  if(!sm){ casaNivel="simulados"; return montarCasa(); }
-  const pr=provaDoSim(sm);
-  const jaTem=c=>pr?itensDe(pr,c).length:0;
-  const corrigidos=pr?resDa(pr.id).length:0;
-  let h=`<div class="migalha"><button id="mVolta">‹ ${esc(sm.titulo)}</button></div>
-    <h2>Subir arquivo do caderno</h2>
-    <p class="sub">Word ou PDF, um arquivo por componente. As questões, o gabarito e
-      os descritores saem do próprio documento.</p>
-    <div class="esco">${COMPONENTES.map(c=>`<button data-c="${c.id}"
-      class="${c.id===impComp?"sel":""}"><div class="t">${esc(c.nome)}</div>
-      <div class="s">${jaTem(c.id)?jaTem(c.id)+" itens no caderno":"nenhum item ainda"}</div>
-      </button>`).join("")}</div>
-    <input type="file" id="impArq" accept=".docx,.pdf,.txt"
-      style="display:none">
-    <button class="btn" id="impEscolher" style="margin-top:14px">Escolher arquivo de
-      ${esc(nomeComp(impComp))}</button>
-    <div id="impInfo"></div>`;
-  if(corrigidos && !impDados)
-    h+=`<div class="aviso" style="margin-top:12px">Este caderno já tem ${corrigidos}
-      cartão(ões) corrigido(s). Subir um arquivo novo muda a ordem dos itens e
-      invalida essas correções.</div>`;
-  h+=`<div class="diag" style="margin-top:14px"><b>Como o documento deve estar</b>
-    As questões numeradas (1., 2., …) com alternativas A) a E). Depois, uma linha
-    escrita <b>GABARITO</b> e a lista “1. C”. Por fim, uma linha escrita
-    <b>DESCRITORES</b> e uma linha por descritor no formato
-    “D01 — texto da habilidade — Questões: 1, 5”.</div>`;
-  box.innerHTML=h;
-  $("#mVolta").onclick=()=>{impDados=null;casaNivel="simulado";montarCasa();};
-  box.querySelectorAll("[data-c]").forEach(b=>b.onclick=()=>{
-    impComp=b.dataset.c; impDados=null; montarCasa(); });
-  $("#impEscolher").onclick=()=>$("#impArq").click();
-  $("#impArq").onchange=async ev=>{
-    const f=ev.target.files&&ev.target.files[0]; if(!f) return;
-    impNome=f.name; impDados=null; impAviso="";
+  /* ── envio de arquivo, ali mesmo ────────────────────────────────── */
+  box.querySelectorAll("[data-arq]").forEach(b=>b.onclick=()=>{
+    const comp=b.dataset.arq;
+    if(!qtdPedida(sm,comp)){
+      alert("Defina quantas questões de "+nomeComp(comp)+" o simulado terá antes de enviar o arquivo.");
+      return; }
+    box.querySelector(`[data-inp="${comp}"]`).click();
+  });
+  box.querySelectorAll("[data-inp]").forEach(inp=>inp.onchange=async ev=>{
+    const comp=inp.dataset.inp;
+    const arq=ev.target.files&&ev.target.files[0]; if(!arq) return;
     const info=t=>{ const el=$("#impInfo"); if(el) el.innerHTML=t; };
-    info('<div class="diag" style="margin-top:12px">Lendo o documento…</div>');
+    info(`<div class="diag" style="margin-top:10px">Lendo ${esc(arq.name)}…</div>`);
     try{
       let txt="";
-      if(/\.docx$/i.test(f.name))      txt=await textoDeDocx(f);
-      else if(/\.pdf$/i.test(f.name))  txt=await textoDePdf(f);
-      else                             txt=await f.text();
+      if(/\.docx$/i.test(arq.name))     txt=await textoDeDocx(arq);
+      else if(/\.pdf$/i.test(arq.name)) txt=await textoDePdf(arq);
+      else                              txt=await arq.text();
       if(!txt.trim()) throw new Error("o arquivo não devolveu texto");
-      impDados=lerSimuladoDoc(txt);
-      if(!impDados.itens.length) throw new Error("não encontrei questões numeradas");
-      montarCasa(); pintarPreImport();
+      const lido=lerSimuladoDoc(txt);
+      if(!lido.itens.length) throw new Error("não encontrei questões numeradas");
+      const sel=selecionarItens(sm,comp,lido.itens);
+      if(sel.erro){ info(`<div class="aviso" style="margin-top:10px">${esc(sel.erro)}</div>`); return; }
+      if(resDa(pr.id).length && !confirm("Trocar as questões invalida os "+
+        resDa(pr.id).length+" cartões já corrigidos deste simulado.\n\nContinuar?")){
+        info(""); return; }
+      /* textos dos descritores vão para o banco daquele componente */
+      E.descritores=E.descritores||{LP:{},MAT:{}};
+      E.descritores[comp]=E.descritores[comp]||{};
+      lido.descritores.forEach(d=>{ if(d.texto) E.descritores[comp][d.cod]=d.texto; });
+      aplicarImportacao(sm,comp,sel.itens);
+      sm.fontes=sm.fontes||{};
+      sm.fontes[comp]={nome:arq.name, encontradas:sel.encontradas,
+        usadas:sel.usadas, sorteadas:!!sel.sorteadas, quando:Date.now()};
+      guardar();
+      if(E.ativa===pr.id) ativar(pr.id);
+      montarCasa();
+      $("#impInfo").innerHTML=`<div class="diag" style="margin-top:10px">
+        <b>${esc(arq.name)}</b>${sel.encontradas} questões encontradas ·
+        ${sel.usadas} ${sel.sorteadas?"sorteadas":"usadas"} em ${esc(nomeComp(comp))}${
+        sel.sorteadas?"<br>Sorteadas as originais: "+
+          sel.itens.map(x=>x.orig).join(", "):""}</div>`;
     }catch(e){
-      info(`<div class="aviso" style="margin-top:12px">Não consegui ler: ${esc(e.message)}</div>`);
+      info(`<div class="aviso" style="margin-top:10px">Não consegui ler: ${esc(e.message)}</div>`);
     }
+    inp.value="";
+  });
+
+  /* ── páginas previstas e geração ────────────────────────────────── */
+  const prever=()=>{
+    if(impedimentos.length || typeof gerarProvas!=="function") return;
+    try{
+      const doc=gerarProvas(cfgDoCaderno(sm,pr,t),[ (t.alunos||[])[0] ], window.jspdf.jsPDF);
+      const el=$("#smPag");
+      if(el) el.textContent=(doc.paginasPorAluno||"?")+(doc.avisoPaginas?" (acima do limite)":"");
+    }catch(e){ /* previsão é enfeite: se falhar, o botão continua valendo */ }
   };
-  if(impDados) pintarPreImport();
+  setTimeout(()=>{ if(casaNivel==="simulado") prever(); },30);
+
+  if($("#bGerar")) $("#bGerar").onclick=()=>{
+    if(pr.nq<MIN_Q_CARTAO){ alert("O caderno ainda não tem itens."); return; }
+    voltaPara.prova="simulado"; casaProva=pr.id; ativar(pr.id);
+    casaNivel="prova"; montarCasa();
+  };
 }
 
-function pintarPreImport(){
-  const el=$("#impInfo"); if(!el||!impDados) return;
-  const sm=simuladoDe(casaSim), pr=provaDoSim(sm);
-  const d=impDados, n=d.itens.length;
-  const outros=pr?itensDe(pr,impComp==="LP"?"MAT":"LP").length:0;
-  const total=n+outros;
-  const excede=total>SAEPE_MAX;
-  let h=`<div class="diag" style="margin-top:12px"><b>${esc(impNome)}</b>
-    ${n} questões lidas · ${n-d.semGab} com gabarito ·
-    ${n-d.semDesc} com descritor · ${d.descritores.length} descritores no documento</div>`;
-  const alertas=[];
-  if(d.semGab)  alertas.push(d.semGab+" questão(ões) sem letra no gabarito — entram como A");
-  if(d.semDesc) alertas.push(d.semDesc+" sem descritor");
-  if(d.curtas)  alertas.push(d.curtas+" com menos de cinco alternativas");
-  if(excede)    alertas.push("o caderno ficaria com "+total+" itens; o cartão-resposta vai até "+SAEPE_MAX);
-  if(alertas.length)
-    h+=`<div class="aviso" style="margin-top:10px">${alertas.map(esc).join("<br>")}</div>`;
-  h+=`<div class="rot">Primeiras questões</div>`;
-  h+=d.itens.slice(0,3).map((x,i)=>`<div class="item" style="display:block">
-    <div class="t1" style="white-space:normal">${i+1}. ${esc(String(x.questao.enunciado).slice(0,110))}${
-      String(x.questao.enunciado).length>110?"…":""}</div>
-    <div class="t2">${(x.questao.alternativas||[]).filter(Boolean).length} alternativas ·
-      gabarito ${esc(x.gab||"—")} · ${esc(x.desc||"sem descritor")}</div></div>`).join("");
-  h+=`<div class="rot">Descritores encontrados</div>
-    <p class="hint" style="margin-top:-4px">${d.descritores.length
-      ? d.descritores.map(x=>esc(x.cod)).join(" · ")+" — os textos entram no banco de "+esc(nomeComp(impComp))+"."
-      : "Nenhum. Você pode preencher depois na tela de itens."}</p>
-    <button class="btn" id="impOk" ${excede?"disabled":""}
-      style="margin-top:12px">Usar estes ${n} itens em ${esc(nomeComp(impComp))}</button>`;
-  el.innerHTML=h;
-  if($("#impOk")) $("#impOk").onclick=()=>{
-    const corr=resDa(pr.id).length;
-    if(corr && !confirm("Isto substitui os itens de "+nomeComp(impComp)+
-      " e invalida os "+corr+" cartões já corrigidos deste caderno. Continuar?")) return;
-    /* textos dos descritores vão para o banco */
-    E.descritores=E.descritores||{LP:{},MAT:{}};
-    E.descritores[impComp]=E.descritores[impComp]||{};
-    impDados.descritores.forEach(x=>{ if(x.texto) E.descritores[impComp][x.cod]=x.texto; });
-    aplicarImportacao(sm,impComp,impDados.itens);
-    salvar();
-    if(E.ativa===pr.id) ativar(pr.id);
-    impDados=null;
-    casaNivel="simulado"; montarCasa();
-  };
+/* configuração do PDF do caderno, usada na previsão e na geração */
+function cfgDoCaderno(sm,pr,t){
+  const e=escolaDe(t.escola)||{nome:""};
+  return {codigo:pr.codigo,titulo:pr.titulo,escola:e.nome,turma:t.nome,
+    disciplina:COMPONENTES.filter(c=>temComp(pr,c.id)).map(c=>c.nome).join(" e "),
+    professor:lerProfessor(),
+    periodoLabel:"Simulado SAEPE · "+(sm.ano||""),
+    gabaritoCanonico:pr.gabC,no:pr.no,questoes:pr.questoes||[],discursivas:[],
+    comps:pr.comps||null, alternarBlocos:alternaBlocos(pr), tipos:sm.tipos||0,
+    rotulosComp:COMPONENTES.reduce((m,c)=>{m[c.id]=c.nome;return m;},{})};
 }
 
 /* ── itens: componente, gabarito e descritor, um por linha ───────── */
@@ -3494,11 +3608,11 @@ function telaItens(box){
   if(!pr.nq){
     box.innerHTML=`<div class="migalha"><button id="mVolta">‹ ${esc(sm.titulo)}</button></div>
       <h2>Itens do caderno</h2>
-      <div class="vazio"><b>Caderno vazio</b>Suba o arquivo de cada componente —
-        as questões, o gabarito e os descritores vêm de lá.</div>
-      <button class="btn" id="itImp">Subir arquivo do caderno</button>`;
+      <div class="vazio"><b>Caderno vazio</b>Defina a quantidade de questões e envie
+        os arquivos — o gabarito e os descritores vêm de lá.</div>
+      <button class="btn" id="itImp">Voltar à montagem</button>`;
     $("#mVolta").onclick=()=>{casaNivel="simulado";montarCasa();};
-    $("#itImp").onclick=()=>{impDados=null;casaNivel="importar";montarCasa();};
+    $("#itImp").onclick=()=>{casaNivel="simulado";montarCasa();};
     return;
   }
   let h=`<div class="migalha"><button id="mVolta">‹ ${esc(sm.titulo)}</button></div>
@@ -3516,7 +3630,9 @@ function telaItens(box){
         ${letras.map(L=>`<option${gab[i]===L?" selected":""}>${L}</option>`).join("")}
       </select>
       <input data-d="${i}" value="${esc(desc[i]||"")}" placeholder="D__"
-        style="flex:1 1 60px;min-width:0;text-transform:uppercase"></div>
+        style="flex:1 1 60px;min-width:0;text-transform:uppercase">
+      ${lista0[i].orig?`<span class="nu" style="flex:0 0 auto"
+        title="questão ${lista0[i].orig} do arquivo">#${lista0[i].orig}</span>`:""}</div>
       ${textoDesc(c,desc[i]||"")?`<div class="hint" style="margin:-4px 0 7px 26px">${
         esc(textoDesc(c,desc[i]||""))}</div>`:""}`;
   }
@@ -3536,7 +3652,8 @@ function telaItens(box){
   };
   const gravar=()=>{
     const {g,d,c}=ler();
-    const lista=itensDoCaderno(pr).map((x,i)=>({comp:c[i],questao:x.questao,gab:g[i],desc:d[i]}));
+    const lista=itensDoCaderno(pr).map((x,i)=>({comp:c[i],questao:x.questao,
+      gab:g[i],desc:d[i],orig:x.orig}));
     gravarCaderno(pr,lista);
     salvar();
     return g.every(x=>x);
@@ -3662,6 +3779,7 @@ function apurarComp(sm,comp){
 }
 
 function telaRelSaepe(box){
+  const vg=x=>x==null?"":Number(x).toFixed(2).replace(".",",").replace(/,00$/,",0");
   const sm=simuladoDe(casaSim);
   if(!sm){ casaNivel="simulados"; return montarCasa(); }
   const t=turmaDe(sm.turma), et=etapaDe(sm.etapa);
@@ -3758,6 +3876,41 @@ function telaRelSaepe(box){
         L.prof==null?"—":L.prof.toFixed(0)}</div></div>`).join("");
   });
 
+  /* ── nota de participação ─────────────────────────────────────── */
+  const part=participacaoDe(sm), pr=provaDoSim(sm);
+  const valor=valorParticipacao(sm);
+  const feitosP=part.filter(L=>L.res);
+  h+=`<div class="rot" id="secaoPart">Nota de participação</div>
+    <div class="linha" style="align-items:center;gap:10px">
+      <span style="color:var(--mute);font-size:12.5px;flex:1">Valor máximo, para quem acertar tudo</span>
+      <input id="partVal" type="number" inputmode="decimal" step="0.1" min="0" max="10"
+        value="${valor}" style="flex:0 0 88px;text-align:center;margin:0">
+    </div>
+    <p class="hint">Proporcional aos acertos no caderno inteiro: metade da prova, metade
+      da nota. Não entra na média do período.</p>`;
+  if(!feitosP.length){
+    h+=`<p class="hint">Nenhum cartão corrigido ainda.</p>`;
+  }else{
+    h+=part.map(L=>`<div class="aluno" style="cursor:default">
+      <div style="flex:1;min-width:0">
+        <div class="nm"><span style="color:var(--mute);font-family:var(--mono);font-size:12px">${esc(L.aluno.numero)} </span>${esc(L.aluno.nome)}</div>
+        <div class="rs">${L.res
+          ? L.acertos+" de "+L.total+" · "+COMPONENTES.filter(c=>L.porComp[c.id].total)
+              .map(c=>esc(c.curto)+" "+L.porComp[c.id].acertos+"/"+L.porComp[c.id].total).join(" · ")
+          : "não fez o simulado"}</div></div>
+      <div class="nt" style="font-size:19px;color:${L.nota==null?"var(--mute)"
+        :(L.nota>=valor*0.6?"var(--mint)":L.nota>=valor*0.4?"var(--amber)":"var(--coral)")}">${
+        L.nota==null?"—":vg(L.nota)}</div></div>`).join("");
+    const somaP=feitosP.reduce((x,L)=>x+L.nota,0);
+    h+=`<div class="kpi" style="margin-top:12px">
+      <div><div class="v">${vg(somaP/feitosP.length)}</div><div class="l">Média da turma</div></div>
+      <div><div class="v">${feitosP.length}<span style="font-size:13px;color:var(--mute)">/${part.length}</span></div>
+        <div class="l">Fizeram</div></div>
+      <div><div class="v">${feitosP.filter(L=>L.nota>=valor*0.6).length}</div>
+        <div class="l">≥ ${vg(valor*0.6)}</div></div></div>
+    <button class="btn sec" id="partCsv" style="margin-top:12px">Baixar notas de participação</button>`;
+  }
+
   h+=`<div class="rot">Exportar</div>
     <button class="btn sec" id="relCsv">Baixar CSV do simulado</button>
     <p class="hint">A proficiência é uma <b>estimativa</b>. O modelo é o mesmo do
@@ -3768,7 +3921,30 @@ function telaRelSaepe(box){
       distribui os estudantes em torno dele, a 50 pontos por desvio-padrão, como no
       Saeb. Use para orientar a intervenção, não para comparar com o boletim oficial.</p>`;
   box.innerHTML=h;
+  if(irParticipacao){
+    irParticipacao=false;
+    const alvo=$("#secaoPart");
+    if(alvo) setTimeout(()=>{ if(casaNivel==="relSaepe")
+      alvo.scrollIntoView({behavior:"smooth",block:"start"}); },60);
+  }
   $("#mVolta").onclick=()=>{casaNivel="simulado";montarCasa();};
+  if($("#partVal")) $("#partVal").onchange=()=>{
+    const v=parseFloat($("#partVal").value);
+    sm.valorParticipacao=(isNaN(v)||v<0)?VALOR_PART_PADRAO:v;
+    salvar(); montarCasa(); };
+  if($("#partCsv")) $("#partCsv").onclick=()=>{
+    const e=escolaDe(t.escola)||{curto:""};
+    const cab=["escola","turma","simulado","numero","aluno",
+      ...COMPONENTES.map(c=>"acertos_"+c.id.toLowerCase()),
+      "acertos_total","itens","nota_participacao","valor_maximo"];
+    const lin=part.map(L=>[e.curto,t.nome,sm.titulo,L.aluno.numero,
+      `"${String(L.aluno.nome).replace(/"/g,'""')}"`,
+      ...COMPONENTES.map(c=>L.porComp[c.id].acertos==null?"":L.porComp[c.id].acertos),
+      L.acertos==null?"":L.acertos, L.total,
+      L.nota==null?"":vg(L.nota), vg(valor)].join(";"));
+    baixar([cab.join(";"),...lin].join("\r\n"),
+      "participacao_"+t.nome+"_"+sm.ano+".csv","text/csv");
+  };
   $("#relCsv").onclick=()=>{
     const e=escolaDe(t.escola)||{curto:""};
     const cab=["escola","turma","etapa","simulado","componente","itens","numero","aluno",

@@ -57,6 +57,21 @@ function embaralharEmBlocos(nq, na, turma, numero, comps, alternar){
   return {oq: dentro.concat(fora), oa};
 }
 
+/* Tipos de prova. Sem tipos, cada estudante recebe um caderno só dele
+   (mais seguro, porém uma impressão diferente por aluno). Com N tipos,
+   números vizinhos caem em tipos diferentes — quem senta ao lado nunca
+   pega o mesmo caderno. ESPELHO DE embaralho.py. */
+function tipoDoAluno(numero, tipos){
+  const n = parseInt(String(numero).replace(/\D/g, ""), 10);
+  if (!tipos || tipos < 1 || !n) return null;
+  return ((n - 1) % tipos) + 1;
+}
+/* o que semeia o embaralhamento: o tipo, quando há tipos; senão o aluno */
+function chaveDeOrdem(numero, tipos){
+  const t = tipoDoAluno(numero, tipos);
+  return t ? ("TIPO" + t) : String(numero);
+}
+
 /* posição p do cartão -> índice do item canônico */
 const itemCanonico = (oq, p) => oq[p];
 /* letra marcada na posição p -> letra canônica daquele item */
@@ -64,4 +79,5 @@ function letraCanonica(oa, p, letra, opcoes){
   const k = opcoes.indexOf(letra);
   return k < 0 ? null : opcoes[oa[p][k]];
 }
-if (typeof module !== "undefined") module.exports = {semente, permutacao, embaralharProva, embaralharEmBlocos, itemCanonico, letraCanonica};
+if (typeof module !== "undefined") module.exports = {semente, permutacao, embaralharProva, embaralharEmBlocos,
+  tipoDoAluno, chaveDeOrdem, itemCanonico, letraCanonica};

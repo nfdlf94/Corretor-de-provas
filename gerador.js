@@ -89,7 +89,8 @@ function desenharCartao(doc, opt){
   const nq = gabC.length, no = opt.no || 5;
   const L = montarLayout(nq, no);
   const W = L.box_w, H = L.box_h, fid = L.fid_size, qz = L.quiet_zone, r = L.bubble_r;
-  const gab = gabaritoIndividual(gabC, opt.turma, opt.numero, no, opt.comps, opt.alternar);
+  const gab = gabaritoIndividual(gabC, opt.turma, opt.chave || opt.numero, no,
+                                 opt.comps, opt.alternar);
 
   const cx = opt.x + fid/2, cy = opt.y + fid/2;      // centro do fiducial ↖
   const P = (mx, my) => [cx + mx, cy + my];
@@ -197,6 +198,14 @@ function cabecalho(doc, cfg, aluno, dry){
     doc.setTextColor(...COR.orange); doc.setFontSize(7);
     doc.text([cfg.titulo || "AVALIAÇÃO DE APRENDIZAGEM", cfg.periodoLabel]
                .filter(Boolean).join("  •  ").toUpperCase(), MARG, 10.5);
+    /* com tipos de prova, o professor precisa ver de longe qual é qual */
+    const tp = tipoDoAluno(aluno && aluno.numero, cfg.tipos);
+    if(tp){
+      doc.setFillColor(...COR.orange);
+      doc.rect(W - MARG - 18, 2.5, 18, 7.5, "F");
+      doc.setTextColor(...COR.branco); doc.setFont(FONTE_TEXTO, "bold"); doc.setFontSize(8);
+      doc.text("TIPO " + tp, W - MARG - 9, 7.6, {align: "center"});
+    }
   }
   let y = alturaFaixa + 5;
 
@@ -297,7 +306,8 @@ function blocosDaProva(doc, cfg, aluno, fs){
   const nq = gabC.length, no = cfg.no || 5;
   const opcoes = ["A", "B", "C", "D", "E"].slice(0, no);
   const comps = (cfg.comps && cfg.comps.length === nq) ? cfg.comps : null;
-  const {oq, oa} = ordemDaProva(nq, no, cfg.turma, aluno.numero, comps, cfg.alternarBlocos);
+  const chave = chaveDeOrdem(aluno.numero, cfg.tipos);
+  const {oq, oa} = ordemDaProva(nq, no, cfg.turma, chave, comps, cfg.alternarBlocos);
   const blocos = [];
   const ALT_CAB = 8.5;
 
@@ -393,7 +403,7 @@ function fluir(doc, cfg, aluno, fs, dry){
     desenharCartao(doc, {x: MARG + 2, y: y + L.quiet_zone,
       codigo: cfg.codigo, gabaritoCanonico: gabC, no,
       comps: (cfg.comps && cfg.comps.length === nq) ? cfg.comps : null,
-      alternar: cfg.alternarBlocos,
+      alternar: cfg.alternarBlocos, chave: chaveDeOrdem(aluno.numero, cfg.tipos),
       turma: cfg.turma, numero: aluno.numero, nome: aluno.nome});
   }
   const topoPrimeira = y + altCartao + 8;   // folga para não colidir com a moldura

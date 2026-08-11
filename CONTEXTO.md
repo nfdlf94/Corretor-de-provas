@@ -241,6 +241,46 @@ absoluto (o método percentual aplicado à média de acertos), e a TRI
 desvio-padrão de θ — a mesma unidade do Saeb. Mexer nisso sem entender o
 problema da âncora vai produzir números que parecem oficiais e não são.
 
+### Nota de participação
+
+Uma pontuação de apoio, **proporcional aos acertos no caderno inteiro**:
+`valor × acertos / nq`, arredondada a duas casas. O valor máximo fica em
+`sm.valorParticipacao` (padrão 1 ponto) e é editável na tela do simulado.
+
+Quem não fez o simulado fica com nota **nula, não zero** — zero é resultado
+de quem fez e errou; ausência é ausência, e o professor decide o que fazer
+com ela.
+
+Continua **fora da média do período**, como todo o resto do simulado: a
+lista e o CSV existem para o professor lançar a pontuação onde quiser. O
+CSV traz os acertos quebrados por componente, para quem só quer pontuar a
+própria disciplina.
+
+### A quantidade pedida manda
+
+`sm.qtd = {LP, MAT}` é a regra do simulado, definida na criação — **não** a
+quantidade que vem no arquivo. `selecionarItens()` resolve os três casos:
+arquivo com mais questões sorteia (Fisher-Yates, nunca as primeiras), com a
+quantidade exata usa todas sem sortear, e com menos **recusa** e devolve
+`erro` com a mensagem pronta. Mudar a quantidade depois chama
+`ajustarQuantidade()`, que corta ou abre vagas em branco só naquele
+componente.
+
+O item viaja inteiro: enunciado, alternativas, gabarito, descritor e
+`orig` — o número que a questão tinha no arquivo, guardado em `pr.orig[]` e
+mostrado na tela de conferência. Separar qualquer um desses do resto faz a
+correção e a análise por descritor apontarem para a questão errada.
+
+### Tipos de prova
+
+`sm.tipos`: 0 é um caderno por estudante (mais seguro, uma impressão por
+aluno); N distribui os estudantes em N tipos por `tipoDoAluno()`, de modo
+que números vizinhos caem em tipos diferentes. Com tipos, a semente do
+embaralhamento deixa de ser o número do aluno e passa a ser `"TIPO n"`
+(`chaveDeOrdem()`) — em gerador e corretor, senão o cartão descasa da
+prova. Todos os tipos usam **as mesmas questões selecionadas**; muda só a
+organização.
+
 ### Subir o caderno de arquivo
 
 **Turma › Simulados SAEPE › o simulado › Subir arquivo do caderno**, um
@@ -291,10 +331,12 @@ E = {
              periodo:{tipo:"trimestre"|"bimestre", qtd},
              alunos:[{numero, nome, desde, ate}]}],
   simulados:[{id, turma, titulo, etapa:"5EF"|"9EF"|"3EM", ano,
-             prova:provaId, metodo:"tri"|"pct", alternarBlocos}],
+             prova:provaId, metodo:"tri"|"pct", alternarBlocos, tipos,
+             qtd:{LP,MAT}, fontes:{LP:{nome,encontradas,usadas,sorteadas}},
+             valorParticipacao}],
   descritores:{LP:{D1:"texto"}, MAT:{...}},
   provas:  [{id, turma, disciplina, codigo, titulo, periodo, nq, no, gabC,
-             simulado, comps[], desc[],        // só no caderno do simulado
+             simulado, comps[], desc[], orig[], gabItens[],  // só no caderno
              habs[], pontosObj, pontosDisc,
              questoes:[{enunciado, alternativas[], correta, imagem}],
              discursivas:[{enunciado, pontos, linhas}]}],
@@ -345,6 +387,13 @@ pé de uma coluna.
 ---
 
 ## Navegação
+
+**Simulados:** a criação é UMA tela, em seis etapas numeradas
+(identificação, quantidade, questões, gabarito e descritores, tipos,
+resumo), com gravação automática — o simulado nasce como rascunho ao ser
+criado. Não há botão "Salvar": quem grava é cada campo, com um "salvo"
+discreto na migalha. As telas separadas de criação e de importação foram
+removidas; sobraram a conferência item a item e o relatório.
 
 **Turmas:** escola › turma › disciplina › provas do período › prova.
 Os estudantes ficam na turma (valem para todas as disciplinas dela). Na
