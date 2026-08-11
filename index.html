@@ -993,28 +993,55 @@ function lerSimuladoDoc(txt){
           curtas:itens.filter(x=>(x.questao.alternativas||[]).filter(Boolean).length<5).length};
 }
 
+/* ── o caderno, item a item ────────────────────────────────────────
+   `questoes` fica SEMPRE do tamanho de `nq`, com um item em branco onde
+   ainda não há questão, e `gabItens` guarda letra por letra (vazio =
+   ainda não definida). Foi por não manter esse alinhamento que importar
+   o segundo componente apagava as questões do primeiro. */
+const itemVazio=()=>({enunciado:"",alternativas:["","","","",""],correta:null});
+const temQuestao=q=>!!(q&&String(q.enunciado||"").trim());
+
+function itensDoCaderno(pr){
+  const gabs=pr.gabItens||String(pr.gabC||"").split("");
+  return Array.from({length:pr.nq},(_,i)=>({
+    comp:(pr.comps||[])[i]||"LP",
+    questao:(pr.questoes||[])[i]||null,
+    gab:gabs[i]||"",
+    desc:(pr.desc||[])[i]||""
+  }));
+}
+function gravarCaderno(pr,lista){
+  pr.nq=lista.length;
+  pr.no=SAEPE_NO;
+  pr.comps=lista.map(x=>x.comp);
+  pr.desc=lista.map(x=>x.desc?codDesc(x.desc):"");
+  pr.gabItens=lista.map(x=>(x.gab||"").toUpperCase());
+  pr.gabC=pr.gabItens.map(x=>x||"A").join("");   // o QR precisa de nq letras
+  pr.habs=pr.desc.map((cod,i)=>cod?curtoComp(pr.comps[i])+" "+rotuloDesc(pr.comps[i],cod):"");
+  pr.questoes=lista.map(x=>x.questao||itemVazio());
+  return pr;
+}
+/* o que ainda falta, por componente — é o que a tela precisa dizer */
+function faltasDoCaderno(pr){
+  const f={gab:0, questoes:{}};
+  COMPONENTES.forEach(c=>f.questoes[c.id]=0);
+  itensDoCaderno(pr).forEach(x=>{
+    if(!x.gab) f.gab++;
+    if(!temQuestao(x.questao)) f.questoes[x.comp]=(f.questoes[x.comp]||0)+1;
+  });
+  f.totalQuestoes=COMPONENTES.reduce((n,c)=>n+f.questoes[c.id],0);
+  f.completo=!f.gab && !f.totalQuestoes && pr.nq>=MIN_Q_CARTAO;
+  return f;
+}
+
 /* Substitui os itens de UM componente, preservando os do outro.
    A ordem do caderno é sempre Língua Portuguesa e depois Matemática. */
 function aplicarImportacao(sm,comp,itens){
   const pr=provaDoSim(sm); if(!pr) return null;
-  const outros=[];
-  (pr.comps||[]).forEach((c,i)=>{
-    if(c===comp) return;
-    outros.push({comp:c, questao:(pr.questoes||[])[i]||null,
-      gab:String(pr.gabC||"")[i]||"", desc:(pr.desc||[])[i]||""});
-  });
+  const outros=itensDoCaderno(pr).filter(x=>x.comp!==comp);
   const novos=itens.map(x=>({comp, questao:x.questao, gab:x.gab, desc:x.desc}));
   const lista=(comp==="LP")?novos.concat(outros):outros.concat(novos);
-  pr.nq=lista.length;
-  pr.no=SAEPE_NO;
-  pr.comps=lista.map(x=>x.comp);
-  pr.desc=lista.map(x=>codDesc(x.desc)||"");
-  pr.gabC=lista.map(x=>x.gab||"A").join("");
-  pr.habs=pr.desc.map((cod,i)=>cod?curtoComp(pr.comps[i])+" "+rotuloDesc(pr.comps[i],cod):"");
-  /* só entrega as questões ao gerador quando TODAS existem — meio caderno
-     sairia impresso com itens em branco */
-  pr.questoes=lista.every(x=>x.questao)?lista.map(x=>x.questao):[];
-  return pr;
+  return gravarCaderno(pr,lista);
 }
 
 /* banco de descritores: código → texto, reaproveitado entre simulados */
@@ -2631,14 +2658,23 @@ function telaProva(box){
     <div class="rot">O que você quer fazer</div>
     <button class="item" id="aCorrigir"><div class="cor"><div class="t1">Corrigir cartões</div>
       <div class="t2">Abre a câmera com esta prova ativa</div></div><span class="ch">›</span></button>
-    <button class="item" id="aArquivo"><div class="cor"><div class="t1">Subir a prova pronta</div>
-      <div class="t2">Foto, PDF ou Word — o app lê e monta as questões</div>
-      </div><span class="ch">›</span></button>
-    <button class="item" id="aTrocar"><div class="cor"><div class="t1">Trocar a prova inteira</div>
-      <div class="t2">Subir outro arquivo e substituir questões e gabarito</div>
-      </div><span class="ch">›</span></button>
+    ${ehCaderno(p)
+      ? `<button class="item" id="aArquivo"><div class="cor">
+          <div class="t1">Subir arquivo do caderno</div>
+          <div class="t2">${COMPONENTES.map(c=>{
+              const f=faltasDoCaderno(p).questoes[c.id]||0, n=itensDe(p,c.id).length;
+              return esc(c.curto)+" "+(n-f)+"/"+n;}).join(" · ")} questões prontas</div>
+          </div><span class="ch">›</span></button>`
+      : `<button class="item" id="aArquivo"><div class="cor"><div class="t1">Subir a prova pronta</div>
+          <div class="t2">Foto, PDF ou Word — o app lê e monta as questões</div>
+          </div><span class="ch">›</span></button>
+        <button class="item" id="aTrocar"><div class="cor"><div class="t1">Trocar a prova inteira</div>
+          <div class="t2">Subir outro arquivo e substituir questões e gabarito</div>
+          </div><span class="ch">›</span></button>`}
     <button class="item" id="aQuestoes"><div class="cor"><div class="t1">Questões da prova</div>
-      <div class="t2">${nq?nq+" questões digitadas":"Nenhuma questão digitada ainda"}</div></div><span class="ch">›</span></button>
+      <div class="t2">${ehCaderno(p)
+        ? (p.nq-faltasDoCaderno(p).totalQuestoes)+" de "+p.nq+" itens escritos"
+        : (nq?nq+" questões digitadas":"Nenhuma questão digitada ainda")}</div></div><span class="ch">›</span></button>
     <button class="item" id="aDisc"><div class="cor"><div class="t1">Questões discursivas</div>
       <div class="t2">${(p.discursivas||[]).length
         ? (p.discursivas||[]).length+" questões · "+pontosDisc(p)+" pontos"
@@ -2659,8 +2695,11 @@ function telaProva(box){
   $("#mVolta").onclick=()=>{casaNivel=voltaPara.prova;montarCasa();};
   $("#aCorrigir").onclick=()=>{ativar(p.id);irPara("ler");};
   $("#aQuestoes").onclick=()=>{casaNivel="questoes";montarCasa();};
-  $("#aArquivo").onclick=()=>{casaNivel="ler";montarCasa();};
-  $("#aTrocar").onclick=()=>{
+  $("#aArquivo").onclick=()=>{
+    if(ehCaderno(p)){                    // caderno sobe por componente, não inteiro
+      casaSim=p.simulado; impDados=null; casaNivel="importar"; montarCasa(); return; }
+    casaNivel="ler"; montarCasa(); };
+  if($("#aTrocar")) $("#aTrocar").onclick=()=>{
     const n=resDa(p.id).length;
     if(n && !confirm("Trocar a prova inteira substitui questões, gabarito e estrutura.\n\n"+
       "As "+n+" correções desta prova serão apagadas e os cartões já impressos deixam de valer.\n\nContinuar?")) return;
@@ -2917,9 +2956,21 @@ function gerarPDF(p,t,modo){
   if(!t.alunos.length){ dizer("aviso","Cadastre os estudantes da turma antes de gerar."); return; }
   if(typeof window.jspdf==="undefined"||typeof qrcode!=="function"){
     dizer("aviso","Faltou carregar jspdf.umd.min.js ou qrcode.min.js. Envie-os para o GitHub."); return; }
-  if(modo==="prova" && (p.questoes||[]).length!==p.nq){
+  if(modo==="prova" && ehCaderno(p)){
+    const f=faltasDoCaderno(p);
+    if(f.totalQuestoes){
+      const detalhe=COMPONENTES.filter(c=>f.questoes[c.id])
+        .map(c=>f.questoes[c.id]+" de "+nomeComp(c.id)).join(" e ");
+      dizer("aviso",`Faltam ${f.totalQuestoes} itens sem enunciado (${esc(detalhe)}).
+        Suba o arquivo daquele componente, ou gere só os cartões.`); return; }
+  }else if(modo==="prova" && (p.questoes||[]).length!==p.nq){
     dizer("aviso",`A prova tem ${p.nq} questões, mas só ${(p.questoes||[]).length} foram digitadas.
       Use “Questões da prova”, ou gere só os cartões.`); return; }
+  if(ehCaderno(p)){
+    const f=faltasDoCaderno(p);
+    if(f.gab){ dizer("aviso",`Faltam ${f.gab} letras no gabarito. O gabarito vai dentro do
+      QR de cada cartão — sem ele a correção sai errada.`); return; }
+  }
   dizer("diag","Montando "+t.alunos.length+" provas…");
   setTimeout(()=>{
     try{
@@ -3176,9 +3227,10 @@ function telaNovoSimulado(box){
     const comps=[].concat(new Array(F.nLP).fill("LP"), new Array(F.nMAT).fill("MAT"));
     const pr={id:uid("p"),turma:t.id,disciplina:null,simulado:sm.id,
       codigo:F.cod||codigoSugerido(t,F.ano),titulo:F.titulo.trim(),
-      nq:n,no:SAEPE_NO,gabC:"",periodo:null,
-      comps,desc:new Array(n).fill(""),habs:new Array(n).fill(""),
+      nq:0,no:SAEPE_NO,gabC:"",periodo:null,
+      comps:[],desc:[],habs:[],gabItens:[],
       pontosObj:10,pontosDisc:0,questoes:[],discursivas:[],criada:Date.now()};
+    gravarCaderno(pr, comps.map(c=>({comp:c,questao:null,gab:"",desc:""})));
     sm.prova=pr.id;
     E.provas.push(pr);
     if(!Array.isArray(E.simulados)) E.simulados=[];
@@ -3193,15 +3245,23 @@ function telaSimulado(box){
   const pr=provaDoSim(sm), t=turmaDe(sm.turma);
   if(!pr||!t){ casaNivel="simulados"; return montarCasa(); }
   const et=etapaDe(sm.etapa);
-  const pronto=(pr.gabC||"").length===pr.nq;
+  const f=faltasDoCaderno(pr);
+  const pronto=f.completo;
   const nDesc=(pr.desc||[]).filter(Boolean).length;
   let h=`<div class="migalha"><button id="mVolta">‹ Simulados</button></div>
     <h2>${esc(sm.titulo)}</h2>
     <p class="sub">${esc(t.nome)} · ${esc(et.nome)} · ${sm.ano} · ${esc(pr.codigo)}</p>
     <div class="chip">itens <b>${pr.nq}</b></div>
-    <div class="chip">gabarito <b>${pronto?"completo":"pendente"}</b></div>
+    <div class="chip">questões <b>${pr.nq-f.totalQuestoes}/${pr.nq}</b></div>
+    <div class="chip">gabarito <b>${pr.nq-f.gab}/${pr.nq}</b></div>
     <div class="chip">descritores <b>${nDesc}/${pr.nq}</b></div>
     <div class="chip">corrigidos <b>${resDa(pr.id).length}</b></div>
+    ${pronto?"":`<div class="aviso" style="margin-top:12px">${
+      f.totalQuestoes?COMPONENTES.filter(x=>f.questoes[x.id])
+        .map(x=>f.questoes[x.id]+" itens de "+esc(x.nome)+" sem enunciado").join(" · "):""}${
+      (f.totalQuestoes&&f.gab)?" · ":""}${
+      f.gab?f.gab+" sem letra no gabarito":""}${
+      pr.nq<MIN_Q_CARTAO?"O caderno ainda não tem itens.":""}</div>`}
     <div class="rot">Composição do caderno</div>`;
   COMPONENTES.forEach(c=>{
     const idx=itensDe(pr,c.id);
@@ -3220,8 +3280,9 @@ function telaSimulado(box){
       <div class="t2">Marcar cada item como Língua Portuguesa ou Matemática</div>
       </div><span class="ch">›</span></button>
     <button class="item" id="bProva"><div class="cor">
-      <div class="t1">Questões, PDF e correção</div>
-      <div class="t2">Abre o caderno como uma prova comum</div>
+      <div class="t1">Gerar o caderno, imprimir e corrigir</div>
+      <div class="t2">${pronto?"Tudo pronto — abre como uma prova comum"
+        :"Abre como uma prova comum (ainda falta completar o caderno)"}</div>
       </div><span class="ch">›</span></button>
     <button class="item" id="bRel"><div class="cor">
       <div class="t1">Resultados por componente</div>
@@ -3253,7 +3314,6 @@ function telaSimulado(box){
   $("#bProva").onclick=()=>{
     if(pr.nq<MIN_Q_CARTAO){
       alert("O caderno ainda está vazio. Suba os arquivos ou defina os itens primeiro."); return; }
-    if(!pronto){ alert("Preencha o gabarito antes: ele vai dentro do QR de cada cartão."); return; }
     voltaPara.prova="simulado"; casaProva=pr.id; ativar(pr.id);
     casaNivel="prova"; montarCasa(); };
   $("#smSalvar").onclick=()=>{
@@ -3383,8 +3443,9 @@ function telaItens(box){
   if(!sm){ casaNivel="simulados"; return montarCasa(); }
   const pr=provaDoSim(sm);
   if(!pr){ casaNivel="simulados"; return montarCasa(); }
-  const gab=(pr.gabC||"").toUpperCase().split("");
-  const desc=pr.desc||[], comps=pr.comps||[];
+  const lista0=itensDoCaderno(pr);
+  const gab=lista0.map(x=>x.gab);
+  const desc=lista0.map(x=>x.desc), comps=lista0.map(x=>x.comp);
   const letras=["A","B","C","D","E"].slice(0,pr.no);
   if(!pr.nq){
     box.innerHTML=`<div class="migalha"><button id="mVolta">‹ ${esc(sm.titulo)}</button></div>
@@ -3431,18 +3492,18 @@ function telaItens(box){
   };
   const gravar=()=>{
     const {g,d,c}=ler();
-    pr.desc=d; pr.comps=c;
-    pr.habs=d.map((cod,i)=>cod?curtoComp(c[i])+" "+rotuloDesc(c[i],cod):"");
-    const completo=g.every(x=>x);
-    if(completo) pr.gabC=g.join("");
-    else if(g.some(x=>x)) pr.gabC=g.map(x=>x||"A").join("");
+    const lista=itensDoCaderno(pr).map((x,i)=>({comp:c[i],questao:x.questao,gab:g[i],desc:d[i]}));
+    gravarCaderno(pr,lista);
     salvar();
-    return completo;
+    return g.every(x=>x);
   };
   $("#mVolta").onclick=()=>{gravar();casaNivel="simulado";montarCasa();};
   box.querySelectorAll("[data-c]").forEach(b=>b.onclick=()=>{
     const i=+b.dataset.c, atual=b.textContent.trim()==="Mat."?"MAT":"LP";
-    gravar(); pr.comps[i]=atual==="MAT"?"LP":"MAT"; salvar(); montarCasa(); });
+    gravar();
+    const lista=itensDoCaderno(pr);
+    lista[i].comp=(atual==="MAT")?"LP":"MAT";
+    gravarCaderno(pr,lista); salvar(); montarCasa(); });
   $("#itSalvar").onclick=()=>{
     const completo=gravar();
     alert(completo?"Itens salvos."
@@ -3453,7 +3514,9 @@ function telaItens(box){
     if(txt==null) return;
     const g=String(txt).toUpperCase().replace(/[^A-E]/g,"");
     if(g.length!==pr.nq){ alert("Foram lidas "+g.length+" letras; precisa de "+pr.nq+"."); return; }
-    gravar(); pr.gabC=g; salvar(); montarCasa(); };
+    gravar();
+    gravarCaderno(pr, itensDoCaderno(pr).map((x,i)=>Object.assign(x,{gab:g[i]})));
+    salvar(); montarCasa(); };
 }
 
 /* ── banco de descritores, reaproveitado entre simulados ─────────── */
