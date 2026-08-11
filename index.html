@@ -3116,6 +3116,10 @@ function gerarPDF(p,t,modo){
           acima do limite de 4. A letra já foi reduzida ao mínimo — para caber,
           corte questões ou encurte os enunciados.`;
       const porAluno=(doc.getNumberOfPages()/Math.max(1,t.alunos.length)).toFixed(0);
+      if(ehCaderno(p)){
+        const sm=simuladoDe(p.simulado);
+        if(sm){ sm.geradoEm=Date.now(); salvar(); }
+      }
       dizer("diag","<b>Pronto</b>"+doc.getNumberOfPages()+" páginas ("+porAluno+
         " por estudante) · corpo "+(doc.corpoUsado||"")+"pt · "+nome+extra);
     }catch(err){ console.error(err); dizer("aviso","Falhou ao gerar: "+err.message); }
@@ -3261,7 +3265,8 @@ function telaSimulados(box){
       const fl=pr?faltasDoCaderno(pr):null;
       const estado=!pr||!pr.nq ? "em branco"
         : (fl.totalQuestoes||fl.gab) ? "em preparo"
-        : n ? n+" corrigido"+(n===1?"":"s") : "pronto para aplicar";
+        : n ? n+" corrigido"+(n===1?"":"s")
+        : sm.geradoEm ? "gerado" : "pronto para gerar";
       return `<button class="item" data-s="${sm.id}"><div class="cor">
         <div class="t1">${esc(sm.titulo)}</div>
         <div class="t2">${esc(etapaDe(sm.etapa).nome)} · ${sm.ano} ·
@@ -3446,7 +3451,9 @@ function telaSimulado(box){
   if(f.gab) impedimentos.push(f.gab+" itens sem letra no gabarito");
   if(!nAlunos) impedimentos.push("a turma não tem estudantes cadastrados");
 
-  h+=passo(6,"Gerar o simulado")+
+  const jaGerado=!!sm.geradoEm;
+  h+=passo(6, jaGerado?"Imprimir e aplicar":"Gerar o simulado",
+      jaGerado?{ok:true, txt:"já gerado"}:null)+
     `<div class="card"><div class="linha" style="justify-content:space-between">
       <span>${esc(sm.titulo||"Simulado")}</span><b>${sm.ano||""}</b></div>
       ${COMPONENTES.map(c=>`<div class="linha" style="justify-content:space-between">
@@ -3467,13 +3474,43 @@ function telaSimulado(box){
     h+=`<div class="aviso">Falta para poder gerar:<br>${
       impedimentos.map(x=>"· "+esc(x)).join("<br>")}</div>`;
   }
+  if(jaGerado){
+    const d=new Date(sm.geradoEm);
+    const dd=x=>String(x).padStart(2,"0");
+    h+=`<div class="diag"><b>Já gerado em ${dd(d.getDate())}/${dd(d.getMonth()+1)} às
+      ${dd(d.getHours())}h${dd(d.getMinutes())}</b>
+      As questões deste simulado foram sorteadas uma única vez e ficaram gravadas.
+      Gerar de novo devolve exatamente os mesmos cadernos, com as mesmas questões,
+      na mesma ordem, para os mesmos estudantes — serve para reimprimir a prova de
+      quem faltou ou perdeu a folha, sem bagunçar o resto da turma.</div>`;
+  }
   h+=`<button class="btn" id="bGerar" ${impedimentos.length?"disabled":""}
-      style="margin-top:12px">Gerar simulado</button>
-    ${corrigidos?`<button class="btn sec" id="bRel" style="margin-top:9px">Ver resultados (${corrigidos} corrigidos)</button>
-      <button class="btn gho" id="bPart" style="margin-top:9px">Nota de participação</button>`:""}
+      style="margin-top:12px">${jaGerado
+        ?"Abrir para imprimir ou corrigir":"Gerar simulado"}</button>
     <button class="btn gho" id="smDel" style="margin-top:18px">Excluir simulado</button>
     <p class="hint">Excluir apaga o caderno e as correções dele. As provas normais não
       são afetadas.</p>`;
+
+  /* 7 — resultados: sempre visíveis, mesmo antes da primeira correção */
+  const totalAlunos=(t.alunos||[]).filter(ativo).length;
+  h+=passo(7,"Resultados",
+      {ok:corrigidos>0, txt:corrigidos?corrigidos+" de "+totalAlunos+" corrigidos":"aguardando"})+
+    `<button class="item" id="bRel"><div class="cor">
+      <div class="t1">Resultados por componente</div>
+      <div class="t2">Proficiência, padrões de desempenho e acerto por descritor,
+        separados em Língua Portuguesa e Matemática</div>
+      </div><span class="ch">›</span></button>
+    <button class="item" id="bPart"><div class="cor">
+      <div class="t1">Nota de participação</div>
+      <div class="t2">Até ${String(valorParticipacao(sm)).replace(".",",")} ponto(s),
+        proporcional aos acertos</div>
+      </div><span class="ch">›</span></button>
+    ${corrigidos
+      ? ""
+      : `<div class="diag"><b>Ainda sem correções</b>
+         Depois de aplicar, use a câmera na aba <b>Ler</b> e aponte para cada
+         cartão-resposta: o app reconhece o estudante pelo QR e as notas vão
+         aparecendo aqui. Dá para corrigir na ordem que quiser.</div>`}`;
   box.innerHTML=h;
 
   /* ── tudo grava sozinho ─────────────────────────────────────────── */
@@ -3506,8 +3543,8 @@ function telaSimulado(box){
   $("#mVolta").onclick=()=>{casaNivel="simulados";montarCasa();};
   $("#bItens").onclick=()=>{casaNivel="itens";montarCasa();};
   $("#bBanco").onclick=()=>{casaComp=casaComp||"LP";casaNivel="banco";montarCasa();};
-  if($("#bRel")) $("#bRel").onclick=()=>{irParticipacao=false;casaNivel="relSaepe";montarCasa();};
-  if($("#bPart")) $("#bPart").onclick=()=>{irParticipacao=true;casaNivel="relSaepe";montarCasa();};
+  $("#bRel").onclick=()=>{irParticipacao=false;casaNivel="relSaepe";montarCasa();};
+  $("#bPart").onclick=()=>{irParticipacao=true;casaNivel="relSaepe";montarCasa();};
   $("#smDel").onclick=()=>{
     if(!confirm("Excluir “"+(sm.titulo||"simulado")+"” e as correções dele?")) return;
     E.provas=E.provas.filter(x=>x.id!==pr.id);
@@ -4780,7 +4817,19 @@ function pintarResultados(){
     if(fora.length) h+=`<div class="diag" style="margin-top:10px"><b>Fora do calendário</b>
       ${fora.length} prova(s) desta disciplina estão em períodos que a turma não usa mais.
       Elas continuam guardadas — abra a turma na aba Turmas para vê-las.</div>`;
+    const sims=simuladosDa(t.id);
+    if(sims.length){
+      const corr=sims.reduce((n,sm)=>{const pr=provaDoSim(sm);return n+(pr?resDa(pr.id).length:0);},0);
+      h+=`<button class="item" id="irSim" style="margin-top:12px"><div class="cor">
+        <div class="t1">Simulados SAEPE desta turma</div>
+        <div class="t2">${sims.length} simulado${sims.length===1?"":"s"} ·
+          ${corr} cartão${corr===1?"":"ões"} corrigido${corr===1?"":"s"} — não entram na
+          média do período; os resultados ficam na área do simulado</div>
+        </div><span class="ch">›</span></button>`;
+    }
     lista.innerHTML=h;
+    if($("#irSim")) $("#irSim").onclick=()=>{
+      casaTurma=t.id; casaNivel="simulados"; montarCasa(); irPara("casa"); };
     lista.querySelectorAll("[data-per]").forEach(b=>b.onclick=()=>irNotas("per",+b.dataset.per));
     return;
   }

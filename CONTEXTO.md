@@ -271,6 +271,14 @@ O item viaja inteiro: enunciado, alternativas, gabarito, descritor e
 mostrado na tela de conferência. Separar qualquer um desses do resto faz a
 correção e a análise por descritor apontarem para a questão errada.
 
+**O sorteio acontece UMA vez**, na importação, e fica gravado em `pr.orig`,
+`pr.questoes`, `pr.gabItens` e `pr.desc`. O botão da etapa 6 só navega para
+a tela de geração — não seleciona nada. Gerar de novo devolve cadernos
+idênticos, porque o embaralhamento é determinístico por (turma, número) ou
+por tipo. `sm.geradoEm` guarda a primeira geração para a tela poder dizer
+isso: o professor precisa saber que reimprimir a prova de quem faltou não
+bagunça a turma.
+
 ### Tipos de prova
 
 `sm.tipos`: 0 é um caderno por estudante (mais seguro, uma impressão por
@@ -388,12 +396,16 @@ pé de uma coluna.
 
 ## Navegação
 
-**Simulados:** a criação é UMA tela, em seis etapas numeradas
+**Simulados:** a criação é UMA tela, em sete etapas numeradas
 (identificação, quantidade, questões, gabarito e descritores, tipos,
-resumo), com gravação automática — o simulado nasce como rascunho ao ser
+gerar, resultados), com gravação automática — o simulado nasce como rascunho ao ser
 criado. Não há botão "Salvar": quem grava é cada campo, com um "salvo"
 discreto na migalha. As telas separadas de criação e de importação foram
-removidas; sobraram a conferência item a item e o relatório.
+removidas; sobraram a conferência item a item e o relatório. A etapa 7
+fica visível **sempre**, mesmo sem nenhuma correção — escondê-la até
+existir nota fez o professor perder de vista onde os resultados saem. A aba
+Notas, que de propósito não lista simulados, traz um atalho para eles pelo
+mesmo motivo.
 
 **Turmas:** escola › turma › disciplina › provas do período › prova.
 Os estudantes ficam na turma (valem para todas as disciplinas dela). Na
