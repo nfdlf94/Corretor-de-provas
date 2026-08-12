@@ -150,6 +150,30 @@ de apoio inteiro sumia em silêncio. Hoje a linha vazia vira quebra de
 parágrafo dentro do enunciado e só encerra a continuação de uma
 alternativa.
 
+**A barra de fração `⁄` (U+2044) não é `/`.** Ela vem nos PDFs da rede em
+`1⁄87` e não estava na fonte embutida: o caractere sumia e a alternativa
+saía impressa como `187`, um número diferente e plausível — o pior tipo de
+erro. Está no subconjunto desde então, junto com `⅓ ⅔ ⅕ ⅜` e afins. Ao
+mexer em `sub.py`, gere o `fonte.js` de novo e confira com
+`caracteresFaltando()`.
+
+**Fração empilhada no PDF vira alternativa vazia.** Num PDF, `A) 1⁄20` sai
+em três linhas de base: `"A) "`, `"1"`, `"⁄20"`. A regex de alternativa
+exigia texto depois da letra, então `A)` não casava, a questão ficava
+**sem alternativa nenhuma** e — pela regra que só aceita questão nova
+depois de alternativas — engolia a questão seguinte. Um simulado de 15
+questões chegava com 13, em silêncio. Hoje a alternativa pode vir vazia, a
+continuação cola sem espaço quando há `⁄`, e **numeração em sequência
+abre questão nova** mesmo que a anterior tenha ficado sem alternativas.
+
+**Descritor pode ocupar várias linhas.** O formato real da rede é
+`D15 — texto.` numa linha e `Questões: 3 e 11.` na seguinte, com o texto
+às vezes quebrando no meio. O leitor acumula linhas até achar o próximo
+código, e aceita `,`, `;` e `e` como separadores. Antes exigia tudo numa
+linha só: o arquivo entrava com **zero descritores**, sem aviso. Por isso a
+tela de importação agora informa quantos descritores vieram e alerta
+quando falta gabarito, descritor ou alternativa.
+
 **Filtro de ruído em PDF.** Normalizar números para achar cabeçalho
 repetido faz `A) f(x) = 3x + 6` e `A) f(x) = 5x + 4` virarem a mesma linha,
 e alternativas somem. Só olhe as 2 primeiras e 2 últimas linhas da página.
@@ -383,6 +407,46 @@ uma página só para o rascunho.
 esse teto é que a letra desce para 9,5 e 9 pt — apertar a letra é menos
 ruim do que uma quinta folha. Se nem assim couber, o app gera mesmo assim e
 avisa na tela quantas páginas saíram, pedindo para cortar questões.
+
+### Anatomia da questão
+
+`segmentarEnunciado()` separa **instrução** ("Leia o texto abaixo."),
+**título**, **texto de apoio**, **referência** e **comando**, e cada um sai
+com seu próprio tipo: referência em corpo menor, cinza, alinhada à direita;
+comando em negrito. Impressos todos iguais, o endereço do site parecia
+frase do texto e o comando desaparecia no meio do parágrafo.
+
+Para isso o enunciado precisa vir em parágrafos, e o PDF não traz nenhuma
+marca de parágrafo — só quebras de largura. `montarParagrafos()` decide
+pela pergunta certa: **a primeira palavra da linha seguinte ainda caberia
+nesta linha?** Se caberia, quem quebrou foi o autor. Comparar comprimentos
+("linha curta = parágrafo") erra nas linhas quase cheias, e contar
+caracteres erra porque a fonte é proporcional — daí `larguraTexto()`, que
+pesa cada caractere. A régua da linha cheia é o percentil 93 do documento
+inteiro, não da questão: uma questão curta pode não ter nenhuma linha
+cheia.
+
+Quando a referência vem colada ao fim do apoio (`...terceiro andar. ASSIS,
+Machado de. Memórias...`), `inicioDaReferencia()` acha onde ela começa. Sem
+isso o texto inteiro sairia impresso como se fosse a fonte.
+
+**No simulado o teto é obrigatório**, e a ordem é: (1) modo denso —
+`DENSO` reduz entrelinha e o ar entre rótulo, enunciado e alternativas, e
+o rascunho não é desenhado; (2) escada de corpo `CORPOS_SAEPE`
+(10,5 → 10,2 → 10 → 9,8 → 9,5 → 9,2 → 9), parando na MAIOR que couber;
+(3) `CORRIDO` junta os parágrafos do apoio num bloco só, e a escada de
+corpo roda de novo — cada parágrafo termina numa linha parcial, e num
+texto de sete parágrafos isso custa quase quatro linhas; a referência e o
+comando continuam separados, que é o que faz a questão ser legível;
+(4) só então `melhorAjuste()` tira questões, **uma de cada componente por
+vez**, até achar a maior quantidade que cabe. Os três passos são medidos
+com geração real em modo `dry`, não estimados. Cortar questão nunca desfaz
+relação: o item carrega enunciado, gabarito, descritor e `orig` juntos, e
+`aplicarAjuste()` regrava o caderno inteiro por `gravarCaderno()`.
+
+`medirCaderno()` devolve `null` quando não consegue medir, e nesse caso a
+geração segue **sem** ajuste — travar a impressão por causa de uma conta
+que falhou seria pior do que imprimir uma página a mais.
 
 Alcance atual: 5–6 questões em 1 página, 7–14 em 2, 15–20 em 3, e o caderno
 de 30 itens do simulado em 4.

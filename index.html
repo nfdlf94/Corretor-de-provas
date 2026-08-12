@@ -965,20 +965,32 @@ function lerSimuladoDoc(txt){
     if(m) chave[+m[1]]=m[2].toUpperCase();
   });
 
+  /* Um descritor pode ocupar VÁRIAS linhas: o código e o texto numa, a
+     lista de questões na seguinte, e o texto ainda pode quebrar no meio.
+     Por isso o bloco é acumulado até aparecer o próximo código. */
   const descritores=[], mapa={};
+  const numerosDe=txt=>{
+    const m=/quest(?:ões|oes|ão|ao)s?\s*[:\-–—]?\s*([\d\s,;.eE]+)/i.exec(txt);
+    if(!m) return {qs:[], corte:-1};
+    return {qs:(m[1].match(/\d{1,2}/g)||[]).map(Number), corte:m.index};
+  };
+  const fechar=bloco=>{
+    if(!bloco) return;
+    const junto=bloco.linhas.join(" ").replace(/\s+/g," ").trim();
+    const {qs,corte}=numerosDe(junto);
+    let texto=(corte>=0?junto.slice(0,corte):junto)
+      .replace(/^\s*[—–\-:.]\s*/,"").replace(/\s*[—–\-]\s*$/,"").trim();
+    descritores.push({cod:bloco.cod, texto, questoes:qs});
+    qs.forEach(n=>{ if(!mapa[n]) mapa[n]=bloco.cod; });
+  };
+  let bloco=null;
   blocoDes.forEach(l=>{
     const t=limpo(l); if(!t) return;
-    const m=/^(D\s*\d{1,3})\s*(.*)$/i.exec(t);
-    if(!m) return;
-    const cod=codDesc(m[1]);
-    let resto=String(m[2]).replace(/^\s*[—–\-:.]\s*/,"");
-    let qs=[];
-    const mq=/quest(?:ões|oes|ão|ao)s?\s*[:\-–—]?\s*([\d\s,;e]+)$/i.exec(resto);
-    if(mq){ qs=(mq[1].match(/\d{1,2}/g)||[]).map(Number); resto=resto.slice(0,mq.index); }
-    const texto=resto.replace(/\s*[—–\-]\s*$/,"").trim();
-    descritores.push({cod,texto,questoes:qs});
-    qs.forEach(n=>{ if(!mapa[n]) mapa[n]=cod; });
+    const m=/^(D\s*\d{1,3})\b\s*(.*)$/i.exec(t);
+    if(m){ fechar(bloco); bloco={cod:codDesc(m[1]), linhas:[m[2]]}; }
+    else if(bloco) bloco.linhas.push(t);
   });
+  fechar(bloco);
 
   const lidas=lerQuestoes(corpo);
   const itens=(lidas.questoes||[]).map((q,i)=>{
@@ -1034,6 +1046,65 @@ function faltasDoCaderno(pr){
   f.totalQuestoes=COMPONENTES.reduce((n,c)=>n+f.questoes[c.id],0);
   f.completo=!f.gab && !f.totalQuestoes && pr.nq>=MIN_Q_CARTAO;
   return f;
+}
+
+/* ── caber em quatro páginas ───────────────────────────────────────
+   Ordem: primeiro a maior letra que couber (o gerador desce 10,5 → 9);
+   só depois, se nem com 9 pt couber, tira questões — sempre a mesma
+   quantidade de cada componente, para não desequilibrar o simulado.
+   Como o item carrega enunciado, gabarito, descritor e o número
+   original juntos, cortar o fim de um bloco não desfaz relação nenhuma. */
+const MAX_PAG_SIMULADO=4;
+
+function medirCaderno(sm,pr,t,lista){
+  if(typeof gerarProvas!=="function" || !window.jspdf) return null;
+  const falso=Object.assign({},pr,{
+    nq:lista.length, comps:lista.map(x=>x.comp),
+    gabC:lista.map(x=>x.gab||"A").join(""),
+    questoes:lista.map(x=>x.questao||itemVazio())});
+  const aluno=(t.alunos||[])[0]||{numero:"01",nome:"ESTUDANTE"};
+  try{
+    const doc=gerarProvas(cfgDoCaderno(sm,falso,t),[aluno],window.jspdf.jsPDF);
+    /* sem medida confiável, devolve nada: melhor gerar sem ajustar do que
+       travar a geração por causa de uma conta que não deu certo */
+    if(!doc || !doc.paginasPorAluno) return null;
+    return {paginas:doc.paginasPorAluno, corpo:doc.corpoUsado};
+  }catch(e){ return null; }
+}
+
+/* Maior quantidade por componente que cabe no teto de páginas. */
+function melhorAjuste(sm){
+  const pr=provaDoSim(sm), t=turmaDe(sm.turma);
+  if(!pr||!t||!pr.nq) return null;
+  const base=itensDoCaderno(pr);
+  const porComp={};
+  COMPONENTES.forEach(c=>porComp[c.id]=base.filter(x=>x.comp===c.id));
+  const maior=Math.max(...COMPONENTES.map(c=>porComp[c.id].length));
+  const monta=corte=>{
+    const partes=COMPONENTES.map(c=>porComp[c.id].slice(0,Math.max(0,porComp[c.id].length-corte)));
+    return [].concat.apply([],partes);
+  };
+  let ultimo=null;
+  for(let corte=0; corte<maior; corte++){
+    const lista=monta(corte);
+    if(lista.length<MIN_Q_CARTAO) break;
+    const m=medirCaderno(sm,pr,t,lista);
+    if(!m) return null;                 // não deu para medir: gera como está
+    ultimo={corte, lista, paginas:m.paginas, corpo:m.corpo,
+      qtd:COMPONENTES.reduce((o,c)=>{o[c.id]=Math.max(0,porComp[c.id].length-corte);return o;},{})};
+    if(m.paginas<=MAX_PAG_SIMULADO) return ultimo;
+  }
+  return ultimo;                      // nem o mínimo coube: devolve o último medido
+}
+
+/* Aplica o corte, preservando tudo o que cada item carrega. */
+function aplicarAjuste(sm,aj){
+  const pr=provaDoSim(sm);
+  gravarCaderno(pr,aj.lista);
+  sm.qtd=Object.assign({},sm.qtd,aj.qtd);
+  salvar();
+  if(E.ativa===pr.id) ativar(pr.id);
+  return pr;
 }
 
 /* ── quantidade pedida pelo professor ──────────────────────────────
@@ -2922,6 +2993,60 @@ function separarGabarito(txt){
 const MARCA_PAG="\u0001PAG";
 const MARCA_FIG="\u0001FIG";
 
+/* ── parágrafos do enunciado ───────────────────────────────────────
+   No Word, o parágrafo vem separado por linha em branco. No PDF não há
+   nenhuma marca: as linhas são só quebras de largura. O que denuncia um
+   parágrafo ali é a linha CURTA — quem termina antes da margem terminou
+   por vontade do autor, não por falta de espaço. É isso que separa o
+   texto de apoio, a fonte e o comando da questão, que antes vinham
+   grudados num bloco só. */
+/* Largura aproximada em "ems": contar caracteres trata "iiiii" e "MMMMM"
+   como iguais, e é isso que fazia uma linha cheia passar por curta. */
+const LARGURA_CHAR=(()=>{
+  const fino="iltfjr.,;:!|'’‘\"()[]{} ", largo="mwMWQ@%—–";
+  return c=>{
+    if(fino.indexOf(c)>=0) return 0.45;
+    if(largo.indexOf(c)>=0) return 1.35;
+    if(c>="A"&&c<="Z") return 1.1;
+    return 0.85;
+  };
+})();
+const larguraTexto=t=>{
+  let w=0; const s=String(t);
+  for(let i=0;i<s.length;i++) w+=LARGURA_CHAR(s.charAt(i));
+  return w;
+};
+
+function montarParagrafos(linhas, cheiaDoc){
+  const ls=(linhas||[]).map(x=>typeof x==="string"?{txt:x,duro:false}:x)
+    .filter(x=>String(x.txt).trim());
+  if(!ls.length) return "";
+  /* a largura de referência vem do documento inteiro, não da questão:
+     uma questão curta pode não ter nenhuma linha cheia, e aí qualquer
+     linha pareceria "curta" e viraria parágrafo */
+  const cheia=cheiaDoc||Math.max.apply(null, ls.map(x=>larguraTexto(x.txt)));
+  /* A pergunta certa não é "esta linha é curta?", e sim "por que ela
+     terminou aqui?". Se a primeira palavra da linha seguinte ainda
+     caberia, a quebra foi do autor — é parágrafo. Se não caberia, foi a
+     margem que quebrou, e o texto continua. Medir por proporção do
+     comprimento erra justamente nas linhas quase cheias. */
+  const FOLGA=1.6;                     // sobra para o erro da estimativa
+  const voluntaria=(atualTxt,proxTxt)=>{
+    if(proxTxt==null) return true;                       // fim do bloco
+    const palavra=String(proxTxt).trim().split(/\s+/)[0]||"";
+    return larguraTexto(atualTxt)+larguraTexto(" "+palavra) <= cheia-FOLGA;
+  };
+  const paras=[]; let atual=[];
+  ls.forEach((x,i)=>{
+    if(x.duro && atual.length){ paras.push(atual.join(" ")); atual=[]; }
+    atual.push(x.txt);
+    const prox=ls[i+1] ? ls[i+1].txt : null;
+    if(voluntaria(x.txt, prox)){ paras.push(atual.join(" ")); atual=[]; }
+  });
+  if(atual.length) paras.push(atual.join(" "));
+  return paras.filter(p=>p.trim()).join("\n");
+}
+
 function lerQuestoes(txtBruto){
   const {corpo:txt, chave}=separarGabarito(txtBruto);
   const questoes=[]; let gab="", atual=null, ultimaAlt=null, alvo=null, pulouLinha=false;
@@ -2944,7 +3069,10 @@ function lerQuestoes(txtBruto){
        Ela encerra, sim, a continuação de uma alternativa. */
     if(!l){ if(alvo==="alt") alvo=null; else if(alvo==="enun") pulouLinha=true; return; }
     const mq=/^(\d{1,2})\s*[.)\-–]\s*(.*)$/.exec(l);
-    const ma=/^(\*?)\s*([A-Ea-e])\s*[).\-–]\s+(.*)$/.exec(l);
+    /* O texto pode faltar: num PDF, "A) 1⁄20" sai com a fração empilhada
+       em outra linha de base, e a alternativa chega só como "A)". Sem
+       aceitar isso, a questão fica SEM alternativas e engole a próxima. */
+    const ma=/^(\*?)\s*([A-Ea-e])\s*[).\-–]\s*(.*)$/.exec(l);
     if(ma && atual){
       const k=ma[2].toUpperCase().charCodeAt(0)-65;
       while(atual.alternativas.length<k) atual.alternativas.push("");
@@ -2952,17 +3080,27 @@ function lerQuestoes(txtBruto){
       if(ma[1]==="*") atual.correta=k;
       ultimaAlt=k; alvo="alt"; pulouLinha=false; return;
     }
-    if(mq && (!atual || atual.alternativas.length)){
-      atual={enunciado:mq[2].trim(),alternativas:[],correta:null,pagina:paginaAtual};
+    /* Numeração em sequência é sinal forte de questão nova: aceita mesmo
+       que a anterior tenha ficado sem alternativas legíveis. Sem isso,
+       uma questão com alternativas ilegíveis engolia a seguinte — foi o
+       que sumiu com duas questões de um simulado de frações. */
+    const naSequencia=mq && parseInt(mq[1],10)===questoes.length+1;
+    if(mq && (!atual || atual.alternativas.length || naSequencia)){
+      atual={enunciado:"",alternativas:[],correta:null,pagina:paginaAtual,
+        _linhas:[{txt:mq[2].trim(), duro:false}]};
       questoes.push(atual); ultimaAlt=null; alvo="enun"; pulouLinha=false; return;
     }
     if(atual && alvo==="alt" && ultimaAlt!==null){
-      atual.alternativas[ultimaAlt]+=" "+l; return; }
+      const atualAlt=atual.alternativas[ultimaAlt]||"";
+      /* fração empilhada: "1" e "⁄20" viram "1⁄20", sem espaço no meio */
+      const cola=(/^[⁄\/]/.test(l)||/[⁄\/]$/.test(atualAlt)) ? "" : (atualAlt?" ":"");
+      atual.alternativas[ultimaAlt]=atualAlt+cola+l; return; }
     if(atual && alvo==="enun"){
-      const ultima=atual.enunciado.split("\n").pop();
-      const quebra=pulouLinha||pareceTabela(l)||pareceTabela(ultima);
+      /* guarda as linhas cruas: a divisão em parágrafos é decidida no
+         fim, quando dá para comparar os comprimentos entre si */
+      atual._linhas=atual._linhas||[];
+      atual._linhas.push({txt:l, duro:pulouLinha||pareceTabela(l)});
       pulouLinha=false;
-      atual.enunciado += (quebra ? "\n" : " ") + l;
       return; }
     if(!atual){ atual={enunciado:l,alternativas:[],correta:null,pagina:paginaAtual};
       questoes.push(atual); alvo="enun"; }
@@ -2975,8 +3113,16 @@ function lerQuestoes(txtBruto){
     }
   });
   const limpar=t=>String(t==null?"":t).split(MARCA_PAG)[0].replace(/\s+$/,"");
+  /* largura da linha cheia do documento: percentil alto de todas as
+     linhas, para uma linha esticada isolada não puxar a régua */
+  const todas=[];
+  questoes.forEach(q=>(q._linhas||[]).forEach(x=>todas.push(larguraTexto(x.txt))));
+  todas.sort((a,b)=>a-b);
+  const cheiaDoc=todas.length?todas[Math.min(todas.length-1,
+    Math.floor(todas.length*0.93))]:0;
   questoes.forEach(q=>{
-    q.enunciado=limpar(q.enunciado);
+    q.enunciado=limpar(montarParagrafos(q._linhas, cheiaDoc));
+    delete q._linhas;
     q.alternativas=q.alternativas.map(limpar);
   });
   questoes.forEach(q=>{ gab += (q.correta==null?"?":"ABCDE"[q.correta]); });
@@ -3102,6 +3248,7 @@ function gerarPDF(p,t,modo){
         comps:ehCaderno(p)?(p.comps||null):null,
         alternarBlocos:ehCaderno(p)&&alternaBlocos(p),
         tipos:ehCaderno(p)?((simuladoDe(p.simulado)||{}).tipos||0):0,
+        simulado:ehCaderno(p), maxPaginas:ehCaderno(p)?MAX_PAG_SIMULADO:undefined,
         rotulosComp:COMPONENTES.reduce((m,c)=>{m[c.id]=c.nome;return m;},{})};
       const doc = (modo==="cartoes")
         ? gerarFolhasDeCartoes(cfg,t.alunos)
@@ -3469,7 +3616,7 @@ function telaSimulado(box){
       <div class="linha" style="justify-content:space-between">
         <span style="color:var(--mute)">Páginas por estudante</span>
         <b id="smPag">—</b></div>
-    </div>`;
+    </div><div id="smAjuste"></div>`;
   if(impedimentos.length){
     h+=`<div class="aviso">Falta para poder gerar:<br>${
       impedimentos.map(x=>"· "+esc(x)).join("<br>")}</div>`;
@@ -3591,11 +3738,24 @@ function telaSimulado(box){
       guardar();
       if(E.ativa===pr.id) ativar(pr.id);
       montarCasa();
+      /* o que ficou incompleto precisa aparecer: passar batido faz o
+         professor descobrir só na hora de gerar, ou pior, nunca */
+      const semGab=sel.itens.filter(x=>!x.gab).length;
+      const semDesc=sel.itens.filter(x=>!x.desc).length;
+      const curtas=sel.itens.filter(x=>
+        (x.questao.alternativas||[]).filter(a=>String(a).trim()).length<SAEPE_NO).length;
+      const alertas=[];
+      if(semGab)  alertas.push(semGab+" sem letra no gabarito");
+      if(semDesc) alertas.push(semDesc+" sem descritor — confira se o arquivo tem o bloco DESCRITORES");
+      if(curtas)  alertas.push(curtas+" com menos de "+SAEPE_NO+" alternativas legíveis");
       $("#impInfo").innerHTML=`<div class="diag" style="margin-top:10px">
         <b>${esc(arq.name)}</b>${sel.encontradas} questões encontradas ·
-        ${sel.usadas} ${sel.sorteadas?"sorteadas":"usadas"} em ${esc(nomeComp(comp))}${
+        ${sel.usadas} ${sel.sorteadas?"sorteadas":"usadas"} em ${esc(nomeComp(comp))} ·
+        ${lido.descritores.length} descritor${lido.descritores.length===1?"":"es"} no arquivo${
         sel.sorteadas?"<br>Sorteadas as originais: "+
-          sel.itens.map(x=>x.orig).join(", "):""}</div>`;
+          sel.itens.map(x=>x.orig).join(", "):""}</div>${
+        alertas.length?`<div class="aviso" style="margin-top:8px">${
+          alertas.map(esc).join("<br>")}</div>`:""}`;
     }catch(e){
       info(`<div class="aviso" style="margin-top:10px">Não consegui ler: ${esc(e.message)}</div>`);
     }
@@ -3607,16 +3767,41 @@ function telaSimulado(box){
     if(impedimentos.length || typeof gerarProvas!=="function") return;
     try{
       const doc=gerarProvas(cfgDoCaderno(sm,pr,t),[ (t.alunos||[])[0] ], window.jspdf.jsPDF);
-      const el=$("#smPag");
-      if(el) el.textContent=(doc.paginasPorAluno||"?")+(doc.avisoPaginas?" (acima do limite)":"");
+      const el=$("#smPag"), av=$("#smAjuste");
+      const corpo=doc.corpoUsado?String(doc.corpoUsado).replace(".",",")+" pt":"";
+      if(el) el.textContent=(doc.paginasPorAluno||"?")+(corpo?" · corpo "+corpo:"");
+      if(av && doc.avisoPaginas){
+        av.innerHTML=`<div class="aviso" style="margin-top:10px">
+          Com ${pr.nq} questões a prova sai com ${doc.avisoPaginas} páginas, mesmo na
+          menor letra permitida (9 pt). Ao gerar, o app vai propor a maior quantidade
+          que cabe em ${MAX_PAG_SIMULADO} páginas.</div>`;
+      }else if(av) av.innerHTML="";
     }catch(e){ /* previsão é enfeite: se falhar, o botão continua valendo */ }
   };
   setTimeout(()=>{ if(casaNivel==="simulado") prever(); },30);
 
   if($("#bGerar")) $("#bGerar").onclick=()=>{
     if(pr.nq<MIN_Q_CARTAO){ alert("O caderno ainda não tem itens."); return; }
-    voltaPara.prova="simulado"; casaProva=pr.id; ativar(pr.id);
-    casaNivel="prova"; montarCasa();
+    const abrir=()=>{
+      voltaPara.prova="simulado"; casaProva=pr.id; ativar(pr.id);
+      casaNivel="prova"; montarCasa(); };
+    const aj=melhorAjuste(sm);
+    if(!aj || aj.corte===0){ abrir(); return; }   // coube como está
+    const antes=pr.nq;
+    const resumo=COMPONENTES.filter(c=>aj.qtd[c.id]!=null)
+      .map(c=>aj.qtd[c.id]+" de "+nomeComp(c.id)).join(" e ");
+    if(aj.paginas>MAX_PAG_SIMULADO){
+      alert("Mesmo com "+aj.lista.length+" questões e a menor letra permitida, a prova "+
+        "sai com "+aj.paginas+" páginas. Reduza a quantidade pedida ou use enunciados menores.");
+      return; }
+    if(!confirm("As "+antes+" questões não cabem em "+MAX_PAG_SIMULADO+" páginas, nem "+
+      "reduzindo a letra até 9 pt.\n\nA maior quantidade que cabe é "+resumo+
+      " — "+aj.lista.length+" questões, corpo "+String(aj.corpo).replace(".",",")+" pt.\n\n"+
+      "Aplicar esse ajuste? As questões retiradas saem do fim de cada bloco; "+
+      "gabarito e descritores continuam certos.")) return;
+    aplicarAjuste(sm,aj);
+    montarCasa();
+    setTimeout(abrir,0);
   };
 }
 
@@ -3629,6 +3814,7 @@ function cfgDoCaderno(sm,pr,t){
     periodoLabel:"Simulado SAEPE · "+(sm.ano||""),
     gabaritoCanonico:pr.gabC,no:pr.no,questoes:pr.questoes||[],discursivas:[],
     comps:pr.comps||null, alternarBlocos:alternaBlocos(pr), tipos:sm.tipos||0,
+    simulado:true, maxPaginas:MAX_PAG_SIMULADO,
     rotulosComp:COMPONENTES.reduce((m,c)=>{m[c.id]=c.nome;return m;},{})};
 }
 

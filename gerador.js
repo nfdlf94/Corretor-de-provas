@@ -182,6 +182,11 @@ const CORPOS = [10.5, 10];   // legibilidade tem piso: nunca menor que 10 pt
 const CORPOS_APERTO = [9.5, 9];  // só entram se 10 pt estourar o limite de folhas
 const MAX_PAGINAS = 4;           // uma prova não passa de quatro páginas por aluno
 
+/* Escada do simulado SAEPE: desce de meio em meio ponto até 9, que é o
+   piso de legibilidade. A prova comum NÃO usa esta escada — lá o corpo
+   continua em 10,5 com piso de 10. */
+const CORPOS_SAEPE = [10.5, 10.2, 10, 9.8, 9.5, 9.2, 9];
+
 const larguraColuna = doc =>
   (doc.internal.pageSize.getWidth() - 2 * MARG - GUT) / 2;
 const xColuna = (doc, c) => MARG + c * (larguraColuna(doc) + GUT);
@@ -250,17 +255,171 @@ function medirFigura(img, larguraDisponivel){
 }
 
 /* ── medidas de uma questão dentro da coluna ────────────────────── */
+/* No simulado o espaço é apertado ANTES de a letra encolher e muito
+   antes de sair questão: entrelinha um pouco menor e menos ar entre o
+   rótulo, o enunciado e as alternativas. A prova comum não muda. */
+let DENSO = false, CORRIDO = false;
+const ENTRELINHA = () => DENSO ? 0.395 : 0.42;
+const AR_ROTULO  = () => DENSO ? 4.6 : 5.2;
+const AR_ENUN    = () => DENSO ? 0.9 : 1.4;
+const AR_ALT     = () => DENSO ? 0.5 : 0.9;
+const AR_QUESTAO = () => DENSO ? 2.2 : 3.4;
+
+/* ── anatomia do enunciado ─────────────────────────────────────────
+   Uma questão de avaliação externa tem partes com pesos diferentes:
+   a instrução ("Leia o texto abaixo."), o título do texto, o texto de
+   apoio, a REFERÊNCIA bibliográfica e o COMANDO. Impressas todas iguais,
+   viram um bloco em que o endereço do site parece parte do texto e o
+   comando desaparece. Aqui elas são separadas e recebem tipos próprios. */
+const RE_INSTRUCAO = /^leia(\s+(o|os)\s+(texto|textos|trecho|fragmento)s?)?(\s+abaixo)?\s*[.:]?$/i;
+const RE_COMANDO = /^(qual|quais|que\s|quantos|quantas|de acordo|segundo|nesse|neste|no trecho|na frase|em qual|assinale|o assunto|a ideia|a tese|a expressão|a repetição|a palavra|o autor|o texto|o efeito|o uso|considerando)/i;
+/* fim de referência: são fórmulas fixas da bibliografia */
+const FIM_FONTE = [
+  /Mantida a ortografia original do texto\.\s*/g,
+  /Fragmento\.\s*/g,
+  /Acesso em:[^.]*\.\s*/g,
+  /\bp\.\s*\d+\.\s*/g
+];
+
+/* posição depois do último ponto final seguido de maiúscula — sem
+   lookbehind, que não existe em Safari antigo */
+function ultimoCorteDeFrase(txt){
+  const re = /[.!?]["”’)]?\s+/g;
+  let m, corte = -1;
+  while((m = re.exec(txt)) !== null){
+    const fim = m.index + m[0].length;
+    if(/[A-ZÀ-Ý“"(]/.test(txt.charAt(fim))) corte = fim;
+  }
+  return corte;
+}
+
+/* parece uma referência bibliográfica inteira? */
+function pareceReferencia(txt){
+  return /(19|20)\d{2}|Dispon[ií]vel em|Acesso em|p\.\s*\d+|\bIn:/.test(txt)
+      || /^[A-ZÀ-Ý]{2,}[,.]/.test(txt);
+}
+/* onde a referência começa dentro de um parágrafo que também traz texto */
+function inicioDaReferencia(txt){
+  const forte = /^(Dispon[ií]vel em|[A-ZÀ-Ý]{2,}[,.]\s|In:)/;
+  const re = /[.!?]["”’)]?\s+/g;
+  let m;
+  while((m = re.exec(txt)) !== null){
+    const p = m.index + m[0].length;
+    if(forte.test(txt.slice(p))) return p;
+  }
+  return -1;
+}
+
+function segmentarEnunciado(texto){
+  const paras = String(texto == null ? "" : texto).split("\n")
+    .map(t => t.trim()).filter(Boolean);
+  if(!paras.length) return {corpo: []};
+  const seg = {instrucao: null, titulo: null, corpo: [], fonte: null, comando: null};
+
+  if(RE_INSTRUCAO.test(paras[0])) seg.instrucao = paras.shift();
+  /* título: linha curta, sem ponto final, logo depois da instrução */
+  if(paras.length > 1 && paras[0].length <= 70 && !/[.?!:;]$/.test(paras[0]))
+    seg.titulo = paras.shift();
+
+  /* referência: procura de trás para frente o fim de uma fórmula
+     bibliográfica; o que vier depois dela é o comando */
+  for(let i = paras.length - 1; i >= 0 && !seg.fonte; i--){
+    let fim = -1;
+    FIM_FONTE.forEach(re => {
+      re.lastIndex = 0; let m;
+      while((m = re.exec(paras[i])) !== null) fim = Math.max(fim, m.index + m[0].length);
+    });
+    if(fim < 0) continue;
+    const antes = paras[i].slice(0, fim).trim();
+    const depois = paras[i].slice(fim).trim();
+    let fonte = antes, sobra = "";
+    if(!pareceReferencia(antes)){
+      /* a referência veio colada ao fim do texto de apoio: acha onde ela
+         começa, senão o texto inteiro sairia impresso como se fosse a
+         fonte, em letra miúda e alinhado à direita */
+      const ini = inicioDaReferencia(antes);
+      if(ini <= 0) continue;
+      fonte = antes.slice(ini).trim();
+      sobra = antes.slice(0, ini).trim();
+      if(!pareceReferencia(fonte)) continue;
+    }
+    seg.fonte = fonte;
+    const resto = (depois ? [depois] : []).concat(paras.slice(i + 1));
+    seg.comando = resto.length ? resto.join(" ") : null;
+    paras.length = i;                       // o corpo é tudo o que veio antes
+    if(sobra) paras.push(sobra);
+  }
+
+  /* sem referência: o comando é o último parágrafo, se parecer um */
+  if(!seg.comando && paras.length > 1){
+    const ultimo = paras[paras.length - 1];
+    if(/\?$/.test(ultimo) || RE_COMANDO.test(ultimo) || !/[.!]$/.test(ultimo))
+      seg.comando = paras.pop();
+  }
+  /* Último recurso: o comando pode ter ficado colado ao fim do parágrafo,
+     quando a linha do texto de apoio terminou quase na margem e não deu
+     para saber se a quebra foi do autor. Aí separa pela última frase. */
+  if(!seg.comando && paras.length){
+    const ultimo = paras[paras.length - 1];
+    const corte = ultimoCorteDeFrase(ultimo);
+    if(corte > 0){
+      const cauda = ultimo.slice(corte).trim();
+      if(cauda.length >= 15 && (/\?$/.test(cauda) || RE_COMANDO.test(cauda))){
+        paras[paras.length - 1] = ultimo.slice(0, corte).trim();
+        seg.comando = cauda;
+      }
+    }
+  }
+  /* Modo corrido: os parágrafos do texto de apoio viram um bloco só.
+     Cada parágrafo termina numa linha parcial, e num texto de sete
+     parágrafos isso custa quase quatro linhas cheias. Só entra quando é
+     a alternativa a CORTAR questão — e a referência e o comando
+     continuam separados, que é o que faz a questão ser legível. */
+  seg.corpo = CORRIDO ? (paras.length ? [paras.join(" ")] : []) : paras;
+  return seg;
+}
+
 function medidasQuestao(doc, item, larg, fs, opcoes){
   doc.setFont(FONTE_TEXTO, "normal"); doc.setFontSize(fs);
-  const passo = fs * 0.42;
-  const linhasEnun = doc.splitTextToSize(String(item.enunciado || ""), larg);
-  let h = 5.2 + linhasEnun.length * passo + 1.4;       // rótulo + enunciado
+  const passo = fs * ENTRELINHA();
+  const seg = segmentarEnunciado(item.enunciado);
+  const partes = [];
+  const medir = (txt, tipo, tamanho, estilo, largura) => {
+    doc.setFont(FONTE_TEXTO, estilo); doc.setFontSize(tamanho);
+    const linhas = doc.splitTextToSize(String(txt), largura || larg);
+    partes.push({tipo, linhas, fs: tamanho, estilo,
+                 passo: tamanho * ENTRELINHA()});
+  };
+  if(seg.instrucao) medir(seg.instrucao, "instrucao", fs - 1.4, "normal");
+  if(seg.titulo)    medir(seg.titulo,    "titulo",    fs,       "bold");
+  (seg.corpo || []).forEach(p => medir(p, "corpo", fs, "normal"));
+  if(seg.fonte)     medir(seg.fonte,     "fonte",     fs - 2.2, "normal");
+  if(seg.comando)   medir(seg.comando,   "comando",   fs,       "bold");
+
+  let h = AR_ROTULO();
+  partes.forEach((pt, i) => {
+    h += pt.linhas.length * pt.passo + espacoDepois(pt.tipo, partes[i + 1]);
+  });
+  h += AR_ENUN();
   const fig = medirFigura(item.imagem, larg);
   if(fig) h += fig.h + 2.5;
+  doc.setFont(FONTE_TEXTO, "normal"); doc.setFontSize(fs);
   const alts = (item.alternativas || []).map(a =>
     doc.splitTextToSize(String(a == null ? "" : a), larg - 7));
-  alts.forEach(la => { h += la.length * passo + 0.9; });
-  return {h, linhasEnun, alts, fig, passo};
+  alts.forEach(la => { h += la.length * passo + AR_ALT(); });
+  return {h, partes, alts, fig, passo};
+}
+
+/* o ar entre as partes: pouco dentro do texto, mais antes do comando */
+function espacoDepois(tipo, proxima){
+  const alvo = proxima ? proxima.tipo : null;
+  if(tipo === "instrucao") return DENSO ? 0.6 : 0.9;
+  if(tipo === "titulo")    return DENSO ? 0.8 : 1.2;
+  if(tipo === "fonte")     return DENSO ? 1.4 : 2.0;
+  if(alvo === "fonte")     return DENSO ? 0.9 : 1.3;
+  if(alvo === "comando")   return DENSO ? 1.6 : 2.2;
+  if(tipo === "corpo")     return DENSO ? 0.7 : 1.0;
+  return DENSO ? 0.5 : 0.8;
 }
 
 function desenharQuestaoCol(doc, x, y, n, item, larg, fs, opcoes, m){
@@ -268,11 +427,23 @@ function desenharQuestaoCol(doc, x, y, n, item, larg, fs, opcoes, m){
   doc.text("QUESTÃO " + String(n).padStart(2, "0"), x, y + 2.4);
   doc.setDrawColor(...COR.orange); doc.setLineWidth(0.6);
   doc.line(x, y + 3.6, x + 15, y + 3.6);
-  y += 5.2;
+  y += AR_ROTULO();
 
-  doc.setFont(FONTE_TEXTO, "normal"); doc.setFontSize(fs); doc.setTextColor(25, 28, 34);
-  doc.text(m.linhasEnun, x, y + m.passo * 0.75);
-  y += m.linhasEnun.length * m.passo + 1.4;
+  m.partes.forEach((pt, i) => {
+    doc.setFont(FONTE_TEXTO, pt.estilo); doc.setFontSize(pt.fs);
+    if(pt.tipo === "instrucao" || pt.tipo === "fonte") doc.setTextColor(...COR.grey);
+    else if(pt.tipo === "titulo") doc.setTextColor(...COR.navy);
+    else doc.setTextColor(25, 28, 34);
+    if(pt.tipo === "fonte"){
+      /* referência alinhada à direita, como na prova oficial */
+      pt.linhas.forEach((ln, k) =>
+        doc.text(ln, x + larg, y + pt.passo * (0.75 + k), {align: "right"}));
+    }else{
+      doc.text(pt.linhas, x, y + pt.passo * 0.75);
+    }
+    y += pt.linhas.length * pt.passo + espacoDepois(pt.tipo, m.partes[i + 1]);
+  });
+  y += AR_ENUN();
 
   if(m.fig){
     try{ doc.addImage(item.imagem.dados, "JPEG", x, y, m.fig.w, m.fig.h); }catch(e){}
@@ -283,9 +454,9 @@ function desenharQuestaoCol(doc, x, y, n, item, larg, fs, opcoes, m){
     doc.text(opcoes[k] + ")", x + 1, y + m.passo * 0.75);
     doc.setFont(FONTE_TEXTO, "normal"); doc.setTextColor(25, 28, 34);
     doc.text(la, x + 7, y + m.passo * 0.75);
-    y += la.length * m.passo + 0.9;
+    y += la.length * m.passo + AR_ALT();
   });
-  return y + 3.4;
+  return y + AR_QUESTAO();
 }
 
 /* ── rascunho ───────────────────────────────────────────────────── */
@@ -333,7 +504,7 @@ function blocosDaProva(doc, cfg, aluno, fs){
     const rotulo = abre
       ? ((cfg.rotulosComp || {})[compAtual] || NOME_COMP[compAtual] || compAtual)
       : null;
-    blocos.push({h: m.h + 3.4 + (abre ? ALT_CAB : 0), juntoComProximo: false,
+    blocos.push({h: m.h + AR_QUESTAO() + (abre ? ALT_CAB : 0), juntoComProximo: false,
       desenhar: (x, y) => {
         const yy = rotulo ? cabecalhoBloco(x, y, rotulo) : y;
         return desenharQuestaoCol(doc, x, yy, p + 1, item, larg, fs, opcoes, m);
@@ -440,7 +611,7 @@ function fluir(doc, cfg, aluno, fs, dry){
     if(i < blocos.length){
       // sobrou espaço embaixo desta página? vira rascunho, não vazio
       const folga = fundo - ultimoUso;
-      if(!dry && folga >= 30) desenharRascunho(doc, ultimoUso + 3, folga - 3);
+      if(!dry && !cfg.simulado && folga >= 30) desenharRascunho(doc, ultimoUso + 3, folga - 3);
       paginas++;
       if(!dry) doc.addPage();
       topo = TOPO;
@@ -450,7 +621,7 @@ function fluir(doc, cfg, aluno, fs, dry){
   // o rascunho é um bônus: só entra no espaço que sobrou, nunca
   // pede uma página nova — papel a mais não vale por área de rabisco
   const sobra = fundo - ultimoUso;
-  if(!dry && sobra >= 26) desenharRascunho(doc, ultimoUso + 3, sobra - 3);
+  if(!dry && !cfg.simulado && sobra >= 26) desenharRascunho(doc, ultimoUso + 3, sobra - 3);
   return paginas;
 }
 
@@ -462,6 +633,7 @@ function gerarProvas(cfg, alunos, jsPDFctor){
   const Ctor = jsPDFctor || (window.jspdf && window.jspdf.jsPDF);
   const doc = new Ctor({unit: "mm", format: "a4", compress: true});
   prepararFontes(doc);
+  DENSO = !!cfg.simulado;      // aperta o espaço só no simulado
 
   if(typeof caracteresFaltando === "function"){
     const textos = [cfg.titulo, cfg.escola, cfg.disciplina, cfg.professor];
@@ -479,25 +651,51 @@ function gerarProvas(cfg, alunos, jsPDFctor){
   const molde = new Ctor({unit: "mm", format: "a4"});
   prepararFontes(molde);
   const referencia = alunos[0] || {numero: "01", nome: "MODELO"};
-  let medidas = CORPOS.map(fs => ({fs, pgs: fluir(molde, cfg, referencia, fs, true)}));
-  let minimo = Math.min(...medidas.map(m => m.pgs));
-  /* Passou de quatro folhas por aluno? Aí sim vale apertar a letra abaixo
-     do piso de 10 pt — é menos ruim do que imprimir uma quinta página. */
-  if(minimo > MAX_PAGINAS){
-    medidas = medidas.concat(
-      CORPOS_APERTO.map(fs => ({fs, pgs: fluir(molde, cfg, referencia, fs, true)})));
-    minimo = Math.min(...medidas.map(m => m.pgs));
+  const teto = cfg.maxPaginas || MAX_PAGINAS;
+  let escolha;
+  if(cfg.simulado){
+    /* Simulado, em ordem: (1) parágrafos preservados, descendo a letra de
+       degrau em degrau; (2) se nem a 9 pt couber, texto de apoio corrido,
+       de novo do maior para o menor. Só depois disso é que quem chama
+       corta questões. */
+    const medidas = [];
+    let achou = null;
+    for(const corrido of [false, true]){
+      CORRIDO = corrido;
+      for(const fs of CORPOS_SAEPE){
+        const pgs = fluir(molde, cfg, referencia, fs, true);
+        medidas.push({fs, pgs, corrido});
+        if(pgs <= teto){ achou = medidas[medidas.length - 1]; break; }
+      }
+      if(achou) break;
+    }
+    escolha = achou || medidas[medidas.length - 1];
+    CORRIDO = escolha.corrido;
+    doc.escadaCorpo = medidas;
+    doc.corridoUsado = escolha.corrido;
+  }else{
+    CORRIDO = false;
+    let medidas = CORPOS.map(fs => ({fs, pgs: fluir(molde, cfg, referencia, fs, true)}));
+    let minimo = Math.min(...medidas.map(m => m.pgs));
+    /* Passou de quatro folhas por aluno? Aí sim vale apertar a letra abaixo
+       do piso de 10 pt — é menos ruim do que imprimir uma quinta página. */
+    if(minimo > teto){
+      medidas = medidas.concat(
+        CORPOS_APERTO.map(fs => ({fs, pgs: fluir(molde, cfg, referencia, fs, true)})));
+      minimo = Math.min(...medidas.map(m => m.pgs));
+    }
+    escolha = medidas.find(m => m.pgs === minimo);   // CORPOS vem do maior
   }
-  const escolha = medidas.find(m => m.pgs === minimo);   // CORPOS vem do maior
   const corpo = escolha.fs;
   doc.corpoUsado = corpo;
   doc.paginasPorAluno = escolha.pgs;
-  if(escolha.pgs > MAX_PAGINAS) doc.avisoPaginas = escolha.pgs;
+  if(escolha.pgs > teto) doc.avisoPaginas = escolha.pgs;
 
   alunos.forEach((aluno, idx) => {
     if(idx) doc.addPage();
     fluir(doc, cfg, aluno, corpo, false);
   });
+  DENSO = false; CORRIDO = false;   // não vaza para a próxima geração
   return doc;
 }
 

@@ -7,6 +7,7 @@ BASICO = "".join(chr(c) for c in range(32,127))
 PT = "ÀÁÂÃÄÇÈÉÊËÌÍÎÏÑÒÓÔÕÖÙÚÛÜÝàáâãäçèéêëìíîïñòóôõöùúûüýÿ"
 MAT = (
  "ºª°±×÷¼½¾·‰′″"                        # ordinais, graus, frações
+ "⁄⅐⅑⅒⅓⅔⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞"                     # barra de fração e frações prontas
  "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁽⁾ⁿ"                      # expoentes
  "₀₁₂₃₄₅₆₇₈₉₊₋"                         # índices
  "∠⊥∥≅≃∼△▱⌒"                            # geometria: ângulo, perpendicular, paralelo
