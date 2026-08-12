@@ -1062,9 +1062,13 @@ function medirCaderno(sm,pr,t,lista){
     nq:lista.length, comps:lista.map(x=>x.comp),
     gabC:lista.map(x=>x.gab||"A").join(""),
     questoes:lista.map(x=>x.questao||itemVazio())});
-  const aluno=(t.alunos||[])[0]||{numero:"01",nome:"ESTUDANTE"};
+  /* mede com a TURMA INTEIRA: cada estudante recebe as questões em outra
+     ordem, e o encaixe nas colunas muda com ela — medir por um aluno só
+     fazia o colega do lado receber uma página a mais */
+  const turma=(t.alunos||[]).filter(ativo);
+  const alunos=turma.length?turma:[{numero:"01",nome:"ESTUDANTE"}];
   try{
-    const doc=gerarProvas(cfgDoCaderno(sm,falso,t),[aluno],window.jspdf.jsPDF);
+    const doc=gerarProvas(cfgDoCaderno(sm,falso,t),alunos,window.jspdf.jsPDF);
     /* sem medida confiável, devolve nada: melhor gerar sem ajustar do que
        travar a geração por causa de uma conta que não deu certo */
     if(!doc || !doc.paginasPorAluno) return null;
@@ -3031,10 +3035,18 @@ function montarParagrafos(linhas, cheiaDoc){
      margem que quebrou, e o texto continua. Medir por proporção do
      comprimento erra justamente nas linhas quase cheias. */
   const FOLGA=1.6;                     // sobra para o erro da estimativa
+  /* Duas condições, não uma. A largura diz que ainda cabia mais uma
+     palavra; o texto tem de concordar: parágrafo não termina em vírgula
+     nem continua com letra minúscula. Só com a largura, uma linha que
+     acabava em "…ela é inevitável," e seguia com "e nada que…" virava
+     parágrafo novo no meio da frase. */
+  const fechaFrase=t=>/[.!?…:;”"’)\]]\s*$/.test(t);
+  const abreFrase=t=>/^["“'‘(\[\-–—]?[A-ZÀ-Ý0-9]/.test(String(t).trim());
   const voluntaria=(atualTxt,proxTxt)=>{
     if(proxTxt==null) return true;                       // fim do bloco
     const palavra=String(proxTxt).trim().split(/\s+/)[0]||"";
-    return larguraTexto(atualTxt)+larguraTexto(" "+palavra) <= cheia-FOLGA;
+    const coube=larguraTexto(atualTxt)+larguraTexto(" "+palavra) <= cheia-FOLGA;
+    return coube && (fechaFrase(atualTxt) || abreFrase(proxTxt));
   };
   const paras=[]; let atual=[];
   ls.forEach((x,i)=>{
@@ -3262,7 +3274,8 @@ function gerarPDF(p,t,modo){
         extra+=`<br><b>Atenção:</b> saiu com ${doc.avisoPaginas} páginas por estudante,
           acima do limite de 4. A letra já foi reduzida ao mínimo — para caber,
           corte questões ou encurte os enunciados.`;
-      const porAluno=(doc.getNumberOfPages()/Math.max(1,t.alunos.length)).toFixed(0);
+      const porAluno=doc.paginasPorAluno||
+        (doc.getNumberOfPages()/Math.max(1,t.alunos.length)).toFixed(0);
       if(ehCaderno(p)){
         const sm=simuladoDe(p.simulado);
         if(sm){ sm.geradoEm=Date.now(); salvar(); }

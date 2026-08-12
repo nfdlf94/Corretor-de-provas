@@ -186,6 +186,7 @@ const MAX_PAGINAS = 4;           // uma prova não passa de quatro páginas por 
    piso de legibilidade. A prova comum NÃO usa esta escada — lá o corpo
    continua em 10,5 com piso de 10. */
 const CORPOS_SAEPE = [10.5, 10.2, 10, 9.8, 9.5, 9.2, 9];
+const ALT_CABECALHO = 8.5;       // faixa que abre cada bloco do simulado
 
 const larguraColuna = doc =>
   (doc.internal.pageSize.getWidth() - 2 * MARG - GUT) / 2;
@@ -258,7 +259,7 @@ function medirFigura(img, larguraDisponivel){
 /* No simulado o espaço é apertado ANTES de a letra encolher e muito
    antes de sair questão: entrelinha um pouco menor e menos ar entre o
    rótulo, o enunciado e as alternativas. A prova comum não muda. */
-let DENSO = false, CORRIDO = false;
+let DENSO = false;
 const ENTRELINHA = () => DENSO ? 0.395 : 0.42;
 const AR_ROTULO  = () => DENSO ? 4.6 : 5.2;
 const AR_ENUN    = () => DENSO ? 0.9 : 1.4;
@@ -370,13 +371,28 @@ function segmentarEnunciado(texto){
       }
     }
   }
-  /* Modo corrido: os parágrafos do texto de apoio viram um bloco só.
-     Cada parágrafo termina numa linha parcial, e num texto de sete
-     parágrafos isso custa quase quatro linhas cheias. Só entra quando é
-     a alternativa a CORTAR questão — e a referência e o comando
-     continuam separados, que é o que faz a questão ser legível. */
-  seg.corpo = CORRIDO ? (paras.length ? [paras.join(" ")] : []) : paras;
+  /* Os parágrafos do texto de apoio são preservados SEMPRE. Juntá-los
+     num bloco só economizava quase quatro linhas por questão, e chegou a
+     render duas questões a mais — mas o estudante perdia de vista onde
+     cada parágrafo começa, e um texto de interpretação sem parágrafo
+     visível é um texto pior de ler. Espaço se procura na letra e, em
+     último caso, na quantidade de questões. */
+  seg.corpo = paras;
   return seg;
+}
+
+/* Quebra o parágrafo dando entrada na primeira linha. Não dá para só
+   deslocar a primeira linha depois de quebrada: ela foi calculada para a
+   largura cheia e passaria da margem. */
+function quebrarComRecuo(doc, txt, larg, recuo){
+  const texto = String(txt || "").trim();
+  if(!texto) return [];
+  if(!recuo) return doc.splitTextToSize(texto, larg).map(t => ({t, dx: 0}));
+  const comRecuo = doc.splitTextToSize(texto, larg - recuo);
+  const primeira = comRecuo[0] || texto;
+  const resto = texto.slice(primeira.length).replace(/^\s+/, "");
+  const demais = resto ? doc.splitTextToSize(resto, larg) : [];
+  return [{t: primeira, dx: recuo}].concat(demais.map(t => ({t, dx: 0})));
 }
 
 function medidasQuestao(doc, item, larg, fs, opcoes){
@@ -384,15 +400,16 @@ function medidasQuestao(doc, item, larg, fs, opcoes){
   const passo = fs * ENTRELINHA();
   const seg = segmentarEnunciado(item.enunciado);
   const partes = [];
-  const medir = (txt, tipo, tamanho, estilo, largura) => {
+  const medir = (txt, tipo, tamanho, estilo, recuo) => {
     doc.setFont(FONTE_TEXTO, estilo); doc.setFontSize(tamanho);
-    const linhas = doc.splitTextToSize(String(txt), largura || larg);
+    const linhas = quebrarComRecuo(doc, String(txt), larg, recuo || 0);
     partes.push({tipo, linhas, fs: tamanho, estilo,
                  passo: tamanho * ENTRELINHA()});
   };
+  const RECUO = DENSO ? 4.4 : 5.2;      // entrada de parágrafo, bem visível
   if(seg.instrucao) medir(seg.instrucao, "instrucao", fs - 1.4, "normal");
   if(seg.titulo)    medir(seg.titulo,    "titulo",    fs,       "bold");
-  (seg.corpo || []).forEach(p => medir(p, "corpo", fs, "normal"));
+  (seg.corpo || []).forEach(p => medir(p, "corpo", fs, "normal", RECUO));
   if(seg.fonte)     medir(seg.fonte,     "fonte",     fs - 2.2, "normal");
   if(seg.comando)   medir(seg.comando,   "comando",   fs,       "bold");
 
@@ -434,13 +451,21 @@ function desenharQuestaoCol(doc, x, y, n, item, larg, fs, opcoes, m){
     if(pt.tipo === "instrucao" || pt.tipo === "fonte") doc.setTextColor(...COR.grey);
     else if(pt.tipo === "titulo") doc.setTextColor(...COR.navy);
     else doc.setTextColor(25, 28, 34);
-    if(pt.tipo === "fonte"){
-      /* referência alinhada à direita, como na prova oficial */
-      pt.linhas.forEach((ln, k) =>
-        doc.text(ln, x + larg, y + pt.passo * (0.75 + k), {align: "right"}));
-    }else{
-      doc.text(pt.linhas, x, y + pt.passo * 0.75);
-    }
+    /* justificado no texto corrido, como na prova oficial; a última
+       linha do parágrafo fica solta, senão as palavras se esparramam */
+    const justifica = (pt.tipo === "corpo" || pt.tipo === "comando");
+    pt.linhas.forEach((ln, k) => {
+      const yy = y + pt.passo * (0.75 + k);
+      if(pt.tipo === "fonte"){
+        doc.text(ln.t, x + larg, yy, {align: "right"});
+      }else if(pt.tipo === "titulo"){
+        doc.text(ln.t, x + larg / 2, yy, {align: "center"});
+      }else if(justifica && k < pt.linhas.length - 1){
+        doc.text(ln.t, x + ln.dx, yy, {align: "justify", maxWidth: larg - ln.dx});
+      }else{
+        doc.text(ln.t, x + ln.dx, yy);
+      }
+    });
     y += pt.linhas.length * pt.passo + espacoDepois(pt.tipo, m.partes[i + 1]);
   });
   y += AR_ENUN();
@@ -457,6 +482,12 @@ function desenharQuestaoCol(doc, x, y, n, item, larg, fs, opcoes, m){
     y += la.length * m.passo + AR_ALT();
   });
   return y + AR_QUESTAO();
+}
+
+/* folha inteira de rascunho, para igualar a tiragem do simulado */
+function paginaDeRascunho(doc){
+  const H = doc.internal.pageSize.getHeight();
+  desenharRascunho(doc, TOPO, H - TOPO - MARGEM_INF);
 }
 
 /* ── rascunho ───────────────────────────────────────────────────── */
@@ -480,7 +511,7 @@ function blocosDaProva(doc, cfg, aluno, fs){
   const chave = chaveDeOrdem(aluno.numero, cfg.tipos);
   const {oq, oa} = ordemDaProva(nq, no, cfg.turma, chave, comps, cfg.alternarBlocos);
   const blocos = [];
-  const ALT_CAB = 8.5;
+  const ALT_CAB = ALT_CABECALHO;
 
   /* faixa que abre cada parte do caderno (LÍNGUA PORTUGUESA, MATEMÁTICA).
      Vai grudada na primeira questão do bloco para nunca ficar órfã no pé
@@ -557,6 +588,65 @@ function melhorCorte(alturas, capacidade){
     }
   }
   return melhor;
+}
+
+/* ── contagem de páginas para TODOS os alunos ──────────────────────
+   A altura de cada questão não depende da ordem — o embaralhamento só
+   muda o encaixe nas colunas. Então mede-se cada questão UMA vez por
+   corpo e simula-se o empacotamento de cada aluno em cima dos números.
+   Sem isso a fonte era escolhida olhando só o primeiro aluno, e um
+   colega com outra ordem recebia uma prova de cinco páginas. */
+function alturasCanonicas(doc, cfg, fs){
+  const larg = larguraColuna(doc);
+  const nq = String(cfg.gabaritoCanonico).length, no = cfg.no || 5;
+  const opcoes = ["A", "B", "C", "D", "E"].slice(0, no);
+  return Array.from({length: nq}, (_, idx) => {
+    const base = (cfg.questoes || [])[idx] ||
+      {enunciado: "(questão " + (idx + 1) + ")", alternativas: []};
+    /* a permutação das alternativas não muda a soma das alturas */
+    const m = medidasQuestao(doc, {enunciado: base.enunciado, imagem: base.imagem,
+      alternativas: base.alternativas || []}, larg, fs, opcoes);
+    return m.h + AR_QUESTAO();
+  });
+}
+
+function empacotar(alturas, topoPrimeira, fundo){
+  let paginas = 1, i = 0, topo = topoPrimeira;
+  while(i < alturas.length){
+    const cap = fundo - topo;
+    let leva = 0;
+    for(let n = 1; i + n <= alturas.length; n++){
+      if(melhorCorte(alturas.slice(i, i + n), cap) < 0) break;
+      leva = n;
+    }
+    if(leva === 0) leva = 1;              // bloco maior que a coluna: transborda
+    i += leva;
+    if(i < alturas.length){ paginas++; topo = TOPO; }
+  }
+  return paginas;
+}
+
+/* as ordens distintas que serão impressas: com tipos de prova são só N */
+function chavesDaTurma(cfg, alunos){
+  if(cfg.tipos > 0)
+    return Array.from({length: cfg.tipos}, (_, k) => "TIPO" + (k + 1));
+  return (alunos || []).map(a => chaveDeOrdem(a.numero, 0));
+}
+
+function paginasNoPior(doc, cfg, alunos, fs, topoPrimeira, fundo){
+  const h = alturasCanonicas(doc, cfg, fs);
+  const nq = h.length, no = cfg.no || 5;
+  const comps = (cfg.comps && cfg.comps.length === nq) ? cfg.comps : null;
+  let pior = 1;
+  chavesDaTurma(cfg, alunos).forEach(chave => {
+    const {oq} = ordemDaProva(nq, no, cfg.turma, chave, comps, cfg.alternarBlocos);
+    const alturas = oq.map((idx, p) => {
+      const abre = comps && (p === 0 || comps[oq[p - 1]] !== comps[idx]);
+      return h[idx] + (abre ? ALT_CABECALHO : 0);
+    });
+    pior = Math.max(pior, empacotar(alturas, topoPrimeira, fundo));
+  });
+  return pior;
 }
 
 function fluir(doc, cfg, aluno, fs, dry){
@@ -652,36 +742,34 @@ function gerarProvas(cfg, alunos, jsPDFctor){
   prepararFontes(molde);
   const referencia = alunos[0] || {numero: "01", nome: "MODELO"};
   const teto = cfg.maxPaginas || MAX_PAGINAS;
+  /* ponto de partida da primeira página: cabeçalho + cartão-resposta */
+  const alturaPag = molde.internal.pageSize.getHeight();
+  const fundo = alturaPag - MARGEM_INF;
+  const Lcartao = montarLayout(String(cfg.gabaritoCanonico).length, cfg.no || 5);
+  const topoPrimeira = cabecalho(molde, cfg, referencia, true)
+    + Lcartao.box_h + 2 * Lcartao.quiet_zone + 8;
+  const medir = fs => paginasNoPior(molde, cfg, alunos, fs, topoPrimeira, fundo);
+
   let escolha;
   if(cfg.simulado){
-    /* Simulado, em ordem: (1) parágrafos preservados, descendo a letra de
-       degrau em degrau; (2) se nem a 9 pt couber, texto de apoio corrido,
-       de novo do maior para o menor. Só depois disso é que quem chama
-       corta questões. */
+    /* Simulado: desce a letra de degrau em degrau até 9 pt. Não couber
+       nem assim, quem chama corta questões — os parágrafos ficam. */
     const medidas = [];
-    let achou = null;
-    for(const corrido of [false, true]){
-      CORRIDO = corrido;
-      for(const fs of CORPOS_SAEPE){
-        const pgs = fluir(molde, cfg, referencia, fs, true);
-        medidas.push({fs, pgs, corrido});
-        if(pgs <= teto){ achou = medidas[medidas.length - 1]; break; }
-      }
-      if(achou) break;
+    for(const fs of CORPOS_SAEPE){
+      const pgs = medir(fs);
+      medidas.push({fs, pgs});
+      if(pgs <= teto) break;
     }
-    escolha = achou || medidas[medidas.length - 1];
-    CORRIDO = escolha.corrido;
+    escolha = medidas.find(m => m.pgs <= teto) || medidas[medidas.length - 1];
     doc.escadaCorpo = medidas;
-    doc.corridoUsado = escolha.corrido;
   }else{
-    CORRIDO = false;
-    let medidas = CORPOS.map(fs => ({fs, pgs: fluir(molde, cfg, referencia, fs, true)}));
+    let medidas = CORPOS.map(fs => ({fs, pgs: medir(fs)}));
     let minimo = Math.min(...medidas.map(m => m.pgs));
     /* Passou de quatro folhas por aluno? Aí sim vale apertar a letra abaixo
        do piso de 10 pt — é menos ruim do que imprimir uma quinta página. */
     if(minimo > teto){
       medidas = medidas.concat(
-        CORPOS_APERTO.map(fs => ({fs, pgs: fluir(molde, cfg, referencia, fs, true)})));
+        CORPOS_APERTO.map(fs => ({fs, pgs: medir(fs)})));
       minimo = Math.min(...medidas.map(m => m.pgs));
     }
     escolha = medidas.find(m => m.pgs === minimo);   // CORPOS vem do maior
@@ -691,11 +779,31 @@ function gerarProvas(cfg, alunos, jsPDFctor){
   doc.paginasPorAluno = escolha.pgs;
   if(escolha.pgs > teto) doc.avisoPaginas = escolha.pgs;
 
-  alunos.forEach((aluno, idx) => {
+  /* guarda quantas páginas cada estudante recebeu de fato: o encaixe
+     nas colunas muda com a ordem, e o professor precisa saber se a
+     tiragem sai pareja antes de grampear */
+  /* No simulado todos os cadernos saem com o MESMO número de folhas: a
+     ordem das questões muda o encaixe e faria um estudante receber três
+     páginas e o vizinho quatro — ruim para grampear, conferir e aplicar.
+     A folha que sobra vira rascunho, que numa prova longa é útil. */
+  const alvoPag = cfg.simulado ? escolha.pgs : 0;
+  doc.paginasDeCada = alunos.map((aluno, idx) => {
     if(idx) doc.addPage();
-    fluir(doc, cfg, aluno, corpo, false);
+    let pgs = fluir(doc, cfg, aluno, corpo, false);
+    while(pgs < alvoPag){
+      doc.addPage();
+      paginaDeRascunho(doc);
+      pgs++;
+    }
+    return pgs;
   });
-  DENSO = false; CORRIDO = false;   // não vaza para a próxima geração
+  if(doc.paginasDeCada.length){
+    const pior = Math.max.apply(null, doc.paginasDeCada);
+    doc.paginasPorAluno = pior;
+    doc.paginasMinimas = Math.min.apply(null, doc.paginasDeCada);
+    doc.avisoPaginas = pior > teto ? pior : 0;
+  }
+  DENSO = false;               // não vaza para a próxima geração
   return doc;
 }
 

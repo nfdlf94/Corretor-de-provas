@@ -408,23 +408,51 @@ esse teto é que a letra desce para 9,5 e 9 pt — apertar a letra é menos
 ruim do que uma quinta folha. Se nem assim couber, o app gera mesmo assim e
 avisa na tela quantas páginas saíram, pedindo para cortar questões.
 
+### Páginas: medir a TURMA, não um aluno
+
+A altura de cada questão não depende da ordem, mas o **encaixe nas duas
+colunas depende** — e cada estudante recebe outra ordem. Escolher o corpo
+olhando `alunos[0]` fazia o colega do lado receber cinco páginas na mesma
+prova de quatro. Hoje `alturasCanonicas()` mede cada questão uma vez por
+corpo e `paginasNoPior()` simula o empacotamento de **todas as ordens que
+serão impressas** (com tipos de prova são só N ordens), ficando com o pior
+caso. `medirCaderno()`, no app, também passa a turma inteira.
+
+No simulado, todos os cadernos ainda saem com o **mesmo** número de folhas:
+quem fecharia em três ganha uma folha de rascunho. Booklet desigual atrapalha
+grampear, conferir e distribuir. `doc.paginasDeCada` guarda o resultado real.
+
 ### Anatomia da questão
 
 `segmentarEnunciado()` separa **instrução** ("Leia o texto abaixo."),
 **título**, **texto de apoio**, **referência** e **comando**, e cada um sai
 com seu próprio tipo: referência em corpo menor, cinza, alinhada à direita;
-comando em negrito. Impressos todos iguais, o endereço do site parecia
-frase do texto e o comando desaparecia no meio do parágrafo.
+comando em negrito; **título centralizado**, **corpo justificado** e
+**entrada de parágrafo** na primeira linha (`quebrarComRecuo()` refaz a
+quebra, porque deslocar uma linha já quebrada a jogaria além da margem).
+A última linha de cada parágrafo nunca é justificada — senão as palavras
+se esparramam. Impressos todos iguais, o endereço do site parecia frase do
+texto e o comando desaparecia no meio do parágrafo.
 
 Para isso o enunciado precisa vir em parágrafos, e o PDF não traz nenhuma
-marca de parágrafo — só quebras de largura. `montarParagrafos()` decide
-pela pergunta certa: **a primeira palavra da linha seguinte ainda caberia
-nesta linha?** Se caberia, quem quebrou foi o autor. Comparar comprimentos
-("linha curta = parágrafo") erra nas linhas quase cheias, e contar
-caracteres erra porque a fonte é proporcional — daí `larguraTexto()`, que
-pesa cada caractere. A régua da linha cheia é o percentil 93 do documento
-inteiro, não da questão: uma questão curta pode não ter nenhuma linha
-cheia.
+marca de parágrafo — só quebras de largura. `montarParagrafos()` usa **duas
+condições juntas**:
+
+1. *Cabia mais?* Se a primeira palavra da linha seguinte ainda caberia
+   nesta linha, quem quebrou foi o autor. Comparar comprimentos ("linha
+   curta = parágrafo") erra nas linhas quase cheias, e contar caracteres
+   erra porque a fonte é proporcional — daí `larguraTexto()`, que pesa
+   cada caractere. A régua é o percentil 93 do documento inteiro, não da
+   questão: uma questão curta pode não ter nenhuma linha cheia.
+2. *O texto concorda?* Parágrafo não termina em vírgula nem continua com
+   letra minúscula. Só com a largura, uma linha que acabava em "…ela é
+   inevitável," e seguia com "e nada que…" virava parágrafo no meio da
+   frase.
+
+**Os parágrafos do apoio nunca são juntados para ganhar espaço.** Juntá-los
+rendia quase quatro linhas por questão — duas questões a mais no caderno —
+mas o estudante perdia de vista onde cada parágrafo começa. Espaço se
+procura na letra e, em último caso, na quantidade de questões.
 
 Quando a referência vem colada ao fim do apoio (`...terceiro andar. ASSIS,
 Machado de. Memórias...`), `inicioDaReferencia()` acha onde ela começa. Sem
@@ -434,11 +462,7 @@ isso o texto inteiro sairia impresso como se fosse a fonte.
 `DENSO` reduz entrelinha e o ar entre rótulo, enunciado e alternativas, e
 o rascunho não é desenhado; (2) escada de corpo `CORPOS_SAEPE`
 (10,5 → 10,2 → 10 → 9,8 → 9,5 → 9,2 → 9), parando na MAIOR que couber;
-(3) `CORRIDO` junta os parágrafos do apoio num bloco só, e a escada de
-corpo roda de novo — cada parágrafo termina numa linha parcial, e num
-texto de sete parágrafos isso custa quase quatro linhas; a referência e o
-comando continuam separados, que é o que faz a questão ser legível;
-(4) só então `melhorAjuste()` tira questões, **uma de cada componente por
+(3) só então `melhorAjuste()` tira questões, **uma de cada componente por
 vez**, até achar a maior quantidade que cabe. Os três passos são medidos
 com geração real em modo `dry`, não estimados. Cortar questão nunca desfaz
 relação: o item carrega enunciado, gabarito, descritor e `orig` juntos, e
