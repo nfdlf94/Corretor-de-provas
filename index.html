@@ -283,8 +283,13 @@ textarea{min-height:132px;resize:vertical;font-family:var(--mono);font-size:12.5
 
 <!-- ══════════ DESEMPENHO ══════════ -->
 <section id="v-des" class="view">
-  <h2>Análise da turma</h2>
+  <h2 id="desTit">Análise</h2>
   <p class="sub" id="desSub"></p>
+  <div id="desAbas" class="esco" style="grid-template-columns:repeat(3,1fr);margin-bottom:12px">
+    <button data-aba="prova" class="sel"><div class="t">Avaliações</div></button>
+    <button data-aba="turma"><div class="t">Simulados<br>por turma</div></button>
+    <button data-aba="serie"><div class="t">Simulados<br>por série</div></button>
+  </div>
   <div id="desSel"></div>
   <div id="desCorpo"></div>
 </section>
@@ -878,19 +883,33 @@ function correl(x,y){
 }
 
 /* parâmetros dos itens a partir das respostas da turma */
+/* `null` na matriz = item que aquele estudante não respondeu. Acontece
+   ao juntar turmas cujos cadernos sortearam itens diferentes: cada item
+   é calibrado só com quem o respondeu, e cada θ sai só dos itens que a
+   pessoa fez. Sem nenhum `null`, o resultado é idêntico ao de antes. */
 function calibrar(matriz,no){
   const S=matriz.length, I=S?matriz[0].length:0;
   if(!S||!I) return null;
   const c=1/(no||5);
-  const escore=matriz.map(l=>l.reduce((a,b)=>a+b,0));
+  const escore=matriz.map(l=>l.reduce((a,b)=>a+(b==null?0:b),0));
+  const feitos=matriz.map(l=>l.reduce((a,b)=>a+(b==null?0:1),0));
   const itens=[];
   for(let i=0;i<I;i++){
-    let acertos=0; for(let s=0;s<S;s++) acertos+=matriz[s][i];
+    let acertos=0, quantos=0;
+    for(let s=0;s<S;s++){ if(matriz[s][i]==null) continue; acertos+=matriz[s][i]; quantos++; }
+    if(!quantos){ itens.push({a:1,b:0,c,pr:0.5,r:0.3,acertos:0,respondentes:0}); continue; }
     /* proporção de acerto, sem deixar chegar a 0 ou 1 */
-    const pr=Math.min(1-0.5/S,Math.max(0.5/S,acertos/S));
-    /* correlação do item com o desempenho no RESTO da prova */
-    const resto=matriz.map((l,s)=>escore[s]-l[i]);
-    let r=correl(matriz.map(l=>l[i]),resto);
+    const pr=Math.min(1-0.5/quantos,Math.max(0.5/quantos,acertos/quantos));
+    /* correlação do item com o desempenho no RESTO da prova, entre quem
+       respondeu — comparando proporções, já que o total varia */
+    const x=[], y=[];
+    for(let s=0;s<S;s++){
+      if(matriz[s][i]==null) continue;
+      x.push(matriz[s][i]);
+      const outros=Math.max(1,feitos[s]-1);
+      y.push((escore[s]-matriz[s][i])/outros);
+    }
+    let r=correl(x,y);
     if(!isFinite(r)) r=0.3;
     r=Math.max(0.10,Math.min(0.85,r));
     /* tira o chute antes de transformar em dificuldade */
@@ -898,7 +917,7 @@ function calibrar(matriz,no){
     const z=probit(1-pEfetivo);                  // z alto = item difícil
     const a=Math.max(0.4,Math.min(2.5,r/Math.sqrt(1-r*r)));
     const b=Math.max(-3,Math.min(3,z/r));
-    itens.push({a,b,c,pr,r,acertos});
+    itens.push({a,b,c,pr,r,acertos,respondentes:quantos});
   }
   return itens;
 }
@@ -910,6 +929,7 @@ function estimarTheta(respostas,itens){
   for(let th=-4; th<=4.0001; th+=0.02){
     let L=-0.5*th*th;                            // log do prior
     for(let i=0;i<itens.length;i++){
+      if(respostas[i]==null) continue;           // item que não respondeu
       const P=Math.min(0.9999,Math.max(0.0001,p3pl(th,itens[i])));
       L+=respostas[i]?Math.log(P):Math.log(1-P);
     }
@@ -4132,6 +4152,311 @@ function apurarComp(sm,comp){
           metodo,par,padraoMedio:padraoDe(media,sm.etapa,comp)};
 }
 
+/* ── séries e agrupamento de simulados ─────────────────────────────
+   Uma série reúne as turmas com a mesma etapa: 3º A, 3º B, 3º C. Como o
+   professor digita a série livremente, a comparação é feita sobre uma
+   forma normalizada. */
+function chaveSerie(t){
+  const bruto=String((t&&t.serie)||"").toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+  const n=(bruto.match(/\d+/)||[])[0];
+  const etapa=/medio|em\b/.test(bruto)?"EM":/fundamental|ef\b|ano/.test(bruto)?"EF":"";
+  if(n) return n+(etapa?" "+etapa:"");
+  return bruto.trim()||"(sem série)";
+}
+const nomeSerie=t=>String((t&&t.serie)||"").trim()||"(sem série)";
+function seriesDisponiveis(){
+  const mapa={};
+  E.turmas.forEach(t=>{
+    if(!simuladosDa(t.id).length) return;
+    const k=chaveSerie(t);
+    (mapa[k]=mapa[k]||{chave:k,nome:nomeSerie(t),turmas:[]}).turmas.push(t);
+  });
+  return Object.values(mapa).sort((a,b)=>a.nome.localeCompare(b.nome));
+}
+/* simulados "iguais" entre turmas: mesmo título e mesmo ano */
+const chaveSimulado=sm=>String(sm.titulo||"").trim().toLowerCase()+"|"+(sm.ano||"");
+function simuladosDaSerie(serie){
+  const mapa={};
+  serie.turmas.forEach(t=>simuladosDa(t.id).forEach(sm=>{
+    const k=chaveSimulado(sm);
+    (mapa[k]=mapa[k]||{chave:k,titulo:sm.titulo,ano:sm.ano,etapa:sm.etapa,sims:[]})
+      .sims.push(sm);
+  }));
+  return Object.values(mapa).sort((a,b)=>
+    (b.ano-a.ano)||String(b.titulo).localeCompare(String(a.titulo)));
+}
+
+/* ── TRI conjunta de um conjunto de cadernos ───────────────────────
+   Uma única calibração com TODAS as respostas do recorte (a turma, ou a
+   série inteira), separada por componente. Não é média de proficiências:
+   os itens são calibrados juntos e cada estudante é posicionado na mesma
+   escala. Cadernos diferentes entre turmas viram colunas diferentes da
+   matriz, com `null` onde o estudante não respondeu aquele item. */
+function chaveItem(pr,i){
+  const q=(pr.questoes||[])[i];
+  const txt=q&&String(q.enunciado||"").replace(/\s+/g," ").trim();
+  if(txt) return "T:"+txt.slice(0,120);
+  return "P:"+pr.id+"#"+i;          // sem enunciado, o item é do caderno
+}
+
+function apurarConjunto(sims,comp){
+  const linhas=[], colunas={}, ordem=[];
+  sims.forEach(sm=>{
+    const pr=provaDoSim(sm), t=turmaDe(sm.turma);
+    if(!pr||!t) return;
+    const idx=itensDe(pr,comp);
+    if(!idx.length) return;
+    const g=String(pr.gabC||"").toUpperCase();
+    const chaves=idx.map(i=>{
+      const k=chaveItem(pr,i);
+      if(colunas[k]==null){ colunas[k]=ordem.length;
+        ordem.push({chave:k, cod:(pr.desc||[])[i]||"", comp}); }
+      return colunas[k];
+    });
+    resDa(pr.id).forEach(r=>{
+      const resp=new Array(0);
+      const marc={};
+      idx.forEach((i,k)=>{ marc[chaves[k]]=(r.Rc&&r.Rc[i]===g[i])?1:0; });
+      linhas.push({sm, turma:t, res:r, marc,
+        acertos:idx.filter(i=>r.Rc&&r.Rc[i]===g[i]).length, total:idx.length});
+    });
+  });
+  if(!linhas.length) return null;
+  const I=ordem.length;
+  const matriz=linhas.map(L=>Array.from({length:I},(_,j)=>
+    L.marc[j]==null?null:L.marc[j]));
+
+  const no=5;
+  const sm0=sims[0];
+  const etapa=sm0.etapa;
+  /* nível do recorte pelo acerto absoluto; a TRI distribui em volta */
+  const mediaPct=linhas.reduce((x,L)=>x+L.acertos/L.total,0)/linhas.length;
+  const centro=profPorPercentual(sm0, mediaPct*100, 100, no);
+
+  let metodo="pct", par=null, thMedio=0;
+  if(linhas.length>=TRI_MIN_ALUNOS && I>=TRI_MIN_ITENS){
+    par=calibrar(matriz,no);
+    if(par){
+      metodo="tri";
+      linhas.forEach((L,k)=>{ L.theta=estimarTheta(matriz[k],par); });
+      thMedio=linhas.reduce((x,L)=>x+L.theta,0)/linhas.length;
+      linhas.forEach(L=>{ L.prof=escalaTRI(sm0,L.theta,thMedio,centro); });
+    }
+  }
+  if(metodo==="pct")
+    linhas.forEach(L=>{ L.prof=profPorPercentual(sm0,L.acertos,L.total,no); });
+  linhas.forEach(L=>{ L.padrao=padraoDe(L.prof,etapa,comp); });
+
+  const media=linhas.reduce((x,L)=>x+L.prof,0)/linhas.length;
+  const dist=[0,0,0,0];
+  linhas.forEach(L=>{ if(L.padrao) dist[L.padrao.indice]++; });
+
+  /* acerto por descritor, somando os itens de todos os cadernos */
+  const porDesc={};
+  ordem.forEach((col,j)=>{
+    if(!col.cod) return;
+    let ac=0,n=0;
+    matriz.forEach(l=>{ if(l[j]==null) return; ac+=l[j]; n++; });
+    if(!n) return;
+    const d=porDesc[col.cod]=porDesc[col.cod]||{cod:col.cod,ac:0,n:0,itens:0};
+    d.ac+=ac; d.n+=n; d.itens++;
+  });
+  const descritores=Object.values(porDesc)
+    .map(d=>({cod:d.cod, pct:100*d.ac/d.n, itens:d.itens}))
+    .sort((a,b)=>a.pct-b.pct);
+
+  /* por turma, para a visão da série */
+  const porTurma={};
+  linhas.forEach(L=>{
+    const k=L.turma.id;
+    const o=porTurma[k]=porTurma[k]||{turma:L.turma, n:0, soma:0, ac:0, tot:0};
+    o.n++; o.soma+=L.prof; o.ac+=L.acertos; o.tot+=L.total;
+  });
+  const turmas=Object.values(porTurma).map(o=>({turma:o.turma, n:o.n,
+    media:o.soma/o.n, pct:100*o.ac/o.tot,
+    padrao:padraoDe(o.soma/o.n,etapa,comp)})).sort((a,b)=>b.media-a.media);
+
+  return {comp, etapa, linhas, media, dist, descritores, turmas, metodo,
+    itens:I, alunos:linhas.length, padraoMedio:padraoDe(media,etapa,comp),
+    cadernosDiferentes:sims.length>1 && I>Math.max.apply(null,
+      sims.map(sm=>{const pr=provaDoSim(sm);return pr?itensDe(pr,comp).length:0}))};
+}
+
+/* ── um componente, desenhado igual na turma e na série ─────────── */
+function blocoComponente(A,comp,opt){
+  const c=COMPONENTES.find(x=>x.id===comp)||{nome:comp,curto:comp};
+  if(!A) return `<div class="rot">${esc(c.nome)}</div>
+    <p class="hint" style="margin:0 0 10px">Sem cartões corrigidos deste componente.</p>`;
+  const cortes=etapaDe(A.etapa).cortes[comp]||[];
+  const pm=A.padraoMedio;
+  let h=`<div class="rot">${esc(c.nome)} · ${A.itens} ${A.itens===1?"item":"itens"} ·
+      ${A.alunos} estudante${A.alunos===1?"":"s"}</div>
+    <div class="kpi">
+      <div><div class="v" style="color:${pm.cor}">${A.media.toFixed(1).replace(".",",")}</div>
+        <div class="l">Proficiência</div></div>
+      <div><div class="v" style="font-size:15px;color:${pm.cor}">${esc(pm.nome)}</div>
+        <div class="l">Padrão</div></div>
+      <div><div class="v">${A.alunos}</div><div class="l">Corrigidos</div></div></div>
+    <p class="hint" style="margin-top:-4px">${A.metodo==="tri"
+      ? "TRI de 3 parâmetros calibrada com as respostas dos "+A.alunos+
+        " estudantes deste recorte, de uma vez — não é média de proficiências."
+      : "Percentual de acerto: a TRI precisa de pelo menos "+TRI_MIN_ALUNOS+" cartões."}
+      Cortes da etapa: ${cortes.join(" · ")}.${A.cadernosDiferentes
+      ? " Os cadernos das turmas não são idênticos; itens não respondidos entram como ausentes."
+      : ""}</p>`;
+  PADROES.forEach((pd,i)=>{
+    const n=A.dist[i], pc=A.alunos?100*n/A.alunos:0;
+    h+=`<div class="barra"><span class="lb">${esc(pd.nome)}</span>
+      <span class="t"><span class="f" style="width:${pc.toFixed(0)}%;background:${pd.cor}"></span></span>
+      <span class="p">${pc.toFixed(0)}%</span>
+      <span class="q" style="width:22px;text-align:right">${n}</span></div>`;
+  });
+  if(opt&&opt.turmas&&A.turmas.length>1){
+    h+=`<div class="rot" style="margin-top:12px">Turmas · ${esc(c.curto)}</div>`;
+    h+=A.turmas.map(x=>`<div class="barra">
+      <span class="lb">${esc(x.turma.nome)} <span style="color:var(--mute)">(${x.n})</span></span>
+      <span class="t"><span class="f" style="width:${Math.min(100,x.pct).toFixed(0)}%;background:${x.padrao.cor}"></span></span>
+      <span class="p">${x.media.toFixed(0)}</span></div>`).join("");
+  }
+  if(A.descritores.length){
+    const fracos=A.descritores.filter(d=>d.pct<50);
+    h+=`<div class="rot" style="margin-top:12px">Descritores críticos · ${esc(c.curto)}</div>`;
+    h+=A.descritores.slice(0,8).map(d=>`<div class="barra">
+      <span class="lb" title="${esc(rotuloDesc(comp,d.cod))}">${esc(d.cod)}${
+        textoDesc(comp,d.cod)?" · "+esc(textoDesc(comp,d.cod).slice(0,34)):""}</span>
+      <span class="t"><span class="f ${d.pct<50?"baixo":d.pct<75?"medio":""}"
+        style="width:${d.pct.toFixed(0)}%"></span></span>
+      <span class="p">${Math.round(d.pct)}%</span></div>`).join("");
+    h+=`<div class="diag"><b>Atenção urgente em ${esc(c.nome)}</b>${
+      fracos.length ? fracos.slice(0,5).map(d=>esc(d.cod)+" ("+Math.round(d.pct)+"%)").join(", ")+
+        (fracos.length>5?" e mais "+(fracos.length-5):"")+" — abaixo de 50% de acerto."
+      : "Nenhum descritor abaixo de 50%. O mais frágil é "+esc(A.descritores[0].cod)+
+        " ("+Math.round(A.descritores[0].pct)+"%)."}</div>`;
+  }
+  return h;
+}
+
+function analiseTurma(){
+  const sel=$("#desSel"), corpo=$("#desCorpo");
+  const comSim=E.turmas.filter(t=>simuladosDa(t.id).length);
+  if(anTurma && !turmaDe(anTurma)) anTurma=null;
+  if(!comSim.length){
+    $("#desSub").textContent="";
+    sel.innerHTML=""; corpo.innerHTML='<div class="vazio"><b>Nenhum simulado ainda</b>Crie um simulado na aba Turmas.</div>';
+    return;
+  }
+  if(!anTurma){
+    $("#desSub").textContent="Escolha a turma.";
+    sel.innerHTML="";
+    corpo.innerHTML=comSim.map(t=>{
+      const n=simuladosDa(t.id).length, e=escolaDe(t.escola)||{curto:""};
+      return `<button class="item" data-t="${t.id}"><div class="cor">
+        <div class="t1">${esc(t.nome)}</div>
+        <div class="t2">${esc(e.curto)} · ${n} simulado${n===1?"":"s"}</div>
+        </div><span class="ch">›</span></button>`;}).join("");
+    corpo.querySelectorAll("[data-t]").forEach(b=>b.onclick=()=>{
+      anTurma=b.dataset.t; anSim=null; pintarDesempenho(); });
+    return;
+  }
+  const t=turmaDe(anTurma), sims=simuladosDa(t.id);
+  if(anSim && !simuladoDe(anSim)) anSim=null;
+  if(!anSim){
+    $("#desSub").textContent=t.nome+" · escolha o simulado.";
+    sel.innerHTML=`<div class="migalha"><button id="anVolta">‹ Turmas</button></div>`;
+    corpo.innerHTML=sims.map(sm=>{
+      const pr=provaDoSim(sm), n=pr?resDa(pr.id).length:0;
+      return `<button class="item" data-s="${sm.id}"><div class="cor">
+        <div class="t1">${esc(sm.titulo)}</div>
+        <div class="t2">${sm.ano} · ${n} corrigido${n===1?"":"s"}</div>
+        </div><span class="ch">›</span></button>`;}).join("");
+    $("#anVolta").onclick=()=>{anTurma=null;pintarDesempenho();};
+    corpo.querySelectorAll("[data-s]").forEach(b=>b.onclick=()=>{
+      anSim=b.dataset.s; pintarDesempenho(); });
+    return;
+  }
+  const sm=simuladoDe(anSim), et=etapaDe(sm.etapa);
+  $("#desSub").textContent=`${t.nome} · ${sm.titulo} · ${et.nome}`;
+  sel.innerHTML=`<div class="migalha"><button id="anVolta">‹ ${esc(t.nome)}</button></div>`;
+  /* as duas disciplinas, sempre juntas */
+  corpo.innerHTML=COMPONENTES.map(c=>blocoComponente(apurarConjunto([sm],c.id),c.id)).join("")
+    +`<button class="btn sec" id="anCsv" style="margin-top:14px">Baixar CSV desta análise</button>`;
+  $("#anVolta").onclick=()=>{anSim=null;pintarDesempenho();};
+  $("#anCsv").onclick=()=>baixarAnalise("turma",t.nome,sm.titulo,
+    COMPONENTES.map(c=>({comp:c.id, A:apurarConjunto([sm],c.id)})));
+}
+
+function analiseSerie(){
+  const sel=$("#desSel"), corpo=$("#desCorpo");
+  const series=seriesDisponiveis();
+  if(!series.length){
+    $("#desSub").textContent="";
+    sel.innerHTML=""; corpo.innerHTML='<div class="vazio"><b>Nenhum simulado ainda</b>Crie um simulado na aba Turmas.</div>';
+    return;
+  }
+  const serie=anSerie?series.find(x=>x.chave===anSerie):null;
+  if(!serie){
+    anSerie=null;
+    $("#desSub").textContent="Escolha a série. Ela reúne todas as turmas daquela etapa.";
+    sel.innerHTML="";
+    corpo.innerHTML=series.map(x=>`<button class="item" data-se="${esc(x.chave)}"><div class="cor">
+      <div class="t1">${esc(x.nome)}</div>
+      <div class="t2">${x.turmas.length} turma${x.turmas.length===1?"":"s"}:
+        ${x.turmas.map(t=>esc(t.nome)).join(", ")}</div>
+      </div><span class="ch">›</span></button>`).join("");
+    corpo.querySelectorAll("[data-se]").forEach(b=>b.onclick=()=>{
+      anSerie=b.dataset.se; anSimSerie=null; pintarDesempenho(); });
+    return;
+  }
+  const grupos=simuladosDaSerie(serie);
+  const grupo=anSimSerie?grupos.find(g=>g.chave===anSimSerie):null;
+  if(!grupo){
+    anSimSerie=null;
+    $("#desSub").textContent=serie.nome+" · escolha o simulado.";
+    sel.innerHTML=`<div class="migalha"><button id="anVolta">‹ Séries</button></div>`;
+    corpo.innerHTML=grupos.map(g=>{
+      const n=g.sims.reduce((x,sm)=>{const pr=provaDoSim(sm);return x+(pr?resDa(pr.id).length:0);},0);
+      return `<button class="item" data-g="${esc(g.chave)}"><div class="cor">
+        <div class="t1">${esc(g.titulo)}</div>
+        <div class="t2">${g.ano} · ${g.sims.length} turma${g.sims.length===1?"":"s"} ·
+          ${n} corrigido${n===1?"":"s"}</div>
+        </div><span class="ch">›</span></button>`;}).join("");
+    $("#anVolta").onclick=()=>{anSerie=null;pintarDesempenho();};
+    corpo.querySelectorAll("[data-g]").forEach(b=>b.onclick=()=>{
+      anSimSerie=b.dataset.g; pintarDesempenho(); });
+    return;
+  }
+  const turmas=grupo.sims.map(sm=>{const t=turmaDe(sm.turma);return t?t.nome:"";}).filter(Boolean);
+  $("#desSub").textContent=`${serie.nome} · ${grupo.titulo} · ${turmas.join(", ")}`;
+  sel.innerHTML=`<div class="migalha"><button id="anVolta">‹ ${esc(serie.nome)}</button></div>`;
+  corpo.innerHTML=COMPONENTES.map(c=>
+      blocoComponente(apurarConjunto(grupo.sims,c.id),c.id,{turmas:true})).join("")
+    +`<button class="btn sec" id="anCsv" style="margin-top:14px">Baixar CSV desta análise</button>`;
+  $("#anVolta").onclick=()=>{anSimSerie=null;pintarDesempenho();};
+  $("#anCsv").onclick=()=>baixarAnalise("série",serie.nome,grupo.titulo,
+    COMPONENTES.map(c=>({comp:c.id, A:apurarConjunto(grupo.sims,c.id)})));
+}
+
+function baixarAnalise(nivel,recorte,titulo,blocos){
+  const vg=x=>x==null?"":Number(x).toFixed(2).replace(".",",");
+  const lin=[];
+  blocos.forEach(({comp,A})=>{
+    if(!A) return;
+    lin.push([nivel,recorte,titulo,nomeComp(comp),"PROFICIÊNCIA",vg(A.media),
+      A.padraoMedio.nome,A.alunos+" estudantes",A.metodo==="tri"?"TRI conjunta":"percentual"].join(";"));
+    PADROES.forEach((pd,i)=>lin.push([nivel,recorte,titulo,nomeComp(comp),"PADRÃO",
+      pd.nome,A.dist[i],vg(100*A.dist[i]/A.alunos)+"%",""].join(";")));
+    A.turmas.forEach(x=>lin.push([nivel,recorte,titulo,nomeComp(comp),"TURMA",
+      x.turma.nome,vg(x.media),x.padrao.nome,x.n+" estudantes"].join(";")));
+    A.descritores.forEach(d=>lin.push([nivel,recorte,titulo,nomeComp(comp),"DESCRITOR",
+      d.cod,vg(d.pct)+"%",d.itens+" itens",
+      `"${String(textoDesc(comp,d.cod)).replace(/"/g,'""')}"`].join(";")));
+  });
+  const cab=["nivel","recorte","simulado","componente","tipo","item","valor","detalhe","obs"];
+  baixar([cab.join(";"),...lin].join("\r\n"),
+    "analise_"+nivel+"_"+recorte+".csv","text/csv");
+}
+
 function telaRelSaepe(box){
   const vg=x=>x==null?"":Number(x).toFixed(2).replace(".",",").replace(/,00$/,",0");
   const sm=simuladoDe(casaSim);
@@ -5373,7 +5698,19 @@ function diagnostico(s){
   L.push(`<div class="diag"><b>Recomendações</b><ul>${rec.map(r=>`<li>${r}</li>`).join("")}</ul></div>`);
   return L.join("");
 }
+let abaAnalise="prova", anTurma=null, anSim=null, anSerie=null, anSimSerie=null;
+
 function pintarDesempenho(){
+  const abas=$("#desAbas");
+  if(abas) abas.querySelectorAll("[data-aba]").forEach(b=>{
+    b.className=(b.dataset.aba===abaAnalise)?"sel":"";
+    b.onclick=()=>{ abaAnalise=b.dataset.aba; pintarDesempenho(); };
+  });
+  $("#desTit").textContent = abaAnalise==="prova" ? "Análise da turma"
+    : abaAnalise==="turma" ? "Simulados por turma" : "Simulados por série";
+  if(abaAnalise==="turma") return analiseTurma();
+  if(abaAnalise==="serie") return analiseSerie();
+
   const p=provaAtiva(), t=turmaAtiva();
   pintarSeletor("desSel", ()=>pintarDesempenho());
   if(!p){ $("#desSub").textContent="";

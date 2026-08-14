@@ -336,6 +336,28 @@ embaralhamento deixa de ser o número do aluno e passa a ser `"TIPO n"`
 prova. Todos os tipos usam **as mesmas questões selecionadas**; muda só a
 organização.
 
+### Análise por turma e por série
+
+A aba **Análise** tem três entradas: Avaliações (a de sempre, intocada),
+Simulados por turma e Simulados por série. Nas duas de simulado, **Língua
+Portuguesa e Matemática aparecem juntas na mesma tela** — não há passo
+intermediário perguntando a disciplina.
+
+`apurarConjunto(sims, comp)` faz **uma calibração única** com todas as
+respostas do recorte: a turma, ou todas as turmas da série. Não é média de
+proficiências individuais nem média das turmas. A série é montada por
+`chaveSerie()` (normaliza "3º ano do ensino médio" → `3 EM`), e os
+simulados "iguais" entre turmas são agrupados por título + ano.
+
+**Cadernos diferentes entre turmas.** Cada turma pode ter sorteado itens
+diferentes do banco. O item é identificado pelo enunciado (`chaveItem()`),
+então itens comuns viram a mesma coluna e itens exclusivos viram colunas
+próprias, com `null` para quem não os respondeu. `calibrar()` e
+`estimarTheta()` aceitam esse `null`: cada item é calibrado só com quem o
+respondeu, cada θ sai só dos itens que a pessoa fez. **Item não respondido
+não é erro** — sem isso, quem pegou um caderno menor seria punido. Sem
+nenhum `null`, o resultado é idêntico ao de antes.
+
 ### Subir o caderno de arquivo
 
 **Turma › Simulados SAEPE › o simulado › Subir arquivo do caderno**, um
