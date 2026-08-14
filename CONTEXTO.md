@@ -188,6 +188,16 @@ apaga o que estava em andamento.
 assistente e no editor de turma, sincronize os `<input>` no objeto de
 estado a cada `oninput` e só redesenhe quando a quantidade de campos mudar.
 
+**A janela do QR depende do layout ATIVO.** `lerQR()` calcula onde o QR
+está a partir de `LAY`, e `LAY` vem da prova ativa. Se o cartão na frente
+da câmera tem outro tamanho — um simulado de 16 itens com uma prova de 10
+ativa —, os marcadores ainda são encontrados (o teste de proporção é
+tolerante), mas a janela do QR cai no lugar errado e o QR **nunca** é
+lido: o app ficava preso em "aproxime um pouco para o QR entrar em foco",
+para sempre. O giro de formatos existia, mas só disparava quando o cartão
+não era encontrado. Hoje ele dispara também quando o cartão foi achado e o
+QR falha (a cada 8 tentativas).
+
 **Limiares da visão que foram ajustados e devem ficar:** tamanho mínimo do
 marcador `5e-4` (era `8e-4`, não achava o cartão com muita margem branca) e
 amostragem **bilinear** na retificação do QR (era vizinho mais próximo, que

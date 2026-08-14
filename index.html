@@ -4591,10 +4591,14 @@ function processar(){
 }
 /* se o cartão some por muito tempo, testa os outros formatos cadastrados —
    resolve o caso de apontar a câmera para a prova errada */
-function tentarOutroLayout(){
+function formatosConhecidos(){
   const fmts=[];
   E.provas.forEach(p=>{ const k=p.nq+"x"+p.no;
-    if(!fmts.some(f=>f.k===k)) fmts.push({k,nq:p.nq,no:p.no}); });
+    if(p.nq>=MIN_Q_CARTAO && !fmts.some(f=>f.k===k)) fmts.push({k,nq:p.nq,no:p.no}); });
+  return fmts;
+}
+function tentarOutroLayout(){
+  const fmts=formatosConhecidos();
   if(fmts.length<2) return false;
   giroLayout=(giroLayout+1)%fmts.length;
   const f=fmts[giroLayout];
@@ -4614,7 +4618,17 @@ function analisar(imgData,aoVivo){
     if(p){ const r=aplicarQR(p);
       if(r==="trocou"){ hist=[]; faixa("Formato ajustado","Mantenha o cartão enquadrado"); return false; }
       if(r) semQR=0; else semQR++;
-    } else semQR++; }
+    } else semQR++;
+    /* O QR é lido numa janela calculada a partir do layout ATIVO. Se o
+       cartão na frente da câmera é de outro tamanho — um simulado de 16
+       itens com uma prova de 10 ativa —, a janela cai no lugar errado e
+       o QR nunca é lido. Os marcadores, esses, são encontrados: por isso
+       o app ficava preso em "aproxime um pouco" para sempre. Aqui ele
+       passa a girar os formatos também quando o cartão foi achado. */
+    if(!alunoQR && semQR>0 && semQR%8===0 && tentarOutroLayout()){
+      hist=[]; faixa("Ajustando o formato…","Testando outro tamanho de cartão");
+      return false;
+    } }
   const L=lerBolhas(src,quad); if(!L) return false;
   desenhaGrade(L.R,false);
   if(!alunoQR && semQR<=40){
