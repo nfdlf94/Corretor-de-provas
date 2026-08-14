@@ -278,8 +278,21 @@ problema da âncora vai produzir números que parecem oficiais e não são.
 ### Nota de participação
 
 Uma pontuação de apoio, **proporcional aos acertos no caderno inteiro**:
-`valor × acertos / nq`, arredondada a duas casas. O valor máximo fica em
-`sm.valorParticipacao` (padrão 1 ponto) e é editável na tela do simulado.
+`valor × acertos / nq`, arredondada a duas casas.
+
+O ano distribui um total (`E.saepe.totalParticipacao`, padrão 10) entre os
+simulados **previstos** (`E.saepe.previstos`, padrão 8), então cada um nasce
+valendo 10 ÷ 8 = 1,25. Previsto ≠ criado: dá para planejar oito e ter dois
+prontos. Mudar a previsão **não** reescreve os valores sozinha —
+`distribuirParticipacao()` só roda quando o professor pede, porque mexer no
+valor de um simulado já corrigido muda nota lançada; a tela avisa antes.
+Cada simulado também aceita um valor próprio (`sm.valorParticipacao`), e a
+tela do plano mostra `distribuído / total`.
+
+O professor pode **lançar à mão** a participação de um estudante
+(`sm.partAluno[numero]`), sempre limitada ao teto daquele simulado.
+Apagar o campo devolve o valor calculado pelos acertos. A lista e o CSV
+mostram os dois números e de onde veio a nota usada.
 
 Quem não fez o simulado fica com nota **nula, não zero** — zero é resultado
 de quem fez e errou; ausência é ausência, e o professor decide o que fazer
@@ -375,7 +388,8 @@ E = {
   simulados:[{id, turma, titulo, etapa:"5EF"|"9EF"|"3EM", ano,
              prova:provaId, metodo:"tri"|"pct", alternarBlocos, tipos,
              qtd:{LP,MAT}, fontes:{LP:{nome,encontradas,usadas,sorteadas}},
-             valorParticipacao}],
+             valorParticipacao, partAluno:{numero:valor}}],
+  saepe:  {totalParticipacao, previstos},
   descritores:{LP:{D1:"texto"}, MAT:{...}},
   provas:  [{id, turma, disciplina, codigo, titulo, periodo, nq, no, gabC,
              simulado, comps[], desc[], orig[], gabItens[],  // só no caderno

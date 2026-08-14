@@ -1177,14 +1177,55 @@ function ajustarQuantidade(sm,comp){
    Proporcional aos acertos: quem acertou tudo leva o valor cheio, quem
    acertou metade leva metade. Fica FORA da média do período — é um apoio
    para o professor lançar a pontuação onde quiser. */
+/* ── plano de participação ─────────────────────────────────────────
+   O ano inteiro distribui um total de pontos (10, por padrão) entre os
+   simulados previstos. Previsto ≠ criado: o professor planeja oito, tem
+   dois prontos, e o valor de cada um já sai de 10 ÷ 8. Mudou a previsão,
+   os valores se refazem — mas só quando ele pedir, porque mexer nos
+   valores de simulados já corrigidos mudaria nota lançada. */
+const PART_TOTAL_PADRAO=10, PART_PREVISTOS_PADRAO=8;
+function planoParticipacao(){
+  E.saepe=E.saepe||{};
+  if(E.saepe.totalParticipacao==null) E.saepe.totalParticipacao=PART_TOTAL_PADRAO;
+  if(E.saepe.previstos==null) E.saepe.previstos=PART_PREVISTOS_PADRAO;
+  return E.saepe;
+}
+const arred2=x=>Math.round(Number(x)*100)/100;
+const valorSugerido=()=>{
+  const P=planoParticipacao();
+  return P.previstos>0?arred2(P.totalParticipacao/P.previstos):0;
+};
 const VALOR_PART_PADRAO=1;
 const valorParticipacao=sm=>{
   const v=sm&&sm.valorParticipacao;
-  return (v==null||isNaN(v))?VALOR_PART_PADRAO:Number(v);
+  return (v==null||isNaN(v))?valorSugerido():Number(v);
 };
+/* quanto já foi distribuído entre os simulados de uma turma */
+const participacaoDistribuida=tid=>
+  arred2(simuladosDa(tid).reduce((n,sm)=>n+valorParticipacao(sm),0));
+function distribuirParticipacao(tid){
+  const v=valorSugerido();
+  simuladosDa(tid).forEach(sm=>{ sm.valorParticipacao=v; });
+  salvar();
+  return v;
+}
+
 function notaParticipacao(sm,acertos,total){
   if(!total||acertos==null) return null;
-  return Math.round(valorParticipacao(sm)*(acertos/total)*100)/100;
+  return arred2(valorParticipacao(sm)*(acertos/total));
+}
+/* nota lançada à mão pelo professor, se houver — sempre dentro do teto */
+function participacaoManual(sm,numero){
+  const m=(sm&&sm.partAluno)||{};
+  const v=m[String(numero)];
+  if(v==null||isNaN(v)) return null;
+  return Math.max(0,Math.min(valorParticipacao(sm),Number(v)));
+}
+function gravarParticipacao(sm,numero,valor){
+  sm.partAluno=sm.partAluno||{};
+  if(valor==null||valor===""||isNaN(valor)) delete sm.partAluno[String(numero)];
+  else sm.partAluno[String(numero)]=Math.max(0,Math.min(valorParticipacao(sm),Number(valor)));
+  salvar();
 }
 /* uma linha por estudante, com o total e a quebra por componente */
 function participacaoDe(sm){
@@ -1203,8 +1244,10 @@ function participacaoDe(sm){
       porComp[c.id]={total:n, acertos:L.res?acertosComp(pr,L.res,c.id):null,
         nota:L.res?notaParticipacao(sm,acertosComp(pr,L.res,c.id),n):null};
     });
+    const calculada=L.res?notaParticipacao(sm,L.res.acertos,pr.nq):null;
+    const manual=participacaoManual(sm,L.aluno.numero);
     return Object.assign(L,{total:pr.nq, acertos:L.res?L.res.acertos:null,
-      nota:L.res?notaParticipacao(sm,L.res.acertos,pr.nq):null, porComp});
+      calculada, manual, nota:(manual!=null?manual:calculada), porComp});
   }).sort((x,y)=>ordNum(x.aluno.numero,y.aluno.numero));
 }
 
@@ -1389,6 +1432,7 @@ function montarCasaInterno(box){
 
   if(casaNivel==="banco")       return telaBanco(box);
   if(casaNivel==="relSaepe")    return telaRelSaepe(box);
+  if(casaNivel==="partPlano")   return telaPartPlano(box);
   if(casaNivel==="turmas")   return telaTurmas(box);
   if(casaNivel==="provas")   return telaProvas(box);
   if(casaNivel==="alunos")   return telaAlunos(box);
@@ -3407,6 +3451,75 @@ function telaDisciplinas(box){
    ═══════════════════════════════════════════════════════════════════ */
 let casaSim=null, casaComp=null, irParticipacao=false;
 
+function telaPartPlano(box){
+  const t=turmaDe(casaTurma);
+  if(!t){ casaNivel="turmas"; return montarCasa(); }
+  const P=planoParticipacao(), sims=simuladosDa(t.id);
+  const dist=participacaoDistribuida(t.id);
+  const vg=x=>Number(x).toFixed(2).replace(".",",").replace(/,00$/,",0");
+  const falta=arred2(P.totalParticipacao-dist);
+  box.innerHTML=`<div class="migalha"><button id="mVolta">‹ Simulados</button></div>
+    <h2>Participação dos simulados</h2>
+    <p class="sub">${esc(t.nome)} · quanto cada simulado vale de participação no ano</p>
+    <div class="duo">
+      <div><label>Total do ano</label>
+        <input id="pTot" type="number" inputmode="decimal" step="0.5" min="0"
+          value="${P.totalParticipacao}"></div>
+      <div><label>Simulados previstos</label>
+        <input id="pPrev" type="number" inputmode="numeric" min="1" max="20"
+          value="${P.previstos}"></div>
+    </div>
+    <p class="hint">${P.totalParticipacao} ÷ ${P.previstos} = <b>${vg(valorSugerido())}</b>
+      ponto(s) por simulado. Previsto não é o mesmo que criado: dá para planejar oito e
+      ter dois prontos.</p>
+    <button class="btn sec" id="pDistribuir" style="margin-top:10px">
+      Aplicar ${vg(valorSugerido())} a todos os ${sims.length} simulado(s) desta turma</button>
+    <div class="rot">Valor de cada simulado</div>`;
+  let h="";
+  if(!sims.length){
+    h=`<p class="hint">Nenhum simulado criado ainda nesta turma.</p>`;
+  }else{
+    h=sims.slice().reverse().map(sm=>{
+      const pr=provaDoSim(sm), n=pr?resDa(pr.id).length:0;
+      return `<div class="lin">
+        <input value="${esc(sm.titulo)}" disabled style="flex:1;min-width:0;opacity:.75">
+        <input data-v="${sm.id}" type="number" inputmode="decimal" step="0.25" min="0"
+          value="${valorParticipacao(sm)}" style="flex:0 0 84px;text-align:center">
+        <span class="nu" style="flex:0 0 auto">${n?n+" corr.":"—"}</span></div>`;
+    }).join("");
+    const cor=Math.abs(falta)<0.005?"var(--mint)":falta>0?"var(--amber)":"var(--coral)";
+    h+=`<div class="kpi" style="margin-top:12px">
+      <div><div class="v" style="color:${cor}">${vg(dist)}<span style="font-size:14px;color:var(--mute)">/${vg(P.totalParticipacao)}</span></div>
+        <div class="l">Distribuído</div></div>
+      <div><div class="v">${sims.length}</div><div class="l">Criados</div></div>
+      <div><div class="v">${P.previstos}</div><div class="l">Previstos</div></div></div>`;
+    h+=Math.abs(falta)<0.005
+      ? `<div class="diag">Os simulados criados já somam o total do ano.</div>`
+      : falta>0
+        ? `<div class="diag">Faltam <b>${vg(falta)}</b> ponto(s) para fechar
+           ${vg(P.totalParticipacao)}. Se ainda vai criar ${P.previstos-sims.length}
+           simulado(s), é o esperado.</div>`
+        : `<div class="aviso">Os simulados criados somam <b>${vg(dist)}</b>, acima do
+           total de ${vg(P.totalParticipacao)} planejado para o ano.</div>`;
+  }
+  box.insertAdjacentHTML("beforeend",h);
+  $("#mVolta").onclick=()=>{casaNivel="simulados";montarCasa();};
+  $("#pTot").onchange=()=>{ const v=parseFloat($("#pTot").value);
+    P.totalParticipacao=(isNaN(v)||v<0)?PART_TOTAL_PADRAO:v; salvar(); montarCasa(); };
+  $("#pPrev").onchange=()=>{ const v=parseInt($("#pPrev").value,10);
+    P.previstos=(isNaN(v)||v<1)?PART_PREVISTOS_PADRAO:v; salvar(); montarCasa(); };
+  $("#pDistribuir").onclick=()=>{
+    const comNota=sims.filter(sm=>{const pr=provaDoSim(sm);return pr&&resDa(pr.id).length;});
+    if(comNota.length && !confirm(comNota.length+" simulado(s) já têm correções. "+
+      "Mudar o valor muda a participação já calculada desses estudantes.\n\nContinuar?")) return;
+    distribuirParticipacao(t.id); montarCasa(); };
+  box.querySelectorAll("[data-v]").forEach(el=>el.onchange=()=>{
+    const sm=simuladoDe(el.dataset.v); if(!sm) return;
+    const v=parseFloat(el.value);
+    sm.valorParticipacao=(isNaN(v)||v<0)?0:arred2(v);
+    salvar(); montarCasa(); });
+}
+
 function telaSimulados(box){
   const t=turmaDe(casaTurma);
   if(!t){ casaNivel="turmas"; return montarCasa(); }
@@ -3434,12 +3547,17 @@ function telaSimulados(box){
         </div><span class="tag${(n||estado==="pronto para aplicar")?" ok":""}">${esc(estado)}</span>
         <span class="ch">›</span></button>`;}).join("");
   }
+  const P=planoParticipacao();
   h+=`<button class="btn" id="bNovoSim" style="margin-top:12px">Criar simulado</button>
+    <button class="btn gho" id="bPlano" style="margin-top:9px">Participação ·
+      ${String(participacaoDistribuida(t.id)).replace(".",",")} de
+      ${String(P.totalParticipacao).replace(".",",")} pontos</button>
     <button class="btn gho" id="bBanco" style="margin-top:9px">Banco de descritores</button>`;
   box.innerHTML=h;
   $("#mVolta").onclick=()=>{casaNivel="disciplinas";montarCasa();};
   $("#bNovoSim").onclick=()=>{ casaSim=criarSimulado(t).id; casaNivel="simulado"; montarCasa(); };
   $("#bBanco").onclick=()=>{casaComp=casaComp||"LP";casaNivel="banco";montarCasa();};
+  $("#bPlano").onclick=()=>{casaNivel="partPlano";montarCasa();};
   box.querySelectorAll("[data-s]").forEach(b=>b.onclick=()=>{
     casaSim=b.dataset.s; casaNivel="simulado"; montarCasa(); });
 }
@@ -3451,7 +3569,7 @@ function criarSimulado(t){
   const n=simuladosDa(t.id).length+1;
   const sm={id:uid("s"),turma:t.id,titulo:n+"º Simulado SAEPE",etapa:sugerirEtapa(t),
     ano, metodo:"tri", alternarBlocos:true, tipos:0,
-    valorParticipacao:VALOR_PART_PADRAO, qtd:{LP:10,MAT:10},
+    valorParticipacao:valorSugerido(), qtd:{LP:10,MAT:10},
     fontes:{}, criado:Date.now(), prova:null};
   const pr={id:uid("p"),turma:t.id,disciplina:null,simulado:sm.id,
     codigo:codigoSugerido(t,ano),titulo:sm.titulo,
@@ -4119,11 +4237,13 @@ function telaRelSaepe(box){
   h+=`<div class="rot" id="secaoPart">Nota de participação</div>
     <div class="linha" style="align-items:center;gap:10px">
       <span style="color:var(--mute);font-size:12.5px;flex:1">Valor máximo, para quem acertar tudo</span>
-      <input id="partVal" type="number" inputmode="decimal" step="0.1" min="0" max="10"
+      <input id="partVal" type="number" inputmode="decimal" step="0.25" min="0" max="10"
         value="${valor}" style="flex:0 0 88px;text-align:center;margin:0">
     </div>
     <p class="hint">Proporcional aos acertos no caderno inteiro: metade da prova, metade
-      da nota. Não entra na média do período.</p>`;
+      da nota. Não entra na média do período.
+      <button id="partPlano" style="color:var(--orange);padding:0;font-size:12.5px">
+        Ver o plano do ano</button></p>`;
   if(!feitosP.length){
     h+=`<p class="hint">Nenhum cartão corrigido ainda.</p>`;
   }else{
@@ -4133,10 +4253,16 @@ function telaRelSaepe(box){
         <div class="rs">${L.res
           ? L.acertos+" de "+L.total+" · "+COMPONENTES.filter(c=>L.porComp[c.id].total)
               .map(c=>esc(c.curto)+" "+L.porComp[c.id].acertos+"/"+L.porComp[c.id].total).join(" · ")
-          : "não fez o simulado"}</div></div>
-      <div class="nt" style="font-size:19px;color:${L.nota==null?"var(--mute)"
-        :(L.nota>=valor*0.6?"var(--mint)":L.nota>=valor*0.4?"var(--amber)":"var(--coral)")}">${
-        L.nota==null?"—":vg(L.nota)}</div></div>`).join("");
+          : "não fez o simulado"}${L.manual!=null?" · lançada à mão":""}</div></div>
+      <input data-part="${esc(L.aluno.numero)}" type="number" inputmode="decimal"
+        step="0.25" min="0" max="${valor}" placeholder="${L.calculada==null?"—":vg(L.calculada)}"
+        value="${L.manual==null?"":L.manual}"
+        style="flex:0 0 74px;text-align:center;margin:0;font-family:var(--mono);
+          color:${L.nota==null?"var(--mute)"
+          :(L.nota>=valor*0.6?"var(--mint)":L.nota>=valor*0.4?"var(--amber)":"var(--coral)")}">
+      </div>`).join("");
+    h+=`<p class="hint">O número em cinza é o que sai dos acertos. Escreva por cima para
+      lançar outro valor — apague para voltar ao calculado. O máximo é ${vg(valor)}.</p>`;
     const somaP=feitosP.reduce((x,L)=>x+L.nota,0);
     h+=`<div class="kpi" style="margin-top:12px">
       <div><div class="v">${vg(somaP/feitosP.length)}</div><div class="l">Média da turma</div></div>
@@ -4166,18 +4292,27 @@ function telaRelSaepe(box){
   $("#mVolta").onclick=()=>{casaNivel="simulado";montarCasa();};
   if($("#partVal")) $("#partVal").onchange=()=>{
     const v=parseFloat($("#partVal").value);
-    sm.valorParticipacao=(isNaN(v)||v<0)?VALOR_PART_PADRAO:v;
+    sm.valorParticipacao=(isNaN(v)||v<0)?valorSugerido():arred2(v);
     salvar(); montarCasa(); };
+  box.querySelectorAll("[data-part]").forEach(el=>el.onchange=()=>{
+    const bruto=String(el.value).replace(",",".").trim();
+    gravarParticipacao(sm, el.dataset.part, bruto===""?null:parseFloat(bruto));
+    montarCasa(); });
+  if($("#partPlano")) $("#partPlano").onclick=()=>{
+    casaTurma=sm.turma; casaNivel="partPlano"; montarCasa(); };
   if($("#partCsv")) $("#partCsv").onclick=()=>{
     const e=escolaDe(t.escola)||{curto:""};
     const cab=["escola","turma","simulado","numero","aluno",
       ...COMPONENTES.map(c=>"acertos_"+c.id.toLowerCase()),
-      "acertos_total","itens","nota_participacao","valor_maximo"];
+      "acertos_total","itens","participacao_calculada","participacao_lancada",
+      "nota_participacao","valor_maximo","origem"];
     const lin=part.map(L=>[e.curto,t.nome,sm.titulo,L.aluno.numero,
       `"${String(L.aluno.nome).replace(/"/g,'""')}"`,
       ...COMPONENTES.map(c=>L.porComp[c.id].acertos==null?"":L.porComp[c.id].acertos),
       L.acertos==null?"":L.acertos, L.total,
-      L.nota==null?"":vg(L.nota), vg(valor)].join(";"));
+      L.calculada==null?"":vg(L.calculada), L.manual==null?"":vg(L.manual),
+      L.nota==null?"":vg(L.nota), vg(valor),
+      L.manual!=null?"lançada":(L.calculada!=null?"acertos":"")].join(";"));
     baixar([cab.join(";"),...lin].join("\r\n"),
       "participacao_"+t.nome+"_"+sm.ano+".csv","text/csv");
   };
