@@ -47,7 +47,32 @@ function montarLayout(nq, no){
   const box_w = P.LABEL_X0 + (ncols - 1) * passoCol
               + P.LABEL_GAP + (no - 1) * P.PASSO_X + P.MARGEM_DIR;
   const row_y = Array.from({length: nlin}, (_, i) => P.Y0 + i * P.PASSO_Y);
-  const box_h = Math.max(row_y[nlin - 1] + 4.0, P.QR_Y + P.QR_S + 4.0);
+
+  /* Margem inferior. Os 4 mm de sempre bastam quando a coluna da direita
+     NÃO chega à última linha. Quando ela chega — no compacto, sempre que
+     nq é múltiplo de 3 (21, 24, 27, 30) —, a bolha da última alternativa
+     ficava a 0,15 mm do marcador do canto inferior-direito e encostava
+     nele ao ser preenchida. Os dois viravam um borrão só, o borrão
+     deixava de ser um quadrado sólido, o marcador era descartado e o
+     leitor NUNCA achava o cartão: "Procurando o cartão" para sempre, com
+     o cartão bem enquadrado. Nos outros tamanhos nada muda — a geometria
+     dos cartões já impressos é preservada. */
+  const ultimaColCheia = (nq % ncols === 0);
+  const xUltimaBolha = P.LABEL_X0 + (ncols - 1) * passoCol + P.LABEL_GAP
+                     + (no - 1) * P.PASSO_X;
+  const sobOMarcador = xUltimaBolha + P.RAIO > box_w - P.FID / 2;
+  const folgaBaixo = (ultimaColCheia && sobOMarcador)
+    ? P.FID / 2 + P.RAIO + 0.8 : 4.0;
+  /* O bloco do QR encosta na coluna dos marcadores da esquerda: ele
+     começa a 4 mm da borda e o marcador ocupa FID/2 para cada lado. O que
+     separava os dois era só a folga vertical — e nos cartões mais baixos
+     (7 e 8 questões, onde é o QR que define a altura) ela era menor que o
+     próprio marcador: o QR encostava no marcador inferior-esquerdo e o
+     cartão deixava de ser encontrado. A folga abaixo do QR passa a contar
+     com o tamanho do marcador. */
+  const folgaQR = P.FID / 2 + 0.8;
+  const box_h = Math.max(row_y[nlin - 1] + folgaBaixo,
+                         P.QR_Y + P.QR_S + folgaQR);
 
   const groups = [];
   let n = 1;

@@ -686,3 +686,55 @@ conjuntos juntos.
 geometria que o gerador imprime (`montarLayout`) e do **mesmo** payload
 (`montarPayload` + `gabaritoIndividual`), em vez de rasterizar o PDF: se o
 scanner errar ali, erra no papel. Rodar tudo: `bash rodar-testes.sh`.
+
+
+---
+
+## v25 — duas colisões de geometria no cartão
+
+Pergunta que levou a isto: *"o leitor considera a possibilidade de os
+simulados terem quantidades de questões diversas?"*. Considera — e a
+varredura de **todos** os 52 formatos aceitos (5 a 30 itens × 4 e 5
+alternativas) achou dois tamanhos que **nunca** poderiam ser lidos, no
+papel nem na tela. Os dois eram a mesma classe de erro: algo preto
+encostando no marcador de canto. O marcador precisa ser um quadrado
+sólido e isolado; quando outra coisa preta toca nele, o borrão deixa de
+passar nos testes de isotropia e solidez, o marcador é descartado, e sem
+os quatro marcadores o cartão simplesmente não é encontrado — a faixa
+fica em *"Procurando o cartão"* com o cartão bem enquadrado na tela.
+
+**1. A bolha da última alternativa × o marcador inferior-direito.**
+No perfil compacto, quando a coluna da direita chega à última linha — ou
+seja, sempre que `nq` é múltiplo de 3: **21, 24, 27 e 30** — a bolha da
+última alternativa ficava a 0,15 mm do marcador. Preenchida pelo
+estudante, encostava. A margem inferior passou a contar com `FID/2 +
+RAIO`, em vez dos 4 mm fixos, e só nesses tamanhos.
+
+**2. O bloco do QR × o marcador inferior-esquerdo.**
+O QR começa a 4 mm da borda e o marcador ocupa `FID/2` para cada lado:
+os dois sempre se sobrepõem horizontalmente, e o que os separava era só
+a folga vertical. Nos cartões mais baixos — **7 e 8 questões**, onde é o
+QR que define a altura — essa folga era menor que o próprio marcador. A
+folga abaixo do QR passou a contar com `FID/2`.
+
+**Geometria alterada em 12 dos 52 formatos:** 7, 8, 21, 24, 27 e 30
+itens, com 4 e com 5 alternativas. Todos os outros ficaram idênticos —
+inclusive **10x5** (a prova comum de sempre) e **26x5** (o simulado de
+13 + 13, o mais usado). Cartões já impressos nesses tamanhos continuam
+valendo. Os 12 que mudaram eram justamente os que não funcionavam, então
+não havia cartão bom para invalidar.
+
+`assinaturaLayout` é só `nqxno`: **não carrega a versão do layout**. Não
+há como o scanner distinguir um cartão antigo de um novo do mesmo
+tamanho. Foi por isso que a correção foi cirúrgica em vez de uma folga
+uniforme: mexer na altura de 10x5 ou 26x5 invalidaria, em silêncio, tudo
+que já foi impresso. Quem precisar mudar geometria de um formato que
+funciona vai ter de pôr a versão na assinatura antes.
+
+`layout.py` **não veio no pacote** e não foi atualizado. Ele é o espelho
+de `layout.js` e precisa receber as mesmas duas mudanças, senão o PDF
+gerado por lá sai com geometria diferente da que o scanner reconstrói.
+
+O `teste29.js` cobre a varredura completa dos 52 formatos e a troca de
+cartões de tamanhos diferentes na mesma sessão — 15, 26 e 30 itens mais a
+prova comum de 10, em qualquer ordem, sem o professor tocar em nada.
