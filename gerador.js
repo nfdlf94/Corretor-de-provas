@@ -47,10 +47,51 @@ function encurtarNome(nome, limite){
   return nm.slice(0, lim);
 }
 
+/* O nome vai CURTO no QR de propósito. Cada caractere a mais empurra o
+   QR para uma versão maior, com mais módulos no mesmo espaço de 30 mm —
+   e é o número de PIXELS POR MÓDULO na câmera que decide se o cartão é
+   lido ou não. Um caderno de simulado ("3ANOA-SAEPE-26", 16 letras de
+   gabarito, nome completo) chegava a 81 bytes e 37 módulos: a 3,9 px/mm
+   de enquadramento, 3,2 px por módulo — no limite do decodificador, e
+   por isso o QR ficava ilegível justamente nos simulados, enquanto as
+   provas comuns (43 bytes, 33 módulos) liam sem esforço.
+   Quem identifica o estudante é turma + número; o nome no QR é só
+   cortesia, para o app poder cadastrar quem ainda não está na lista. */
+/* ═══════════════════════════════════════════════════════════════════
+   O PAYLOAD DO QR É ASCII PURO — NÃO MEXA NISTO
+   O decodificador de QR do app (jsQR) devolve STRING VAZIA, sem erro
+   nenhum, quando o conteúdo tem qualquer byte fora do ASCII. Não é
+   "lê errado": é "lê nada". Bastava a turma se chamar "3º Ano A" — ou
+   o estudante ser GONÇALO, JOÃO, SÁ — para o cartão ficar impossível de
+   corrigir pela câmera. Os marcadores eram encontrados, o QR era
+   localizado e decodificado, e o resultado vinha vazio: na tela,
+   "Cartão localizado / aproxime um pouco" e depois "QR ilegível".
+   Por isso tudo que entra no payload passa por `soAscii`. Acentos viram
+   as letras sem acento, "º"/"ª" viram "o"/"a", e o que sobrar de
+   estranho é descartado. Nada disso muda a identificação: quem casa o
+   cartão com a prova é o código, e o embaralhamento usa o nome REAL da
+   turma, que continua guardado no aparelho. */
+function soAscii(txt){
+  return String(txt == null ? "" : txt)
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")   // tira os acentos
+    .replace(/[ºª]/g, m => (m === "º" ? "o" : "a"))
+    .replace(/[ﬁﬂ]/g, m => (m === "ﬁ" ? "fi" : "fl"))
+    .replace(/[^\x20-\x7E]/g, "")                       // o resto sai
+    .replace(/\|/g, " ")                                 // "|" separa campos
+    .replace(/\s+/g, " ").trim();
+}
+
+const NOME_QR_MAX = 14;
+function nomeCurtoQR(nome){
+  const p = soAscii(nome).toUpperCase().split(/\s+/).filter(Boolean);
+  if(!p.length) return "";
+  if(p[0].length >= NOME_QR_MAX) return p[0].slice(0, NOME_QR_MAX);
+  return p.length > 1 ? (p[0] + " " + p[p.length-1][0]).slice(0, NOME_QR_MAX) : p[0];
+}
 function montarPayload(codigo, gabIndividual, turma, numero, nome, no){
   const gab = String(gabIndividual).toUpperCase();
-  return ["DBM4", String(codigo).trim(), gab, String(turma).trim(),
-          String(numero).trim(), encurtarNome(nome),
+  return ["DBM4", soAscii(codigo), gab, soAscii(turma),
+          soAscii(numero), nomeCurtoQR(nome),
           assinaturaLayout(gab.length, no)].join("|");
 }
 
@@ -116,7 +157,10 @@ function desenharCartao(doc, opt){
 
   // QR
   const payload = montarPayload(opt.codigo, gab, opt.turma, opt.numero, opt.nome, no);
-  const q = qrcode(0, "M"); q.addData(payload); q.make();
+  /* Correção de erro "L": o cartão é lido de perto, em papel, e não
+     precisa dos 15% de redundância do nível "M" — que aqui só encolhia
+     os módulos. */
+  const q = qrcode(0, "L"); q.addData(payload); q.make();
   const n = q.getModuleCount(), passo = L.qr.size / n;
   const [qx, qy] = P(L.qr.x, L.qr.y);
   doc.setFillColor(...COR.preto);
@@ -808,4 +852,4 @@ function gerarProvas(cfg, alunos, jsPDFctor){
 }
 
 if(typeof module !== "undefined") module.exports =
-  {desenharCartao, gerarProvas, gabaritoIndividual, montarPayload, encurtarNome, prepararFontes, medirFigura};
+  {desenharCartao, gerarProvas, gabaritoIndividual, montarPayload, encurtarNome, nomeCurtoQR, soAscii, prepararFontes, medirFigura};

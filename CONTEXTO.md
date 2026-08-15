@@ -738,3 +738,62 @@ gerado por lá sai com geometria diferente da que o scanner reconstrói.
 O `teste29.js` cobre a varredura completa dos 52 formatos e a troca de
 cartões de tamanhos diferentes na mesma sessão — 15, 26 e 30 itens mais a
 prova comum de 10, em qualquer ordem, sem o professor tocar em nada.
+
+
+---
+
+## v26 — o QR ilegível: era o "º" de "3º Ano A"
+
+Sintoma trazido pelas fotos do aparelho: o cartão do simulado era
+encontrado (os quatro marcadores acesos, moldura fechada em volta do
+cartão), as bolhas eram lidas, e a faixa ia de *"Cartão localizado /
+Aproxime um pouco para o QR entrar em foco"* para *"QR ilegível"*. A
+correção manual, essa, funcionava.
+
+**O decodificador de QR do app (jsQR) devolve STRING VAZIA — sem erro
+nenhum — quando o conteúdo tem qualquer byte fora do ASCII.** Não é ler
+errado, é ler nada. O payload trazia o nome da turma e do estudante:
+
+| payload | resultado |
+|---|---|
+| `...|3A|07|JOAO S|...` | lido certo |
+| `...|3º Ano A|07|JOAO S|...` | **volta vazio** |
+| `...|3A|07|GONÇALO|...` | **volta vazio** |
+| `...|3A|07|SÁ P|...` | **volta vazio** |
+
+Numa escola brasileira isso é a regra, não a exceção: `3º Ano A`,
+`3ª série`, GONÇALO, JOÃO, SÁ. E como `analisar()` conta payload vazio
+como leitura falha, o app percorria todos os formatos de cartão, não
+achava nada e culpava o foco.
+
+**A correção:** tudo que entra no payload passa por `soAscii()`
+(`gerador.js`) — acentos viram as letras sem acento, `º`/`ª` viram
+`o`/`a`, o resto é descartado. Nada disso muda a identificação: quem casa
+o cartão com a prova é o **código**, e o embaralhamento usa o nome REAL
+da turma, guardado no aparelho. Em `aplicarQR`, a busca da turma pelo
+nome passou a comparar sem acento.
+
+**Não mexa nisto sem rodar o `teste30.js`.** Ele varre turmas e nomes com
+acento, ç, º e ª.
+
+### Duas melhorias que vieram junto, do mesmo diagnóstico
+
+Antes de achar a causa real, medimos a densidade do QR — e ela também
+estava no limite. Ficaram as duas melhorias:
+
+- **O nome vai abreviado no QR** (`nomeCurtoQR`: primeiro nome + inicial
+  do último, 14 caracteres). O payload do caderno das fotos caiu de 81
+  para 62 bytes, e o QR de 37 para 33 módulos: 0,81 → 0,91 mm por módulo.
+  Quem identifica o estudante é turma + número; o nome no QR serve só
+  para cadastrar quem ainda não está na lista. Na tela e nas notas
+  aparece o nome COMPLETO, buscado na turma pelo número.
+- **Correção de erro "L"** no lugar de "M": o cartão é lido de perto, em
+  papel, e os 15% de redundância só encolhiam os módulos.
+- A câmera passou a pedir **1920x1440** (era 1280x960), e a dica da faixa
+  deixou de mandar "aproximar" — com o cartão deitado numa tela em pé,
+  isso é impossível. Agora sugere girar o celular e, se ainda assim não
+  ler, usar o botão **Usar foto**, que entrega a resolução cheia.
+
+Quem for mexer no payload: ele é ASCII, e o formato dos campos
+(`DBM4|codigo|gabarito|turma|numero|nome|assinatura`) continua o mesmo —
+cartões já impressos com payload ASCII seguem valendo.

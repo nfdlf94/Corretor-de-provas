@@ -5379,7 +5379,7 @@ let semCartao=0, giroLayout=0, giroQR=0;
 async function iniciar(){
   if(!provaAtiva()){ irPara("casa"); return; }
   try{ stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},
-    width:{ideal:1280},height:{ideal:960}},audio:false});
+    width:{ideal:1920},height:{ideal:1440}},audio:false});
   }catch(e){ faixa("Câmera indisponível","Use “Usar foto” ou a aba Manual",true);
     $("#acoes2").style.display="flex"; return; }
   video.srcObject=stream; await video.play();
@@ -5502,8 +5502,11 @@ function analisar(imgData,aoVivo){
   const L=lerBolhas(src,quad); if(!L) return false;
   desenhaGrade(L.R,false);
   if(!alunoQR && semQR<=40){
-    faixa("Cartão localizado","Aproxime um pouco para o QR entrar em foco"); return false; }
-  if(!alunoQR){ faixa("QR ilegível","Use a aba Manual para este cartão",true); return false; }
+    faixa("Cartão localizado", semQR>14
+      ? "Gire o celular na horizontal e encha a tela com o cartão"
+      : "Aproxime um pouco para o QR entrar em foco"); return false; }
+  if(!alunoQR){ faixa("QR ilegível","Toque em “Usar foto” — a foto tem mais nitidez",true);
+    return false; }
   const ch=L.R.join("|"); hist.push(ch); if(hist.length>3) hist.shift();
   if(hist.length===3 && hist[0]===hist[1] && hist[1]===hist[2]){ travar(L); return true; }
   faixa("Lendo "+primeiroNome(alunoQR.nome)+"…",
@@ -5528,7 +5531,11 @@ function aplicarQR(p){
   let pr=E.provas.find(x=>x.codigo===codigo&&x.nq===nq&&x.no===no)
       || E.provas.find(x=>x.codigo===codigo);
   if(!pr){
-    let tu=E.turmas.find(x=>x.nome.toUpperCase()===turma.toUpperCase());
+    /* o QR traz o nome da turma em ASCII (ver `soAscii`, no gerador):
+       "3º Ano A" chega como "3o Ano A". A comparação ignora acentos. */
+    const semAcento=x=>String(x||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+      .replace(/[ºª]/g,m=>m==="º"?"o":"a").toUpperCase().trim();
+    let tu=E.turmas.find(x=>semAcento(x.nome)===semAcento(turma));
     if(!tu){
       if(!E.escolas.length)
         E.escolas.push({id:uid("e"),nome:"Minha escola",curto:"Minha escola",ativa:true});
@@ -5550,7 +5557,12 @@ function aplicarQR(p){
   if(tu&&numero&&!tu.alunos.some(a=>a.numero===numero)){
     tu.alunos.push({numero,nome,desde:1,ate:null}); tu.alunos.sort((a,b)=>ordNum(a.numero,b.numero)); }
 
-  alunoQR={turma:tu?tu.nome:turma,numero,nome,gab:g};
+  /* O QR carrega o nome abreviado (ver `nomeCurtoQR`, no gerador): quem
+     identifica o estudante é turma + número. Se ele já está na lista da
+     turma, é o nome de lá que vale — inteiro, do jeito que o professor
+     digitou. */
+  const naLista=tu?(tu.alunos||[]).find(a=>a.numero===numero):null;
+  alunoQR={turma:tu?tu.nome:turma,numero,nome:(naLista&&naLista.nome)||nome,gab:g};
   salvar(); montarManual();
   return mudouLayout?"trocou":true;
 }
