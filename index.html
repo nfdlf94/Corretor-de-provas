@@ -954,6 +954,9 @@ function escalaTRI(sm,theta,thetaMedio,centro){
 }
 
 const TRI_MIN_ALUNOS=8, TRI_MIN_ITENS=5;
+/* itens em comum que dois cadernos precisam ter para que a calibração
+   conjunta possa comparar os estudantes deles na mesma escala */
+const ANCORA_MIN=5;
 
 const MIN_Q_CARTAO=5;
 
@@ -4506,8 +4509,32 @@ function apurarConjunto(sims,comp){
   const mediaPct=linhas.reduce((x,L)=>x+L.acertos/L.total,0)/linhas.length;
   const centro=profPorPercentual(sm0, mediaPct*100, 100, no);
 
+  /* ── itens âncora ────────────────────────────────────────────────
+     Uma calibração conjunta só coloca estudantes de CADERNOS DIFERENTES
+     na mesma escala se houver itens em comum entre eles — os itens
+     âncora. É o que o Saeb faz. Sem nenhum item comum, o modelo não tem
+     como saber se a turma A é melhor que a B ou se o caderno da A era
+     mais fácil: ele assume que os grupos são iguais e ACHATA a diferença
+     entre as turmas. Medido: três turmas com 79,2%, 62,5% e 46,9% de
+     acerto saíam com 302, 294 e 290 — 12 pontos de distância, quando o
+     mesmo caderno para todas dá 325, 297 e 264, que são 61.
+     Sem âncoras suficientes, o honesto é usar o percentual de acerto,
+     que ao menos não finge comparar o incomparável. */
+  const cadernosPorColuna=new Array(I).fill(0);
+  const vistas=new Set();
+  linhas.forEach(L=>{
+    Object.keys(L.marc).forEach(j=>{
+      const k=L.sm.id+"#"+j;
+      if(vistas.has(k)) return;
+      vistas.add(k); cadernosPorColuna[+j]++;
+    });
+  });
+  const nCadernos=new Set(linhas.map(L=>L.sm.id)).size;
+  const ancoras=cadernosPorColuna.filter(n=>n>1).length;
+  const semAncora=(nCadernos>1 && ancoras<ANCORA_MIN);
+
   let metodo="pct", par=null, thMedio=0;
-  if(linhas.length>=TRI_MIN_ALUNOS && I>=TRI_MIN_ITENS){
+  if(!semAncora && linhas.length>=TRI_MIN_ALUNOS && I>=TRI_MIN_ITENS){
     par=calibrar(matriz,no);
     if(par){
       metodo="tri";
@@ -4550,6 +4577,7 @@ function apurarConjunto(sims,comp){
     padrao:padraoDe(o.soma/o.n,etapa,comp)})).sort((a,b)=>b.media-a.media);
 
   return {comp, etapa, linhas, media, dist, descritores, turmas, metodo,
+    nCadernos, ancoras, semAncora,
     itens:I, alunos:linhas.length, padraoMedio:padraoDe(media,etapa,comp),
     cadernosDiferentes:sims.length>1 && I>Math.max.apply(null,
       sims.map(sm=>{const pr=provaDoSim(sm);return pr?itensDe(pr,comp).length:0}))};
@@ -4573,10 +4601,21 @@ function blocoComponente(A,comp,opt){
     <p class="hint" style="margin-top:-4px">${A.metodo==="tri"
       ? "TRI de 3 parâmetros calibrada com as respostas dos "+A.alunos+
         " estudantes deste recorte, de uma vez — não é média de proficiências."
-      : "Percentual de acerto: a TRI precisa de pelo menos "+TRI_MIN_ALUNOS+" cartões."}
-      Cortes da etapa: ${cortes.join(" · ")}.${A.cadernosDiferentes
+      : (A.semAncora
+        ? "Percentual de acerto. A TRI conjunta ficou de fora aqui de propósito: "+
+          "os "+A.nCadernos+" cadernos deste recorte não têm itens em comum "+
+          "suficientes, e sem itens âncora a calibração não consegue distinguir "+
+          "turma melhor de caderno mais fácil — ela achataria a diferença entre as turmas."
+        : "Percentual de acerto: a TRI precisa de pelo menos "+TRI_MIN_ALUNOS+" cartões.")}
+      Cortes da etapa: ${cortes.join(" · ")}.${A.cadernosDiferentes && !A.semAncora
       ? " Os cadernos das turmas não são idênticos; itens não respondidos entram como ausentes."
-      : ""}</p>`;
+      : ""}</p>${A.semAncora
+      ? `<div class="aviso" style="margin-bottom:10px"><b>Comparação entre turmas limitada</b>
+         Cada turma respondeu a um sorteio diferente, sem itens em comum. Dá para
+         comparar o <b>percentual de acerto</b> e o acerto por descritor, mas não a
+         proficiência numa escala única. Para comparar turmas de verdade, aplique o
+         <b>mesmo caderno</b> em toda a série.</div>`
+      : ""}`;
   PADROES.forEach((pd,i)=>{
     const n=A.dist[i], pc=A.alunos?100*n/A.alunos:0;
     h+=`<div class="barra"><span class="lb">${esc(pd.nome)}</span>

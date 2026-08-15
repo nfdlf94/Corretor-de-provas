@@ -797,3 +797,49 @@ estava no limite. Ficaram as duas melhorias:
 Quem for mexer no payload: ele é ASCII, e o formato dos campos
 (`DBM4|codigo|gabarito|turma|numero|nome|assinatura`) continua o mesmo —
 cartões já impressos com payload ASCII seguem valendo.
+
+
+---
+
+## v27 — a TRI conjunta e os itens âncora
+
+Pergunta do professor: *"a TRI está funcionando na análise por turma e
+por série? A proficiência da turma e da série parece média aritmética
+simples."* Ele estava certo no que via, e o motivo é pior do que média.
+
+**O que já era assim de propósito:** o NÍVEL do recorte vem do acerto
+absoluto (`centro = profPorPercentual(média de acerto)`) e a TRI só
+distribui os estudantes em volta dele, a 50 pontos por desvio-padrão.
+Logo `A.media` é sempre igual ao `centro` — parece média de percentual
+porque, no nível do recorte, é isso mesmo. Sem itens âncora do Saeb,
+nenhuma conta acerta o ponto exato da escala oficial.
+
+**O que estava errado:** a comparação ENTRE turmas. Uma calibração
+conjunta só põe estudantes de cadernos diferentes na mesma escala se
+houver itens em comum — os **itens âncora**. Com cada turma recebendo o
+seu próprio sorteio, não há nenhum. O modelo então não distingue "turma
+melhor" de "caderno mais fácil": assume que os grupos são iguais e
+**achata** a diferença. Medido, com o mesmo desempenho real nos dois
+casos (79,2%, 62,5% e 46,9% de acerto):
+
+| cenário | método | âncoras | proficiência das turmas |
+|---|---|---|---|
+| sorteio por turma | TRI conjunta | 0 | 302 / 294 / 290 — **12 pontos** |
+| mesmo caderno | TRI conjunta | 8 | 326 / 297 / 264 — **62 pontos** |
+
+A diferença real entre as turmas encolhia para um quinto do tamanho.
+
+**A correção:** `apurarConjunto` conta os itens presentes em mais de um
+caderno. Se o recorte tem mais de um caderno e menos de `ANCORA_MIN`
+âncoras, a TRI conjunta **fica de fora** e a apuração usa o percentual de
+acerto, que ao menos não finge comparar o incomparável — e que, sendo
+honesto, preserva a diferença real (91 pontos no mesmo teste). A tela
+explica o motivo em vez de mostrar um número que parece uma escala e não
+é. O `teste31.js` compara os dois cenários lado a lado.
+
+Dentro de UMA turma nada muda: um caderno só, sem problema de âncora.
+
+**A conclusão que isso reforça:** aplicar o MESMO caderno em toda a série
+não é só organização — é a condição para a proficiência de série existir.
+Enquanto cada turma sortear o seu, o máximo honesto é comparar percentual
+de acerto e acerto por descritor.
