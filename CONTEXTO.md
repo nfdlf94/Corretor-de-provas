@@ -1238,3 +1238,89 @@ Continua não sendo calibração oficial: `a` e `c` são assumidos, a faixa
 do nível é um intervalo de 25 pontos representado pelo seu ponto médio, e
 a associação item→habilidade é julgamento humano. Errar a associação
 desloca a dificuldade e, com ela, a proficiência da turma.
+
+
+---
+
+## v36 — o formato novo do arquivo, e excluir alcança a série
+
+### Por que o app só lia as questões
+
+O material que o professor passou a usar traz os três blocos com os
+títulos **espaçados letra a letra**: `G A B A R I T O`,
+`D E S C R I T O R E S`, `R E L A Ç Ã O D E N Í V E L D E
+P R O F I C I Ê N C I A`. O leitor procurava `^gabarito$` e não achava
+nada — daí só as questões entrarem. E o gabarito vem em três colunas na
+mesma linha (`1 — C   6 — B   11 — A`), enquanto o leitor pegava um par
+por linha.
+
+Agora os títulos são comparados sem espaço e sem acento, e a linha do
+gabarito é varrida inteira. Quem mexer no leitor: teste com os dois PDFs
+de referência, é o que o `teste39.js` faz.
+
+### A tabela de níveis é a parte valiosa
+
+O bloco novo liga cada questão ao nível da Escala de Proficiência:
+
+    1  Nível 6 (300 a 325)  Localizar a informação principal…  Desejável
+
+Isso dá ao item uma **dificuldade oficial vinda junto com a questão** —
+sem depender de a associação item→habilidade ser feita à mão (v35) nem de
+sugestão por semelhança de texto. Um caderno importado neste formato
+entra com os 30 itens ancorados e a TRI já sai `tri-ancorada`.
+
+`ancoraDoItem` passou a ter duas origens, nesta ordem: o **nível
+declarado no arquivo** (`pr.niv[i]`) e, na falta dele, a habilidade
+associada à mão (`pr.hab[i]`). A faixa entre parênteses é conferida
+contra o catálogo oficial — valendo, o catálogo manda.
+
+Detalhe de extração: a coluna "Padrão" da tabela vaza para dentro do
+texto da habilidade no `pdftotext`; o leitor remove Elementar I/II,
+Básico e Desejável do fim.
+
+### Excluir um simulado de série tira das três turmas
+
+Um simulado de série é UM caderno aplicado em várias turmas. Apagar em
+uma e deixar nas outras deixaria a série pela metade. O botão agora diz o
+alcance ("Excluir simulado das 3 turmas"), a confirmação lista as turmas
+e o total de cartões corrigidos que vão junto, e a exclusão remove os
+irmãos da matriz, os cadernos e os resultados.
+
+A edição já propagava desde a v29 (`propagarNaSerie`, chamado por
+`gravarCaderno`): mexer nos itens ou no gabarito de uma turma altera as
+outras automaticamente. As duas coisas que o professor pediu, portanto,
+estão cobertas — a exclusão em cascata e a alteração em cascata.
+
+
+---
+
+## v37 — o padrão de acerto não maquia a nota
+
+Pergunta do professor depois da ancoragem: se acertar item difícil passou
+a valer mais, quem acerta SÓ as dificílimas e erra tudo o que é fácil não
+ficaria com nota alta?
+
+**Não fica, e o motivo está no 3PL.** Item difícil carrega o acerto ao
+acaso no parâmetro `c` (1/nº de alternativas). Acertar um punhado deles
+errando os fáceis é um padrão improvável para quem domina o conteúdo, e o
+modelo o atribui ao chute — não ao domínio.
+
+Medido no `teste40.js`, com o caderno REAL de Matemática do professor
+(15 itens, níveis 3 a 8 declarados no arquivo), 20 estudantes em cinco
+perfis:
+
+| perfil | acertos | proficiência |
+|---|---|---|
+| acertou **só as 5 mais difíceis** | 5 | **265** |
+| acertou só as 5 mais fáceis | 5 | 303 |
+| acertou 5 espalhadas pela escala | 5 | 282 |
+| acertou 12 das 15 | 12 | 395 |
+| acertou 1 | 1 | 248 |
+
+Quem acertou só as difíceis ficou **abaixo** dos outros dois perfis com o
+mesmo número de acertos, e 130 pontos abaixo de quem fez a prova quase
+toda. A ancoragem faz item difícil valer mais, mas não cria atalho.
+
+Continua tudo por estudante e item a item: doze estudantes com 5 acertos
+saíram com três proficiências distintas, e dois que acertaram exatamente
+os mesmos itens saíram exatamente iguais — como manda a TRI.

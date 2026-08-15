@@ -1019,13 +1019,31 @@ const pontosParaTheta=(p,ref)=>(p-ref)/PONTOS_POR_DP;
 const thetaParaPontos=(th,ref)=>ref+PONTOS_POR_DP*th;
 
 /* a habilidade associada ao item i, se houver e se for do componente */
-function ancoraDoItem(pr,i,comp){
+/* A faixa de um nível da escala, pelo catálogo oficial */
+function faixaDoNivel(comp,etapa,n){
+  if(typeof habilidadesDe!=="function") return null;
+  const h=habilidadesDe(comp,etapa).find(x=>x.nivel===n);
+  return h?{nivel:n, de:h.de, ate:h.ate}:null;
+}
+/* A âncora de dificuldade do item, em pontos da escala. Duas origens,
+   nesta ordem:
+     1. o NÍVEL declarado no próprio arquivo do simulado (o material novo
+        traz a tabela "Relação de nível de proficiência"). É a melhor
+        fonte: veio junto com a questão, não de adivinhação;
+     2. a habilidade oficial associada à mão na tela de Habilidades. */
+function ancoraDoItem(pr,i,comp,etapa){
+  const et=etapa||"3EM";
+  const n=(pr.niv||[])[i];
+  if(n){
+    const f=faixaDoNivel(comp,et,n);
+    if(f){ const p=pontoDoNivel(f); if(p!=null) return {nivel:n, ponto:p, doArquivo:true}; }
+  }
   const id=(pr.hab||[])[i];
   if(!id||typeof habilidadeDe!=="function") return null;
   const h=habilidadeDe(id);
   if(!h||h.comp!==comp) return null;
   const p=pontoDoNivel(h);
-  return p==null?null:{h,ponto:p};
+  return p==null?null:{h, nivel:h.nivel, ponto:p, doArquivo:false};
 }
 const ANCORA_MIN_ITENS=3;      // abaixo disto não vale trocar o método
 
@@ -1053,19 +1071,69 @@ function codDesc(x){
 function lerSimuladoDoc(txt){
   const linhas=String(txt).split(/\r?\n/);
   const limpo=l=>String(l).replace(/[*_#]/g,"").trim();
-  const acha=re=>linhas.findIndex(l=>re.test(limpo(l)));
-  const iGab=acha(/^gabaritos?\s*:?$/i);
-  const iDes=acha(/^descritor(es)?\s*:?$/i);
-  const cortes=[iGab,iDes].filter(x=>x>=0).sort((a,b)=>a-b);
+  /* Os títulos vêm espaçados letra a letra no material novo
+     ("G A B A R I T O"), e às vezes com acento. Comparar sem espaço e
+     sem acento resolve os dois de uma vez. */
+  const nu=l=>limpo(l).normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+    .replace(/[^A-Za-z]/g,"").toUpperCase();
+  const acha=teste=>linhas.findIndex(l=>teste(nu(l)));
+  const iGab=acha(t=>t==="GABARITO"||t==="GABARITOS");
+  const iDes=acha(t=>t==="DESCRITOR"||t==="DESCRITORES");
+  const iNiv=acha(t=>/^RELACAODENIVE(L|IS)DEPROFICIENCIA/.test(t)||
+                     t==="NIVEISDEPROFICIENCIA"||t==="NIVELDEPROFICIENCIA");
+  const cortes=[iGab,iDes,iNiv].filter(x=>x>=0).sort((a,b)=>a-b);
+  const proximo=i=>{ const s=cortes.filter(x=>x>i); return s.length?s[0]:linhas.length; };
   const corpo=linhas.slice(0, cortes.length?cortes[0]:linhas.length).join("\n");
-  const blocoGab=iGab<0?[]:linhas.slice(iGab+1, (iDes>iGab)?iDes:linhas.length);
-  const blocoDes=iDes<0?[]:linhas.slice(iDes+1, (iGab>iDes)?iGab:linhas.length);
+  const blocoGab=iGab<0?[]:linhas.slice(iGab+1, proximo(iGab));
+  const blocoDes=iDes<0?[]:linhas.slice(iDes+1, proximo(iDes));
+  const blocoNiv=iNiv<0?[]:linhas.slice(iNiv+1, proximo(iNiv));
 
+  /* O gabarito pode vir um por linha ("1 — C") ou em colunas na mesma
+     linha ("1 — C   6 — B   11 — A"), como no material novo. */
   const chave={};
   blocoGab.forEach(l=>{
-    const m=/^(\d{1,2})\s*[).:\-–—]?\s*([A-Ea-e])(?![A-Za-zÀ-ÿ0-9])/.exec(limpo(l));
-    if(m) chave[+m[1]]=m[2].toUpperCase();
+    const t=limpo(l);
+    const re=/(\d{1,2})\s*[).:\-–—]\s*([A-Ea-e])(?![A-Za-zÀ-ÿ0-9])/g;
+    let m, achou=false;
+    while((m=re.exec(t))){ chave[+m[1]]=m[2].toUpperCase(); achou=true; }
+    if(!achou){
+      const m2=/^(\d{1,2})\s+([A-Ea-e])(?![A-Za-zÀ-ÿ0-9])/.exec(t);
+      if(m2) chave[+m2[1]]=m2[2].toUpperCase();
+    }
   });
+
+  /* ── nível de proficiência por questão ──────────────────────────
+     O material novo traz, no fim, uma tabela ligando cada questão ao
+     nível da Escala de Proficiência do SAEPE:
+
+       1  Nível 6 (300 a 325)  Localizar a informação principal…  Desejável
+
+     É a informação mais valiosa do arquivo: com ela o item ganha
+     dificuldade vinda da escala, sem depender de a IA adivinhar a
+     habilidade pelo texto. A faixa entre parênteses é conferida contra
+     o catálogo oficial; valendo, o catálogo manda. */
+  const niveis={};
+  {
+    let atual=null;
+    const fecha=()=>{ if(atual&&atual.q&&atual.n) niveis[atual.q]=
+      {nivel:atual.n, de:atual.de, ate:atual.ate,
+       texto:(atual.txt||"").replace(/\s+/g," ")
+         .replace(/\s*(Elementar I{1,2}|B[áa]sico|Desej[áa]vel)\s*\/?\s*/gi," ")
+         .replace(/\s+/g," ").trim()}; atual=null; };
+    blocoNiv.forEach(l=>{
+      const t=limpo(l); if(!t) return;
+      const m=/^(\d{1,2})\s+N[íi]vel\s+(\d{1,2})\s*(?:\(\s*(?:de\s*)?(\d{2,3})\s*(?:a|até|-|–)\s*(\d{2,3})\s*\)|\(\s*(?:até|acima de)\s*(\d{2,3})\s*\))?\s*(.*)$/i.exec(t);
+      if(m){
+        fecha();
+        atual={q:+m[1], n:+m[2],
+               de:m[3]?+m[3]:null, ate:m[4]?+m[4]:(m[5]?+m[5]:null),
+               txt:m[6]||""};
+      }else if(atual && !/^(Question|Quest[ãa]o|N[íi]vel|Padr[ãa]o)/i.test(t)){
+        atual.txt=(atual.txt||"")+" "+t;
+      }
+    });
+    fecha();
+  }
 
   /* Um descritor pode ocupar VÁRIAS linhas: o código e o texto numa, a
      lista de questões na seguinte, e o texto ainda pode quebrar no meio.
@@ -1099,11 +1167,15 @@ function lerSimuladoDoc(txt){
     const letra=chave[i+1]||"";
     const k="ABCDE".indexOf(letra);
     if(k>=0) q.correta=k;
-    return {questao:q, gab:letra, desc:mapa[i+1]||""};
+    const nv=niveis[i+1]||null;
+    return {questao:q, gab:letra, desc:mapa[i+1]||"",
+            niv:nv?nv.nivel:null, nivTexto:nv?nv.texto:"",
+            nivDe:nv?nv.de:null, nivAte:nv?nv.ate:null};
   });
-  return {itens, descritores, chave,
+  return {itens, descritores, chave, niveis,
           semGab:itens.filter(x=>!x.gab).length,
           semDesc:itens.filter(x=>!x.desc).length,
+          semNivel:itens.filter(x=>!x.niv).length,
           curtas:itens.filter(x=>(x.questao.alternativas||[]).filter(Boolean).length<5).length};
 }
 
@@ -1149,6 +1221,7 @@ function itensDoCaderno(pr){
     gab:gabs[i]||"",
     desc:(pr.desc||[])[i]||"",
     hab:(pr.hab||[])[i]||"",       // id da habilidade oficial, quando associada
+    niv:(pr.niv||[])[i]||null,     // nível declarado no arquivo do simulado
     qid:qidDoItem(pr,i),
     orig:(pr.orig||[])[i]||null      // número que a questão tinha no arquivo
   }));
@@ -1166,6 +1239,7 @@ function gravarCaderno(pr,lista){
   pr.qids=lista.map((x,i)=>x.qid || qidDoTexto((x.questao||{}).enunciado) ||
     ("p"+pr.id+"#"+i));
   pr.hab=lista.map(x=>x.hab||"");
+  pr.niv=lista.map(x=>x.niv||null);
   propagarNaSerie(pr);
   return pr;
 }
@@ -1203,6 +1277,7 @@ function propagarNaSerie(pr){
       alvo.habs=(pr.habs||[]).slice();
       alvo.qids=(pr.qids||[]).slice();
       alvo.hab=(pr.hab||[]).slice();
+      alvo.niv=(pr.niv||[]).slice();
       alvo.questoes=JSON.parse(JSON.stringify(pr.questoes||[]));
       outro.qtd=Object.assign({}, sm.qtd);
       outro.alternarBlocos=sm.alternarBlocos;
@@ -1329,7 +1404,7 @@ function aplicarImportacao(sm,comp,itens){
   const pr=provaDoSim(sm); if(!pr) return null;
   const outros=itensDoCaderno(pr).filter(x=>x.comp!==comp);
   const novos=itens.map(x=>({comp, questao:x.questao, gab:x.gab,
-    desc:x.desc, orig:x.orig||null}));
+    desc:x.desc, orig:x.orig||null, niv:x.niv||null, hab:x.hab||""}));
   const lista=(comp==="LP")?novos.concat(outros):outros.concat(novos);
   return gravarCaderno(pr,lista);
 }
@@ -4164,7 +4239,8 @@ function telaSimulado(box){
   h+=`<button class="btn" id="bGerar" ${impedimentos.length?"disabled":""}
       style="margin-top:12px">${jaGerado
         ?"Abrir para imprimir ou corrigir":"Gerar simulado"}</button>
-    <button class="btn gho" id="smDel" style="margin-top:18px">Excluir simulado</button>
+    <button class="btn gho" id="smDel" style="margin-top:18px">Excluir simulado${
+      irmaosDaMatriz(sm).length?" das "+(irmaosDaMatriz(sm).length+1)+" turmas":""}</button>
     <p class="hint">Excluir apaga o caderno e as correções dele. As provas normais não
       são afetadas.</p>`;
 
@@ -4256,11 +4332,28 @@ function telaSimulado(box){
     if(pr.nq<MIN_Q_CARTAO){ alert("O caderno ainda não tem itens."); return; }
     ativar(pr.id); irPara("ler"); };
   $("#smDel").onclick=()=>{
-    if(!confirm("Excluir “"+(sm.titulo||"simulado")+"” e as correções dele?")) return;
-    E.provas=E.provas.filter(x=>x.id!==pr.id);
-    E.res=E.res.filter(r=>r.prova!==pr.id);
-    E.simulados=E.simulados.filter(x=>x.id!==sm.id);
-    if(E.ativa===pr.id){ E.ativa=null; refletirBarra(); }
+    /* Simulado de série é um só, aplicado em várias turmas. Apagar em uma
+       e deixar nas outras deixaria a série pela metade — e, com o caderno
+       sendo o mesmo, sem sentido. Então some de todas, dizendo antes
+       quantas turmas e quantas correções vão junto. */
+    const irmaos=irmaosDaMatriz(sm);
+    const todos=[sm].concat(irmaos);
+    const provas=todos.map(x=>provaDoSim(x)).filter(Boolean);
+    const nCorr=provas.reduce((n,p)=>n+resDa(p.id).length,0);
+    const turmas=todos.map(x=>(turmaDe(x.turma)||{}).nome).filter(Boolean);
+    const aviso=irmaos.length
+      ? "Excluir “"+(sm.titulo||"simulado")+"” de TODAS as "+todos.length+
+        " turmas da série?\n\n"+turmas.join(", ")+
+        "\n\nÉ o mesmo caderno nas três, então ele sai de todas de uma vez."+
+        (nCorr?"\n\nVão junto "+nCorr+" cartões já corrigidos.":"")
+      : "Excluir “"+(sm.titulo||"simulado")+"”"+
+        (nCorr?" e os "+nCorr+" cartões corrigidos dele?":"?");
+    if(!confirm(aviso)) return;
+    const idsProva=provas.map(x=>x.id), idsSim=todos.map(x=>x.id);
+    E.provas=E.provas.filter(x=>!idsProva.includes(x.id));
+    E.res=E.res.filter(r=>!idsProva.includes(r.prova));
+    E.simulados=E.simulados.filter(x=>!idsSim.includes(x.id));
+    if(idsProva.includes(E.ativa)){ E.ativa=null; refletirBarra(); }
     salvar(); pintarResultados(); pintarDesempenho();
     casaNivel="simulados"; montarCasa(); };
 
@@ -4310,11 +4403,17 @@ function telaSimulado(box){
       const alertas=[];
       if(semGab)  alertas.push(semGab+" sem letra no gabarito");
       if(semDesc) alertas.push(semDesc+" sem descritor — confira se o arquivo tem o bloco DESCRITORES");
+      const semNivel=sel.itens.filter(x=>!x.niv).length;
+      if(semNivel) alertas.push(semNivel+" sem nível da escala — sem a tabela "+
+        "“Relação de nível de proficiência” a dificuldade do item volta a ser "+
+        "estimada só com a turma");
       if(curtas)  alertas.push(curtas+" com menos de "+SAEPE_NO+" alternativas legíveis");
       $("#impInfo").innerHTML=`<div class="diag" style="margin-top:10px">
         <b>${esc(arq.name)}</b>${sel.encontradas} questões encontradas ·
         ${sel.usadas} ${sel.sorteadas?"sorteadas":"usadas"} em ${esc(nomeComp(comp))} ·
-        ${lido.descritores.length} descritor${lido.descritores.length===1?"":"es"} no arquivo${
+        ${lido.descritores.length} descritor${lido.descritores.length===1?"":"es"} e
+        ${sel.itens.filter(x=>x.niv).length} n${sel.itens.filter(x=>x.niv).length===1?"ível":"íveis"}
+        da escala no arquivo${
         sel.sorteadas?"<br>Sorteadas as originais: "+
           sel.itens.map(x=>x.orig).join(", "):""}</div>${
         alertas.length?`<div class="aviso" style="margin-top:8px">${
@@ -4620,8 +4719,7 @@ function ancorasDoCaderno(pr){
   itensDoCaderno(pr).forEach((x,i)=>{
     const c=x.comp||"LP", p=out.porComp[c]||(out.porComp[c]={total:0,comAncora:0});
     out.total++; p.total++;
-    const h=x.hab&&typeof habilidadeDe==="function"?habilidadeDe(x.hab):null;
-    if(h&&h.comp===c){ out.comAncora++; p.comAncora++; }
+    if(ancoraDoItem(pr,i,c,(simuladoDe(pr.simulado)||{}).etapa)){ out.comAncora++; p.comAncora++; }
   });
   return out;
 }
@@ -4806,7 +4904,7 @@ function apurarComp(sm,comp){
   /* âncoras da escala oficial, uma por item, quando o item foi associado
      a uma habilidade dos documentos do SAEPE */
   const ref=referenciaEscala(sm,comp);
-  const ancoras=idx.map(i=>{ const a=ancoraDoItem(pr,i,comp);
+  const ancoras=idx.map(i=>{ const a=ancoraDoItem(pr,i,comp,sm.etapa);
     return a?pontosParaTheta(a.ponto,ref):null; });
   const nAncoras=ancoras.filter(x=>x!=null).length;
   const ancorado=nAncoras>=ANCORA_MIN_ITENS;
