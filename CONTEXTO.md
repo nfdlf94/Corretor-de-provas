@@ -894,3 +894,64 @@ planilha com o canônico numa linha e o gabarito individual de cada
 estudante nas seguintes, mais uma aba mostrando qual componente cai em
 cada posição do cartão de cada um. É com ela que se confere o papel
 contra o app sem depender da câmera.
+
+
+---
+
+## v29 — o mesmo caderno para a série inteira
+
+### Identidade do item: `qid`
+
+Até aqui, o único jeito de reconhecer "a mesma questão" em cadernos
+diferentes era comparar o TEXTO do enunciado (`chaveItem`). Um espaço a
+mais, um acento corrigido, e a mesma questão virava duas colunas na
+matriz da TRI — justamente onde os itens âncora precisam se encontrar.
+
+Agora cada item carrega um `qid` estável, guardado em `pr.qids`. Nos
+cadernos antigos ele é derivado do próprio enunciado (`qidDoTexto`,
+normalizado sem acento e sem espaço duplo), de forma que a identificação
+que existia continua valendo, só que imune a essas variações.
+`chaveItem` virou uma linha: `qidDoItem(pr,i)`.
+
+### Um caderno, várias turmas
+
+Cada turma continua com o SEU registro de simulado — é o que as telas, as
+notas e a participação usam. O que mudou é que os registros de uma mesma
+**matriz** (`sm.matriz`) carregam cadernos idênticos: mesmas questões,
+mesma ordem canônica, mesmo gabarito e mesmos `qid`. `gravarCaderno`
+chama `propagarNaSerie`, que copia para os irmãos — mexer nos itens de
+uma turma muda o caderno de todas, de propósito.
+
+O embaralhamento continua por estudante (semente turma + número), então
+nada muda quanto à cola: dois estudantes da mesma turma continuam com
+ordens diferentes, e turmas diferentes também.
+
+Ao criar um simulado numa série com mais de uma turma, o app pergunta se
+ele vale para a série inteira. A tela do simulado diz em qual dos dois
+casos ele está.
+
+**Resultado medido** (`teste33.js`), três turmas com 87%, 60% e 43% de
+acerto: a TRI conjunta ganha 6 itens âncora, volta a ser usada e separa
+as turmas em **71 pontos** — 335, 292 e 264. Com sorteio por turma isso
+não era possível (ver v27).
+
+### A conversão do que já existia
+
+`converterSimulados()` roda uma vez ao abrir. Ela **dá `qid`** aos
+cadernos antigos e marca os simulados como `legado`, com `matriz: null`.
+
+**Ela não funde simulados de turmas diferentes, e isso é deliberado:**
+cada turma sorteou o seu caderno, e sem itens em comum não existe
+informação que ligue as escalas. Fundir seria inventar comparação. Os
+simulados legados continuam comparáveis por percentual de acerto e por
+descritor, como sempre foram.
+
+**Nenhuma nota se move**: a conversão não toca em `E.res`, e o
+`teste33.js` compara o `E.res` inteiro antes e depois, byte a byte.
+
+### Para resgatar as turmas já avaliadas
+
+Se um dia for preciso comparar as turmas já avaliadas na mesma escala, o
+caminho é aplicar um bloco curto de **itens âncora** comum a todas elas
+num simulado seguinte. Isso liga as escalas retroativamente. Não está
+implementado.

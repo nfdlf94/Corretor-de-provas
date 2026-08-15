@@ -1039,6 +1039,32 @@ function lerSimuladoDoc(txt){
 const itemVazio=()=>({enunciado:"",alternativas:["","","","",""],correta:null});
 const temQuestao=q=>!!(q&&String(q.enunciado||"").trim());
 
+/* ── identidade do item ────────────────────────────────────────────
+   Até aqui, o único jeito de reconhecer "a mesma questão" em cadernos
+   diferentes era comparar o TEXTO do enunciado. Um espaço a mais, um
+   acento corrigido, e a mesma questão virava duas colunas na matriz da
+   TRI — que é justamente onde os itens âncora precisam se encontrar.
+   Agora cada item carrega um `qid` estável. Nos cadernos antigos ele é
+   derivado do próprio enunciado, para que a identificação que existia
+   continue valendo, só que imune a espaço e acento. */
+function qidDoTexto(txt){
+  const base=String(txt||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+    .toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
+  if(!base) return "";
+  let h1=0x811c9dc5, h2=0x01000193;
+  for(let i=0;i<base.length;i++){
+    h1=(h1^base.charCodeAt(i))>>>0; h1=(h1*16777619)>>>0;
+    h2=(h2+base.charCodeAt(i)*(i+7))>>>0;
+  }
+  return "t"+h1.toString(36)+h2.toString(36);
+}
+function qidDoItem(pr,i){
+  const q=(pr.qids||[])[i];
+  if(q) return q;
+  const t=((pr.questoes||[])[i]||{}).enunciado;
+  return qidDoTexto(t) || ("p"+pr.id+"#"+i);
+}
+
 function itensDoCaderno(pr){
   const gabs=pr.gabItens||String(pr.gabC||"").split("");
   return Array.from({length:pr.nq},(_,i)=>({
@@ -1046,6 +1072,7 @@ function itensDoCaderno(pr){
     questao:(pr.questoes||[])[i]||null,
     gab:gabs[i]||"",
     desc:(pr.desc||[])[i]||"",
+    qid:qidDoItem(pr,i),
     orig:(pr.orig||[])[i]||null      // número que a questão tinha no arquivo
   }));
 }
@@ -1059,7 +1086,50 @@ function gravarCaderno(pr,lista){
   pr.gabC=pr.gabItens.map(x=>x||"A").join("");   // o QR precisa de nq letras
   pr.habs=pr.desc.map((cod,i)=>cod?curtoComp(pr.comps[i])+" "+rotuloDesc(pr.comps[i],cod):"");
   pr.questoes=lista.map(x=>x.questao||itemVazio());
+  pr.qids=lista.map((x,i)=>x.qid || qidDoTexto((x.questao||{}).enunciado) ||
+    ("p"+pr.id+"#"+i));
+  propagarNaSerie(pr);
   return pr;
+}
+
+/* ── o mesmo caderno para a série inteira ──────────────────────────
+   Cada turma continua tendo o SEU registro de simulado (é o que as
+   telas, as notas e a participação usam), mas os cadernos das turmas de
+   uma mesma matriz carregam exatamente os mesmos itens, na mesma ordem
+   canônica e com os mesmos `qid`. O embaralhamento continua por
+   estudante — semente turma + número —, então nada muda quanto à cola.
+   Sem isso não existe proficiência de série: sem itens em comum, a
+   calibração conjunta não distingue turma melhor de caderno mais fácil
+   (ver `ANCORA_MIN` e o teste 31). */
+const simuladoDaProva=pr=>pr&&pr.simulado?simuladoDe(pr.simulado):null;
+function irmaosDaMatriz(sm){
+  if(!sm||!sm.matriz) return [];
+  return (E.simulados||[]).filter(x=>x.matriz===sm.matriz && x.id!==sm.id);
+}
+let propagando=false;
+function propagarNaSerie(pr){
+  if(propagando) return;
+  const sm=simuladoDaProva(pr);
+  if(!sm||!sm.matriz) return;
+  propagando=true;
+  try{
+    irmaosDaMatriz(sm).forEach(outro=>{
+      const alvo=provaDoSim(outro);
+      if(!alvo||alvo.id===pr.id) return;
+      alvo.nq=pr.nq; alvo.no=pr.no;
+      alvo.comps=(pr.comps||[]).slice();
+      alvo.desc=(pr.desc||[]).slice();
+      alvo.orig=(pr.orig||[]).slice();
+      alvo.gabItens=(pr.gabItens||[]).slice();
+      alvo.gabC=pr.gabC;
+      alvo.habs=(pr.habs||[]).slice();
+      alvo.qids=(pr.qids||[]).slice();
+      alvo.questoes=JSON.parse(JSON.stringify(pr.questoes||[]));
+      outro.qtd=Object.assign({}, sm.qtd);
+      outro.alternarBlocos=sm.alternarBlocos;
+      outro.tipos=sm.tipos;
+    });
+  }finally{ propagando=false; }
 }
 /* o que ainda falta, por componente — é o que a tela precisa dizer */
 function faltasDoCaderno(pr){
@@ -3598,7 +3668,18 @@ function telaSimulados(box){
     <button class="btn gho" id="bBanco" style="margin-top:9px">Banco de descritores</button>`;
   box.innerHTML=h;
   $("#mVolta").onclick=()=>{casaNivel="disciplinas";montarCasa();};
-  $("#bNovoSim").onclick=()=>{ casaSim=criarSimulado(t).id; casaNivel="simulado"; montarCasa(); };
+  $("#bNovoSim").onclick=()=>{
+    const irmas=turmasDaSerie(t);
+    let sm;
+    if(irmas.length>1 && confirm("Aplicar este simulado a toda a série?\n\n"+
+        "São "+irmas.length+" turmas: "+irmas.map(x=>x.nome).join(", ")+".\n\n"+
+        "Todas recebem o MESMO caderno — mesmas questões, mesmo gabarito. Cada "+
+        "estudante continua com a sua ordem embaralhada.\n\nÉ o que permite "+
+        "comparar as turmas na mesma escala de proficiência. Escolhendo “cancelar”, "+
+        "o simulado vale só para "+t.nome+"."))
+      sm=criarSimuladoNaSerie(t);
+    else sm=criarSimulado(t);
+    casaSim=sm.id; casaNivel="simulado"; montarCasa(); };
   $("#bBanco").onclick=()=>{casaComp=casaComp||"LP";casaNivel="banco";montarCasa();};
   $("#bPlano").onclick=()=>{casaNivel="partPlano";montarCasa();};
   $("#bEvolucao").onclick=()=>{casaNivel="evolucao";montarCasa();};
@@ -3721,11 +3802,32 @@ function telaEvolucao(box){
 
 /* Um simulado novo já nasce gravado, como rascunho: o professor pode sair
    e voltar sem perder nada, e não existe botão “Salvar” para procurar. */
-function criarSimulado(t){
+/* As turmas da mesma série que ainda podem receber este simulado */
+function turmasDaSerie(t){
+  const k=chaveSerie(t);
+  return E.turmas.filter(x=>x.ativa!==false && chaveSerie(x)===k);
+}
+
+/* Cria o simulado na SÉRIE: um registro por turma, todos com a mesma
+   matriz. O caderno é montado uma vez e propagado. */
+function criarSimuladoNaSerie(t){
+  const turmas=turmasDaSerie(t);
+  const matriz=uid("m");
+  const primeiro=criarSimulado(t, matriz);
+  turmas.forEach(outra=>{
+    if(outra.id===t.id) return;
+    criarSimulado(outra, matriz, primeiro.titulo, primeiro.ano);
+  });
+  salvar();
+  return primeiro;
+}
+
+function criarSimulado(t, matriz, tituloFixo, anoFixo){
   const ano=new Date().getFullYear();
   const n=simuladosDa(t.id).length+1;
-  const sm={id:uid("s"),turma:t.id,titulo:n+"º Simulado SAEPE",etapa:sugerirEtapa(t),
-    ano, metodo:"tri", alternarBlocos:true, tipos:0,
+  const sm={id:uid("s"),turma:t.id,titulo:tituloFixo||(n+"º Simulado SAEPE"),
+    etapa:sugerirEtapa(t), matriz:matriz||null, serie:chaveSerie(t),
+    ano: anoFixo||ano, metodo:"tri", alternarBlocos:true, tipos:0,
     valorParticipacao:valorSugerido(), qtd:{LP:10,MAT:10},
     fontes:{}, criado:Date.now(), prova:null};
   const pr={id:uid("p"),turma:t.id,disciplina:null,simulado:sm.id,
@@ -3783,7 +3885,20 @@ function telaSimulado(box){
       <span>${esc(t.nome)}</span><span id="smSalvo" class="tag ok"
       style="opacity:0;transition:opacity .3s;margin-left:auto"></span></div>
     <h2>${esc(sm.titulo||"Simulado")}</h2>
-    <p class="sub">${esc(et.nome)} · ${nAlunos} estudante${nAlunos===1?"":"s"} na turma</p>`;
+    <p class="sub">${esc(et.nome)} · ${nAlunos} estudante${nAlunos===1?"":"s"} na turma</p>
+    ${sm.matriz
+      ? `<div class="diag"><b>Simulado da série</b>
+         O mesmo caderno vale para ${irmaosDaMatriz(sm).length+1} turmas:
+         ${esc([t].concat(irmaosDaMatriz(sm).map(x=>turmaDe(x.turma)))
+             .filter(Boolean).map(x=>x.nome).join(", "))}.
+         Mexer nos itens aqui muda o caderno de todas — e é isso que permite
+         comparar as turmas na mesma escala de proficiência.</div>`
+      : (turmasDaSerie(t).length>1
+        ? `<div class="aviso"><b>Vale só para esta turma</b>
+           As outras turmas da série têm o seu próprio sorteio. Dá para comparar
+           percentual de acerto e acerto por descritor, mas não a proficiência numa
+           escala única. O próximo simulado pode ser criado para a série inteira.</div>`
+        : "")}`;
 
   /* 1 — identificação */
   h+=passo(1,"Identificação")+`
@@ -4482,12 +4597,7 @@ function simuladosDaSerie(serie){
    os itens são calibrados juntos e cada estudante é posicionado na mesma
    escala. Cadernos diferentes entre turmas viram colunas diferentes da
    matriz, com `null` onde o estudante não respondeu aquele item. */
-function chaveItem(pr,i){
-  const q=(pr.questoes||[])[i];
-  const txt=q&&String(q.enunciado||"").replace(/\s+/g," ").trim();
-  if(txt) return "T:"+txt.slice(0,120);
-  return "P:"+pr.id+"#"+i;          // sem enunciado, o item é do caderno
-}
+function chaveItem(pr,i){ return qidDoItem(pr,i); }
 
 function apurarConjunto(sims,comp){
   const linhas=[], colunas={}, ordem=[];
@@ -6460,6 +6570,31 @@ function avisoFlutuante(texto, cls, segundos){
     document.body.appendChild(d);
   }
 })();
+
+/* ── conversão dos simulados já existentes ─────────────────────────
+   Roda uma vez, ao abrir. Dá `qid` a cada item dos cadernos antigos,
+   derivado do enunciado — a mesma identificação que existia, só que
+   estável. NÃO funde simulados de turmas diferentes: cada turma sorteou
+   o seu, e sem itens em comum não há informação que ligue as escalas.
+   Eles ficam marcados como `legado` e continuam comparáveis por
+   percentual e por descritor, como sempre foram. Nenhuma nota se move —
+   a conversão não toca em `E.res`. */
+function converterSimulados(){
+  let mexeu=false;
+  (E.provas||[]).filter(ehCaderno).forEach(pr=>{
+    if(Array.isArray(pr.qids) && pr.qids.length===pr.nq) return;
+    pr.qids=Array.from({length:pr.nq},(_,i)=>qidDoItem(pr,i));
+    mexeu=true;
+  });
+  (E.simulados||[]).forEach(sm=>{
+    if(sm.matriz===undefined){ sm.matriz=null; mexeu=true; }
+    if(!sm.serie){ const t=turmaDe(sm.turma); if(t){ sm.serie=chaveSerie(t); mexeu=true; } }
+    if(!sm.matriz && sm.legado===undefined){ sm.legado=true; mexeu=true; }
+  });
+  if(mexeu) salvar();
+  return mexeu;
+}
+converterSimulados();
 
 if(E.ativa && provaDe(E.ativa)) ativar(E.ativa); else refletirBarra();
 /* quem já tinha cadastro não passa pelo assistente */
