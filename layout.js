@@ -1,7 +1,15 @@
-/* layout.js — espelho exato de layout.py
-   Permite ao scanner reconstruir a geometria do cartão a partir de
-   (nq, no), sem depender de nenhum arquivo externo.
-   ALTERAR AQUI EXIGE ALTERAR layout.py. */
+/* layout.js — a geometria do cartão, em milímetros.
+   Permite ao scanner reconstruir o cartão a partir de (nq, no), sem
+   depender de nenhum arquivo externo. É a ÚNICA fonte da geometria:
+   o gerador desenha a partir daqui e o leitor reconstrói a partir daqui.
+   (Houve um `layout.py` espelhando este arquivo; ele não existe mais.
+   Se um dia voltar a existir, as duas cópias precisam andar juntas.)
+
+   ATENÇÃO: `assinaturaLayout` é só `nqxno` — não carrega a versão. O
+   scanner não distingue um cartão antigo de um novo do mesmo tamanho,
+   então mudar a geometria de um formato que já foi impresso invalida,
+   em silêncio, tudo que está no papel. Antes de mexer, ponha a versão
+   na assinatura. */
 "use strict";
 
 const LAY_VERSION = 3;

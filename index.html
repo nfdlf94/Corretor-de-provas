@@ -756,15 +756,36 @@ const COMPONENTES=[{id:"LP", nome:"Língua Portuguesa", curto:"L. Port."},
 const nomeComp=c=>(COMPONENTES.find(x=>x.id===c)||{nome:c}).nome;
 const curtoComp=c=>(COMPONENTES.find(x=>x.id===c)||{curto:c}).curto;
 
-/* Etapas e pontos de corte dos padrões de desempenho do SAEPE, na escala
-   do Saeb (0 a 500). Fonte: Revista do Professor SAEPE 2018.
-   `faixa` é o intervalo em que a proficiência estimada é projetada. */
+/* Etapas e pontos de corte dos padrões de desempenho do SAEPE.
+   Cortes conferidos contra a Revista da Escola SAEPE 2024 (Matemática):
+   3º EM — até 250 / 251 a 290 / 291 a 325 / 326 ou mais. Batem com os
+   que já estavam aqui. Os de Língua Portuguesa vêm da edição de 2018 e
+   ainda não foram conferidos contra um caderno de 2024.
+
+   `faixa` é o intervalo em que a proficiência é PROJETADA, e ela tem de
+   cobrir a escala documentada — senão o app inventa um teto que a rede
+   não tem. O teto do 3º EM era 400 e cortava a escala no meio: os níveis
+   8 (400 a 425) e 9 (acima de 425) existem, têm habilidades descritas, e
+   nenhum estudante conseguia chegar lá. Os tetos abaixo são o início do
+   último nível de cada etapa, segundo o caderno de 2024:
+
+     5º EF  níveis 1..9, o último "acima de 325"
+     9º EF  níveis 1..8, o último "acima de 375"
+     3º EM  níveis 1..9, o último "acima de 425"
+
+   O piso é o começo do nível 1 de cada etapa, arredondado para baixo:
+   abaixo dele a escala não descreve habilidade nenhuma.
+
+   ATENÇÃO: isto é PROJEÇÃO, não medida. Sem os itens âncora da rede
+   inteira, ninguém coloca um simulado de turma na escala oficial do
+   SAEPE — o que o app faz é usar a mesma régua para você ler o resultado
+   junto com os padrões de desempenho. */
 const ETAPAS=[
-  {id:"5EF", nome:"5º ano do ensino fundamental", faixa:[100,300],
+  {id:"5EF", nome:"5º ano do ensino fundamental", faixa:[100,325],
    cortes:{LP:[125,175,210], MAT:[150,185,220]}},
-  {id:"9EF", nome:"9º ano do ensino fundamental", faixa:[150,350],
+  {id:"9EF", nome:"9º ano do ensino fundamental", faixa:[150,375],
    cortes:{LP:[200,235,270], MAT:[225,245,280]}},
-  {id:"3EM", nome:"3º ano do ensino médio", faixa:[175,400],
+  {id:"3EM", nome:"3º ano do ensino médio", faixa:[175,425],
    cortes:{LP:[225,270,305], MAT:[250,290,325]}}
 ];
 const PADROES=[
@@ -1526,6 +1547,7 @@ function montarCasaInterno(box){
 
   if(casaNivel==="simulado")    return telaSimulado(box);
   if(casaNivel==="itens")       return telaItens(box);
+  if(casaNivel==="conferir")    return telaConferir(box);
 
   if(casaNivel==="banco")       return telaBanco(box);
   if(casaNivel==="relSaepe")    return telaRelSaepe(box);
@@ -3912,7 +3934,21 @@ function telaSimulado(box){
         <input id="smAno" type="number" inputmode="numeric" value="${sm.ano||new Date().getFullYear()}"></div>
     </div>
     <label>Código impresso no cartão</label>
-    <input id="smCod" value="${esc(pr.codigo||"")}">`;
+    <input id="smCod" value="${esc(pr.codigo||"")}">
+    <div class="duo" style="margin-top:10px">
+      <div><label>Piso da escala</label>
+        <input id="smPiso" type="number" inputmode="numeric" value="${faixaDe(sm)[0]}"></div>
+      <div><label>Teto da escala</label>
+        <input id="smTeto" type="number" inputmode="numeric" value="${faixaDe(sm)[1]}"></div>
+    </div>
+    <p class="hint">Intervalo em que a proficiência é projetada. O padrão vem dos
+      níveis da escala do SAEPE para ${esc(et.nome)}${sm.faixa?"":" ("+
+      etapaDe(sm.etapa).faixa.join(" a ")+")"} — mexa só se a rede publicar
+      números diferentes. <b>É projeção, não medida:</b> sem os itens âncora da rede
+      inteira ninguém põe um simulado de turma na escala oficial. O app usa a mesma
+      régua para você ler o resultado junto com os padrões de desempenho.
+      ${sm.faixa?`<button class="btn gho" id="smFaixaPadrao" style="margin-top:8px">
+        Voltar ao padrão da etapa</button>`:""}</p>`;
 
   /* 2 — quantidade de questões */
   const pedidoTotal=COMPONENTES.reduce((n,c)=>n+qtdPedida(sm,c.id),0);
@@ -3968,6 +4004,13 @@ function telaSimulado(box){
     `<p class="hint" style="margin-top:-4px">Vêm prontos do arquivo. Confira ou ajuste
       item a item se precisar.</p>
     <button class="btn gho" id="bItens">Conferir os ${pr.nq} itens</button>
+    <button class="btn${alertasDoCaderno(pr).lista.length?"":" gho"}" id="bConferir"
+      style="margin-top:8px">Conferir o gabarito item a item${
+      alertasDoCaderno(pr).lista.length
+        ? " · "+alertasDoCaderno(pr).lista.length+" a olhar" : ""}</button>
+    <p class="hint">Aqui aparece cada questão com as alternativas e a que está
+      marcada como certa. É a última chance de pegar um gabarito errado antes de
+      aplicar — depois, ele só aparece nas notas.</p>
     <button class="btn gho" id="bBanco" style="margin-top:8px">Banco de descritores</button>`;
 
   /* 5 — tipos de prova */
@@ -4097,8 +4140,23 @@ function telaSimulado(box){
       "e as "+corrigidos+" correções.\n\nContinuar?")){ montarCasa(); return; }
     sm.alternarBlocos=v; guardar(); montarCasa(); };
 
+  const lerFaixa=()=>{
+    const pad=etapaDe(sm.etapa).faixa;
+    let piso=parseInt($("#smPiso").value,10), teto=parseInt($("#smTeto").value,10);
+    if(!isFinite(piso)) piso=pad[0];
+    if(!isFinite(teto)) teto=pad[1];
+    piso=Math.max(0,Math.min(1000,piso)); teto=Math.max(0,Math.min(1000,teto));
+    if(teto<=piso){ alert("O teto precisa ser maior que o piso."); return; }
+    if(piso===pad[0] && teto===pad[1]) delete sm.faixa; else sm.faixa=[piso,teto];
+    guardar(); montarCasa(); };
+  $("#smPiso").onchange=lerFaixa;
+  $("#smTeto").onchange=lerFaixa;
+  if($("#smFaixaPadrao")) $("#smFaixaPadrao").onclick=()=>{
+    delete sm.faixa; guardar(); montarCasa(); };
+
   $("#mVolta").onclick=()=>{casaNivel="simulados";montarCasa();};
   $("#bItens").onclick=()=>{casaNivel="itens";montarCasa();};
+  $("#bConferir").onclick=()=>{casaNivel="conferir";montarCasa();};
   $("#bBanco").onclick=()=>{casaComp=casaComp||"LP";casaNivel="banco";montarCasa();};
   $("#bRel").onclick=()=>{irParticipacao=false;casaNivel="relSaepe";montarCasa();};
   $("#bPart").onclick=()=>{irParticipacao=true;casaNivel="relSaepe";montarCasa();};
@@ -4273,7 +4331,9 @@ function telaItens(box){
         esc(textoDesc(c,desc[i]||""))}</div>`:""}`;
   }
   h+=`<button class="btn" id="itSalvar" style="margin-top:14px">Salvar itens</button>
-    <button class="btn sec" id="itColar" style="margin-top:9px">Colar gabarito de uma vez</button>
+    <button class="btn sec" id="itConferir" style="margin-top:9px">Conferir o gabarito
+      item a item</button>
+    <button class="btn gho" id="itColar" style="margin-top:9px">Colar gabarito de uma vez</button>
     <p class="hint">Os itens de cada componente não precisam estar juntos: o app
       separa pelos rótulos na hora de apurar.</p>`;
   box.innerHTML=h;
@@ -4301,6 +4361,7 @@ function telaItens(box){
     const lista=itensDoCaderno(pr);
     lista[i].comp=(atual==="MAT")?"LP":"MAT";
     gravarCaderno(pr,lista); salvar(); montarCasa(); });
+  $("#itConferir").onclick=()=>{ gravar(); casaNivel="conferir"; montarCasa(); };
   $("#itSalvar").onclick=()=>{
     const completo=gravar();
     alert(completo?"Itens salvos."
@@ -4314,6 +4375,115 @@ function telaItens(box){
     gravar();
     gravarCaderno(pr, itensDoCaderno(pr).map((x,i)=>Object.assign(x,{gab:g[i]})));
     salvar(); montarCasa(); };
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   CONFERÊNCIA DO GABARITO
+   A tela de itens mostra só a LETRA do gabarito. Uma letra não se
+   confere contra nada: para saber se "C" está certo é preciso ver qual
+   é a alternativa C daquela questão. Foi por aí que passou um gabarito
+   com erros — e o erro só apareceu depois de o simulado ter sido
+   aplicado a uma turma inteira.
+   Aqui cada item aparece com o enunciado e as cinco alternativas, com a
+   marcada em destaque; tocar em outra troca o gabarito na hora.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Sinais de que alguma coisa provavelmente veio errada do arquivo. Nada
+   aqui é proibido — são avisos para o professor olhar, não travas. */
+function alertasDoCaderno(pr){
+  const itens=itensDoCaderno(pr), letras=["A","B","C","D","E"].slice(0,pr.no);
+  const av=[];
+  const texto=q=>String((q||{}).enunciado||"").replace(/\s+/g," ").trim();
+
+  itens.forEach((x,i)=>{
+    const alts=((x.questao||{}).alternativas)||[];
+    if(!x.gab) av.push({i, tipo:"sem", txt:"sem letra no gabarito"});
+    else if(!letras.includes(x.gab))
+      av.push({i, tipo:"letra", txt:"letra "+x.gab+" fora das "+pr.no+" alternativas"});
+    if(!texto(x.questao)) av.push({i, tipo:"vazio", txt:"sem enunciado"});
+    if(alts.length && alts.length!==pr.no)
+      av.push({i, tipo:"nalts", txt:alts.length+" alternativas, e o cartão tem "+pr.no});
+    if(alts.some(a=>!String(a||"").trim()))
+      av.push({i, tipo:"altvazia", txt:"alternativa em branco"});
+    const norm=alts.map(a=>String(a||"").toLowerCase().replace(/\s+/g," ").trim());
+    if(norm.length && new Set(norm).size!==norm.length)
+      av.push({i, tipo:"altrepetida", txt:"alternativas repetidas"});
+  });
+
+  /* enunciado repetido: a mesma questão entrou duas vezes no caderno */
+  const vistos={};
+  itens.forEach((x,i)=>{ const t=texto(x.questao); if(!t) return;
+    if(vistos[t]!==undefined)
+      av.push({i, tipo:"repetida", txt:"mesmo enunciado do item "+(vistos[t]+1)});
+    else vistos[t]=i; });
+
+  /* concentração de letras: um gabarito real raramente repete demais */
+  const conta={};
+  letras.forEach(L=>conta[L]=0);
+  itens.forEach(x=>{ if(conta[x.gab]!==undefined) conta[x.gab]++; });
+  const comGab=itens.filter(x=>x.gab).length;
+  const limite=Math.max(4, Math.ceil(comGab*0.55));
+  letras.forEach(L=>{ if(conta[L]>=limite && comGab>=6)
+    av.push({i:-1, tipo:"concentracao",
+      txt:conta[L]+" dos "+comGab+" itens têm gabarito "+L+" — vale reconferir"}); });
+
+  return {lista:av, porItem:av.reduce((m,a)=>{ if(a.i>=0)(m[a.i]=m[a.i]||[]).push(a); return m; },{}),
+          conta, comGab};
+}
+
+function telaConferir(box){
+  const sm=simuladoDe(casaSim);
+  if(!sm){ casaNivel="simulados"; return montarCasa(); }
+  const pr=provaDoSim(sm);
+  if(!pr||!pr.nq){ casaNivel="itens"; return montarCasa(); }
+  const itens=itensDoCaderno(pr);
+  const letras=["A","B","C","D","E"].slice(0,pr.no);
+  const A=alertasDoCaderno(pr);
+
+  let h=`<div class="migalha"><button id="mVolta">‹ ${esc(sm.titulo)}</button></div>
+    <h2>Conferir o gabarito</h2>
+    <p class="sub">${pr.nq} itens · toque na alternativa certa para corrigir</p>
+    <p class="hint" style="margin-top:-4px">Confira contra o arquivo de origem antes
+      de gerar as provas. Depois de aplicado, um gabarito errado só aparece nas
+      notas — e aí a turma inteira já foi corrigida em cima dele.</p>`;
+
+  const gerais=A.lista.filter(x=>x.i<0);
+  if(gerais.length) h+=gerais.map(x=>`<div class="aviso">${esc(x.txt)}</div>`).join("");
+  h+=`<div class="diag"><b>Distribuição das respostas</b>
+    ${letras.map(L=>L+": "+A.conta[L]).join(" · ")} — ${A.comGab} de ${pr.nq} com gabarito</div>`;
+
+  itens.forEach((x,i)=>{
+    const alts=((x.questao||{}).alternativas)||[];
+    const av=A.porItem[i]||[];
+    const enun=String((x.questao||{}).enunciado||"").replace(/\s+/g," ").trim();
+    h+=`<div class="grupo" style="margin-bottom:12px">
+      <div class="esc"><span class="nm">${String(i+1).padStart(2,"0")} ·
+        ${x.comp==="MAT"?"Matemática":"Língua Portuguesa"}${
+        x.desc?" · "+esc(x.desc):""}</span><span class="ln"></span></div>
+      ${av.length?av.map(a=>`<div class="aviso">${esc(a.txt)}</div>`).join(""):""}
+      <div class="hint" style="margin:0 0 8px">${enun?esc(enun.slice(0,320))+
+        (enun.length>320?"…":""):"<b>sem enunciado</b>"}</div>`;
+    letras.forEach((L,k)=>{
+      const marcada=x.gab===L;
+      h+=`<button class="item" data-q="${i}" data-l="${L}"
+        style="margin-bottom:5px;${marcada?"border-color:var(--mint)":""}">
+        <div class="nu" style="flex:0 0 22px;color:${marcada?"var(--mint)":"var(--mute)"}">${L}</div>
+        <div class="cor"><div class="t2" style="color:${marcada?"var(--text)":"var(--mute)"}">${
+          esc(String(alts[k]||"").slice(0,190))||"<i>—</i>"}</div></div>
+        ${marcada?`<span class="tag ok">certa</span>`:""}</button>`;
+    });
+    h+=`</div>`;
+  });
+
+  h+=`<button class="btn" id="cfOk" style="margin-top:6px">Conferido</button>`;
+  box.innerHTML=h;
+  $("#mVolta").onclick=()=>{casaNivel="itens";montarCasa();};
+  $("#cfOk").onclick=()=>{casaNivel="simulado";montarCasa();};
+  box.querySelectorAll("[data-q]").forEach(b=>b.onclick=()=>{
+    const i=+b.dataset.q;
+    const lista=itensDoCaderno(pr);
+    lista[i].gab=b.dataset.l;
+    gravarCaderno(pr,lista); salvar(); montarCasa(); });
 }
 
 /* ── banco de descritores, reaproveitado entre simulados ─────────── */
@@ -4410,8 +4580,19 @@ function apurarComp(sm,comp){
     .map(([cod,v])=>({cod,pct:v.reduce((a,b)=>a+b,0)/v.length,itens:v.length}))
     .sort((a,b)=>a.pct-b.pct);
 
+  /* Quando a TRI foi PEDIDA mas ainda não pôde rodar, o número que
+     aparece na tela é percentual de acerto — e ele se comporta de um
+     jeito que confunde: quem acerta tudo vai direto ao teto da faixa
+     (400 no 3º EM), quem tem o mesmo número de acertos tem exatamente a
+     mesma proficiência, e nada disso muda quando os outros cartões vão
+     sendo corrigidos. Sob TRI, os três se comportam ao contrário. Por
+     isso o resultado precisa sair marcado como PROVISÓRIO, dizendo
+     quantos cartões faltam. */
+  const faltamParaTri=Math.max(0,TRI_MIN_ALUNOS-feitos.length);
+  const provisorio=(metodo==="pct" && sm.metodo!=="pct" && idx.length>=TRI_MIN_ITENS);
   return {pr,t,comp,total:idx.length,linhas,feitos,media,dist,itens,descritores,
-          metodo,par,padraoMedio:padraoDe(media,sm.etapa,comp)};
+          metodo,par,provisorio,faltamParaTri,
+          padraoMedio:padraoDe(media,sm.etapa,comp)};
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -5054,7 +5235,21 @@ function telaRelSaepe(box){
           "difícil, com erro nos fáceis, é lido como chute."
         : "Calculado pelo percentual de acerto"+(sm.metodo!=="pct"
             ?" — a TRI precisa de pelo menos "+TRI_MIN_ALUNOS+" cartões corrigidos.":".")}
-        Cortes desta etapa: ${cortes[0]} · ${cortes[1]} · ${cortes[2]}.</p>`;
+        Cortes desta etapa: ${cortes[0]} · ${cortes[1]} · ${cortes[2]}.
+        A proficiência é <b>projetada</b> na faixa ${faixaDe(sm)[0]}–${faixaDe(sm)[1]},
+        que é a escala do SAEPE para esta etapa — sem os itens âncora da rede
+        inteira, um simulado de turma não pode ser calibrado na escala oficial.</p>
+      ${A.provisorio
+        ? `<div class="aviso"><b>Proficiência provisória</b>
+           Estes números ainda são percentual de acerto, não TRI: faltam
+           ${A.faltamParaTri} cartão${A.faltamParaTri===1?"":"ões"} deste componente
+           para a calibração rodar. Enquanto isso, quem acerta tudo aparece no teto
+           da faixa (${faixaDe(sm)[1]}), quem tem o mesmo número de acertos aparece
+           com a mesma proficiência, e o valor de cada estudante não muda quando os
+           outros são corrigidos. Sob TRI os três mudam: dois estudantes com o mesmo
+           número de acertos ficam com proficiências diferentes se acertaram itens
+           diferentes, e o número de cada um é recalculado a cada cartão novo.</div>`
+        : ""}`;
     h+=`<div class="rot" style="margin-top:12px">Distribuição pelos padrões de desempenho</div>`;
     PADROES.forEach((pd,i)=>{
       const n=A.dist[i], pc=A.feitos.length?100*n/A.feitos.length:0;

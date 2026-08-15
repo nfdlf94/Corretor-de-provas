@@ -955,3 +955,130 @@ Se um dia for preciso comparar as turmas já avaliadas na mesma escala, o
 caminho é aplicar um bloco curto de **itens âncora** comum a todas elas
 num simulado seguinte. Isso liga as escalas retroativamente. Não está
 implementado.
+
+
+---
+
+## v30 — "a TRI não está funcionando"
+
+Relato: quem acerta toda a Matemática ganha 400 de cara; esse valor não
+muda quando os outros cartões vão sendo corrigidos; e quem tem o mesmo
+número de acertos tem a mesma proficiência — o que não é TRI.
+
+**A TRI funciona. O que o professor estava vendo era o percentual.**
+`apurarComp` só calibra com pelo menos `TRI_MIN_ALUNOS` (8) cartões
+corrigidos NAQUELE componente; abaixo disso usa `profPorPercentual`. E o
+percentual tem exatamente os três comportamentos descritos: acerto total
+vai ao teto da faixa (400 no 3º EM), empate em acertos é empate em
+proficiência, e o número de cada um não depende dos demais.
+
+Com 12 cartões, medido no `teste34.js`, a TRI se comporta como deve:
+
+| nº | acertos | proficiência | itens acertados |
+|---|---|---|---|
+| 01 | 4 | 278 | os 4 mais fáceis |
+| 05 | 4 | 212 | os 4 mais difíceis |
+| 07 | 4 | 252 | dois fáceis, dois difíceis |
+| 10 | **3** | **259** | os 3 mais fáceis |
+
+Oito estudantes com 4 acertos saem com 4 proficiências diferentes; e o nº
+10, com 3 acertos coerentes, passa na frente do nº 05, com 4 num padrão
+improvável — o 3PL atribui o acerto isolado em item difícil ao chute.
+
+**O que mudou:** o resultado passa a sair marcado como PROVISÓRIO quando
+a TRI foi pedida e ainda não pôde rodar (`A.provisorio`,
+`A.faltamParaTri`), com um aviso que explica os três comportamentos e
+quantos cartões faltam. O número não muda; o que muda é o professor saber
+o que está olhando.
+
+**Ponto de atenção para quem for mexer:** com uma turma só, a
+discriminação (`a`) de quase todos os itens cai no piso de 0,4, porque a
+correlação item-total é ruidosa com poucos respondentes. A TRI separa,
+mas separa pouco. Isso melhora sozinho com o caderno único da série
+(v29), que multiplica o número de respondentes por item.
+
+### layout.py
+
+Não existe — o professor confirmou. O cabeçalho do `layout.js` dizia ser
+"espelho exato de layout.py" e foi corrigido: `layout.js` é a única fonte
+da geometria, consumida pelo gerador e pelo leitor. O aviso sobre
+`assinaturaLayout` não carregar a versão foi movido para lá, que é onde
+alguém vai olhar antes de mudar milímetro.
+
+
+---
+
+## v31 — conferência do gabarito antes de aplicar
+
+A tela de itens mostrava só a LETRA do gabarito. **Uma letra não se
+confere contra nada:** para saber se "C" está certo é preciso ver qual é
+a alternativa C daquela questão. Foi por aí que passou um gabarito com
+erros — e o erro só apareceu depois de o simulado ter sido aplicado a uma
+turma inteira, no meio de um relato de "o app leu errado".
+
+`telaConferir` mostra cada item com o enunciado e as cinco alternativas,
+a marcada em destaque; tocar em outra troca o gabarito na hora (passa por
+`gravarCaderno`, então propaga para as outras turmas da série).
+
+`alertasDoCaderno(pr)` sinaliza o que costuma vir errado do arquivo. Nada
+é trava — são avisos para olhar:
+
+- item sem letra no gabarito, ou com letra fora das alternativas;
+- item sem enunciado;
+- questão com número de alternativas diferente do cartão;
+- alternativa em branco ou alternativas repetidas;
+- **enunciado repetido** no caderno, dizendo de qual item;
+- **concentração de letras** — mais da metade dos itens na mesma letra é
+  quase sempre erro de importação, não gabarito de verdade.
+
+A ficha do simulado traz a entrada com a contagem de avisos, e a tela
+mostra a distribuição das respostas por letra.
+
+O `teste35.js` planta um problema de cada tipo e confere que todos são
+apontados, que a tela mostra enunciado e alternativas (não só a letra), e
+que o toque corrige um item sem mexer nos outros.
+
+
+---
+
+## v32 — a escala ia até 425, e o app parava em 400
+
+Conferido contra a **Revista da Escola SAEPE 2024 (Matemática)**, que o
+professor enviou.
+
+**Os pontos de corte estavam certos.** O caderno de 2024 traz, para o 3º
+ano EM em Matemática: até 250 · 251 a 290 · 291 a 325 · 326 ou mais —
+exatamente o que já estava em `ETAPAS`. Os do 5º e do 9º ano também
+batem. Essa parte não mudou desde 2018.
+
+**O teto da projeção estava errado.** A escala de proficiência do caderno
+descreve, para cada etapa, níveis com habilidades:
+
+| etapa | níveis | último nível | teto antigo | teto novo |
+|---|---|---|---|---|
+| 5º EF | 1 a 9 | acima de 325 | 300 | **325** |
+| 9º EF | 1 a 8 | acima de 375 | 350 | **375** |
+| 3º EM | 1 a 9 | acima de 425 | 400 | **425** |
+
+O 3º EM parava no nível 7. Os níveis 8 (400 a 425) e 9 (acima de 425)
+existem, têm habilidades descritas, e nenhum estudante conseguia chegar
+lá — o 400 era um muro artificial, não um limite da rede. O caderno mostra
+turmas reais com 31% e 23% no padrão Desejável, então o topo da escala não
+é decorativo.
+
+**A faixa virou editável por simulado.** `faixaDe` sempre leu `sm.faixa`
+antes do padrão da etapa, mas nenhuma tela expunha isso. Agora a
+identificação do simulado tem piso e teto, com botão de voltar ao padrão;
+teto menor ou igual ao piso é recusado. Quando a rede publicar números
+novos, dá para ajustar sem tocar no código.
+
+**A tela passou a dizer que é projeção.** Sem os itens âncora da rede
+inteira, um simulado de turma não pode ser calibrado na escala oficial do
+SAEPE. O que o app faz é usar a mesma régua, com os mesmos cortes, para o
+resultado ser lido junto com os padrões de desempenho. Isso estava só
+aqui no CONTEXTO; agora está na tela de resultados.
+
+**Pendente:** os cortes de Língua Portuguesa (225 · 270 · 305) ainda vêm
+da edição de 2018 — o caderno de 2024 enviado é o de Matemática. O teto
+da faixa é por etapa, então LP já herdou o 425 do 3º EM; falta conferir os
+três pontos de corte quando aparecer a revista de LP.
