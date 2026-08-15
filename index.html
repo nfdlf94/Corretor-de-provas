@@ -2907,7 +2907,11 @@ function telaProva(box){
     <p class="sub">${esc(p.codigo)} · ${p.nq} questões · A–${LETRAS_ATE(p.no)} ·
       turma ${esc(t.nome)} · ${esc(rotuloProva(p))}${
         ehCaderno(p)?"":" · "+esc(nomePeriodo(t,p.periodo||1))}</p>
-    <div class="chip">gabarito <b>${esc(p.gabC)}</b></div>
+    <div class="chip">gabarito canônico <b>${esc(p.gabC)}</b></div>
+    <p class="hint" style="margin:6px 0 0">Este é o gabarito na ordem do documento
+      de origem. <b>Ele não vale para nenhum cartão impresso</b>: cada estudante
+      recebe as questões e as alternativas em outra ordem. Para conferir no papel,
+      baixe o gabarito de cada estudante abaixo.</p>
     <div class="chip">questões digitadas <b>${nq}/${p.nq}</b></div>
     <div class="chip">corrigidos <b>${corrigidos}</b></div>
     <div class="rot">O que você quer fazer</div>
@@ -2944,6 +2948,10 @@ function telaProva(box){
       </div><span class="ch">›</span></button>
     <button class="item" id="aCartoes"><div class="cor"><div class="t1">Gerar só os cartões-resposta</div>
       <div class="t2">Para quem imprime a prova separadamente</div></div><span class="ch">›</span></button>
+    <button class="item" id="aGabAluno"><div class="cor">
+      <div class="t1">Gabarito de cada estudante</div>
+      <div class="t2">Planilha para conferir no papel — cada caderno tem o seu</div>
+      </div><span class="ch">›</span></button>
     <div id="pdfStatus"></div>
     <button class="btn sec" id="aEditar" style="margin-top:18px">Editar dados da prova</button>
     <button class="btn gho" id="aExcluir" style="margin-top:9px">Excluir esta prova</button>`;
@@ -2963,6 +2971,12 @@ function telaProva(box){
   $("#aDisc").onclick=()=>{casaNivel="disc";montarCasa();};
   $("#aPdf").onclick=()=>gerarPDF(p,t,"prova");
   $("#aCartoes").onclick=()=>gerarPDF(p,t,"cartoes");
+  $("#aGabAluno").onclick=()=>{
+    if(E.ativa!==p.id) ativar(p.id);       // gabaritoDe usa a prova ativa
+    try{ baixarXlsx(abasGabaritoPorEstudante(p,t),
+      "gabaritos_"+t.nome+"_"+(p.codigo||"prova")+".xlsx"); }
+    catch(err){ console.error(err); alert("Não foi possível montar a planilha."); }
+  };
   $("#aEditar").onclick=()=>{casaNivel="editar";montarCasa();};
   $("#aExcluir").onclick=()=>{
     const n=resDa(p.id).length;
@@ -4826,6 +4840,45 @@ function abasDoSimulado(sm){
      larguras:[6,30,10,14,15,15,13,12,15,15,13,12,13,20,16,14]},
     {nome:"Descritores", linhas:desc, larguras:[18,11,52,16,8,12]},
     {nome:"Análise "+(t?t.nome:""), linhas:an, larguras:[30,18,17,15,20,12,8,34]}
+  ];
+}
+
+/* Gabarito de cada estudante, para conferir o papel.
+   Cada caderno é embaralhado: a questão 1 do estudante 01 não é a questão
+   1 do estudante 02, e as alternativas também trocam de lugar. Não existe
+   "o gabarito" do simulado que sirva para todos — o que existe é o
+   gabarito canônico (a ordem do documento de origem, que não é a ordem de
+   nenhum caderno impresso) e um gabarito por estudante. Marcar o canônico
+   num cartão qualquer acerta só por acaso. Esta planilha traz, lado a
+   lado, o canônico e o de cada estudante. */
+function abasGabaritoPorEstudante(pr, t){
+  const letras=["A","B","C","D","E"].slice(0,pr.no);
+  const cab=["nº","Estudante","Componente da questão 1..."+pr.nq];
+  const linhas=[["nº","Estudante"].concat(
+    Array.from({length:pr.nq},(_,i)=>"Q"+(i+1)))];
+
+  /* a linha do canônico: a ordem do documento, que NÃO é a de ninguém */
+  linhas.push(["—","GABARITO CANÔNICO (ordem do documento — não vale para nenhum cartão)"]
+    .concat(String(pr.gabC||"").split("")));
+
+  /* que componente cai em cada posição, para cada estudante, muda junto */
+  alunosDaProva(t,pr).forEach(a=>{
+    const g=gabaritoDe(t.nome,a.numero)||"";
+    linhas.push([String(a.numero), a.nome].concat(g.split("")));
+  });
+
+  const comps=[["nº","Estudante"].concat(Array.from({length:pr.nq},(_,i)=>"Q"+(i+1)))];
+  alunosDaProva(t,pr).forEach(a=>{
+    const {oq}=ordemDe(pr,t.nome,a.numero);
+    comps.push([String(a.numero), a.nome].concat(
+      oq.map(q=>(pr.comps||[])[q]||"")));
+  });
+
+  return [
+    {nome:"Gabarito por estudante", linhas,
+     larguras:[6,30].concat(Array.from({length:pr.nq},()=>4))},
+    {nome:"Componente por posição", linhas:comps,
+     larguras:[6,30].concat(Array.from({length:pr.nq},()=>6))}
   ];
 }
 

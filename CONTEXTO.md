@@ -843,3 +843,54 @@ Dentro de UMA turma nada muda: um caderno só, sem problema de âncora.
 não é só organização — é a condição para a proficiência de série existir.
 Enquanto cada turma sortear o seu, o máximo honesto é comparar percentual
 de acerto e acerto por descritor.
+
+
+---
+
+## v28 — "as mesmas respostas deram notas diferentes"
+
+Relato: o professor marcou as MESMAS respostas em cartões de estudantes
+diferentes e as notas saíram diferentes; e, usando um gabarito pronto,
+metade das questões de Língua Portuguesa foi contada como errada.
+
+**A primeira parte é o app funcionando.** Cada estudante recebe um
+caderno embaralhado: a questão 1 do nº 01 não é a questão 1 do nº 02, e
+as alternativas também trocam de lugar. É o que impede a cola. Logo, o
+mesmo conjunto de marcações em cartões diferentes TEM de dar notas
+diferentes — medido no `teste32.js`: 4, 3, 1, 3, 1, 2, 2, 1, 1, 1, 6 e 3
+acertos de 16, para marcações idênticas.
+
+**Não existe "o gabarito" do simulado.** Existe o gabarito CANÔNICO — a
+ordem do documento de origem, que não é a ordem de nenhum caderno
+impresso — e um gabarito por estudante. Marcar o canônico num cartão
+qualquer acerta por acaso. A ficha da prova mostrava `gabarito ABCDE...`
+sem dizer isso, o que convidava ao erro; agora diz "gabarito canônico" e
+explica, logo abaixo, que ele não vale para nenhum cartão.
+
+**O `teste32.js` tranca a invariante que importa:** as TRÊS fontes têm de
+concordar, estudante por estudante — a ordem impressa no caderno
+(`ordemDaProva`, gerador), o gabarito gravado no QR do cartão
+(`gabaritoIndividual`, gerador) e o gabarito recalculado na correção
+(`gabaritoDe`, index). Confere com blocos alternados, com blocos fixos e
+com tipos de prova. Se qualquer uma divergir, a turma inteira sai com
+nota errada e ninguém percebe.
+
+**O que ficou por explicar.** Marcar o canônico num cartão alheio dá em
+média ~1 de 8 em LP nos testes, não 4 de 8. Metade certo é ALTO demais
+para acaso (5 alternativas ⇒ 20% no chute) e baixo demais para
+alinhamento correto. Ou seja: o relato de "metade em Português" não é
+explicado nem pelo embaralhamento nem por acaso, e continua em aberto —
+precisa dos dados do aparelho (cópia de segurança + o PDF do caderno de
+um estudante + o que foi marcado) para ser localizado. Suspeitas a
+investigar primeiro, em ordem: (1) o gabarito importado do arquivo estar
+desalinhado com as questões dentro do BLOCO de LP, o que atingiria só um
+componente — que é exatamente o sintoma; (2) `ajustarQuantidade` /
+`gravarCaderno` reordenarem a lista depois de o gabarito já ter sido
+gravado; (3) o arquivo de origem trazer o gabarito numa ordem diferente
+da dos enunciados.
+
+**Ferramenta nova:** na ficha do caderno, *Gabarito de cada estudante* —
+planilha com o canônico numa linha e o gabarito individual de cada
+estudante nas seguintes, mais uma aba mostrando qual componente cai em
+cada posição do cartão de cada um. É com ela que se confere o papel
+contra o app sem depender da câmera.
