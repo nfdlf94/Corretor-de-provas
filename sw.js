@@ -2,7 +2,7 @@
    Desbugando a Matemática · correção de provas
 
    AO PUBLICAR UMA VERSÃO NOVA: troque o número em VERSAO. */
-const VERSAO = "v23";
+const VERSAO = "v24";
 const CACHE = "dbm-omr-" + VERSAO;
 
 /* O que o app precisa para ABRIR e corrigir provas. A instalação só
@@ -13,6 +13,7 @@ const ESSENCIAIS = [
   "./layout.js",
   "./embaralho.js",
   "./gerador.js",
+  "./planilha.js",
   "./fonte.js",
   "./jsqr.js",
   "./jspdf.umd.min.js",

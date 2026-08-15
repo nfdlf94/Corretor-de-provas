@@ -567,9 +567,122 @@ habilidade com parecer automático, simulados SAEPE (caderno único com itens
 de Língua Portuguesa e de Matemática, descritores, proficiência por TRI de 3 parâmetros ou
 percentual, padrões de desempenho e acerto por descritor, tudo separado por
 componente),
-exportação CSV, cópia de segurança e uso offline.
+exportação CSV, exportação para Excel (.xlsx), evolução por descritor ao
+longo dos simulados, cópia de segurança e uso offline.
 
 ## O que não existe
 
 Discursivas com correção automática, várias figuras por questão,
 sincronização entre aparelhos, qualquer coisa em servidor.
+
+
+---
+
+## v24 — correção dos simulados, Excel e evolução por descritor
+
+### A armadilha que custou caro aqui: a aba Notas roubava a prova ativa
+
+Sintomas relatados: a câmera achava o cartão do simulado e **não capturava
+resposta nenhuma**, e a **correção manual só funcionava para as avaliações
+normais**. Pareciam dois bugs; era um só, com dois efeitos.
+
+`provasDe()` não era a culpada. Ela exclui cadernos das listas de provas
+normais, como deve, mas nem `pintarSeletor` nem `montarManual` a usam — com
+o caderno ativo, a aba Manual sempre funcionou.
+
+A causa estava no passo 6 de `pintarResultados()`:
+
+```js
+const p=provaDe(N.prova);
+if(E.ativa!==p.id) ativar(p.id);
+```
+
+O caderno **nunca entra em `notaNav`** (invariante 7: não tem período nem
+disciplina). E `ativar()` chama `pintarResultados()`. Então, toda vez que se
+ativava um caderno, esta linha reativava, em silêncio, a última prova comum
+aberta na aba Notas. O professor escolhia o simulado e o app voltava para a
+prova de 10 questões — sem mensagem nenhuma.
+
+Daí os dois sintomas: a aba Manual desenhava a grade da prova errada, e a
+câmera ficava com o layout errado. Como o QR é lido numa janela calculada a
+partir do layout ATIVO, ele nunca era decodificado, e a faixa ficava presa
+em *"Cartão localizado / Aproxime um pouco para o QR entrar em foco"* — os
+marcadores, esses, eram encontrados.
+
+**A guarda:** `if(E.ativa!==p.id && !ehCaderno(provaAtiva())) ativar(p.id);`
+A aba Notas continua seguindo as provas normais; só não rouba mais um
+caderno escolhido em outra aba. Quem mexer em `pintarResultados`, cuidado
+com esta linha.
+
+### As abas Ler e Manual ganharam seletor de prova
+
+Antes, as duas trabalhavam só com `E.ativa`, e o único caminho para ativar
+um caderno era o botão *Gerar* da etapa 6. Quem já tinha impresso o simulado
+e voltava depois para corrigir não tinha por onde escolhê-lo. Agora
+`pintarSeletores()` pinta o mesmo seletor das outras abas em `#lerSel` e
+`#manSel`, e ele **inclui os cadernos**. A etapa 7 do simulado também ganhou
+"Corrigir cartões deste simulado", que ativa o caderno e abre a câmera.
+
+### A câmera tenta os outros formatos no mesmo quadro
+
+`lerQRDeQualquerFormato()` tenta o layout ativo e, se falhar, mais dois
+formatos conhecidos por quadro (`FORMATOS_POR_QUADRO`), mantendo o que
+decodificar. Antes o giro era de um formato a cada 8 quadros, e
+`tentarOutroLayout()` tinha dois becos sem saída: girava para o formato já
+ativo (perdendo mais 8 quadros) e exigia **dois** formatos conhecidos — com
+um só, nunca girava. `candidatosDeLayout()` resolve os dois.
+
+### planilha.js — gerador de .xlsx próprio
+
+Um `.xlsx` é um zip com alguns XML dentro, e daqui só se precisa de pouco.
+Trazer uma biblioteca de ~900 KB para um app que abre sem internet não se
+justificava. Decisões:
+
+- **zip em modo STORE** (sem deflate): o arquivo fica maior, mas não depende
+  de `CompressionStream`, que não existe em todo navegador de celular.
+- **`t="inlineStr"`** nas células de texto: dispensa o `sharedStrings.xml`.
+- **um único estilo**, o negrito do cabeçalho.
+- número vai como número (`<v>`), texto como texto. O número do estudante é
+  texto de propósito: `01` não pode virar `1`.
+
+**Escrever xlsx na mão só se pode dar por pronto depois de abrir o arquivo
+num leitor de verdade.** `teste25.js` gera e abre com `openpyxl`, conferindo
+aba por aba, célula por célula, tipo de cada valor e o negrito do cabeçalho;
+`teste27.js` faz o mesmo com as planilhas geradas pelo app. Mexeu em
+`planilha.js`, rode as duas.
+
+### Evolução por descritor
+
+`historicoPorDescritor(sims)` monta o histórico com chave lógica
+**aluno + disciplina + descritor**. O mesmo código em componentes diferentes
+são descritores diferentes (`D17` é "relações lógico-discursivas" em Língua
+Portuguesa e outra coisa em Matemática) e nunca são comparados entre si.
+
+Regras que o `teste26.js` protege:
+
+- a comparação é com a **última vez em que aquele descritor foi avaliado**,
+  não com o simulado anterior — se o descritor faltou no 2º simulado, o 3º
+  compara com o 1º;
+- descritor ausente é **não avaliado**, nunca 0%: tratar ausência como zero
+  inventaria uma queda que não existe;
+- classificação com tolerância de ±5 p.p., configurável (`TOL_LONGITUDINAL`);
+- dificuldade persistente = abaixo de 50% (`PISO_DIFICULDADE`) em avaliações
+  sucessivas;
+- as medidas são ordenadas pelo tempo do simulado, não pela ordem em que as
+  correções foram gravadas.
+
+A tela fica em Turmas › turma › Simulados SAEPE › **Evolução por descritor**.
+
+### Sobre as suítes desta versão
+
+As suítes `teste1`–`teste22` e a versão anterior de `planilha.js` **não
+vieram no pacote** que originou esta versão. O `harness.js` (sobe o
+`index.html` de verdade em jsdom, embutindo os scripts locais), o
+`cartao-sintetico.js` e as suítes `teste23`–`teste28` foram escritos do
+zero aqui. Se os arquivos antigos reaparecerem, vale rodar os dois
+conjuntos juntos.
+
+`cartao-sintetico.js` desenha o cartão em pixels a partir da **mesma**
+geometria que o gerador imprime (`montarLayout`) e do **mesmo** payload
+(`montarPayload` + `gabaritoIndividual`), em vez de rasterizar o PDF: se o
+scanner errar ali, erra no papel. Rodar tudo: `bash rodar-testes.sh`.

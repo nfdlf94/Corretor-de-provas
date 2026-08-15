@@ -244,6 +244,7 @@ textarea{min-height:132px;resize:vertical;font-family:var(--mono);font-size:12.5
       <div class="s" id="fsub">O QR do cartão traz aluno e gabarito</div></div></div>
     <div id="grade" hidden></div>
     <div id="rodape">
+      <div id="lerSel" style="margin-bottom:9px"></div>
       <div class="linha" id="acoes"><button class="btn" id="bIniciar">Iniciar câmera</button></div>
       <div class="linha" id="acoes2" style="margin-top:9px;display:none">
         <button class="btn gho" id="bFoto">Usar foto</button>
@@ -267,6 +268,7 @@ textarea{min-height:132px;resize:vertical;font-family:var(--mono);font-size:12.5
 <section id="v-man" class="view">
   <h2>Correção manual</h2>
   <p class="sub">Mesma base de dados da leitura automática.</p>
+  <div id="manSel"></div>
   <div id="manPasso"></div>
 </section>
 
@@ -311,6 +313,7 @@ textarea{min-height:132px;resize:vertical;font-family:var(--mono);font-size:12.5
 <script src="qrcode.min.js"></script>
 <script src="fonte.js"></script>
 <script src="gerador.js"></script>
+<script src="planilha.js"></script>
 <script src="mammoth.browser.min.js"></script>
 <script src="pdf.min.js"></script>
 <script>
@@ -1288,6 +1291,7 @@ function ativar(pid){
   if(tp && !ehCaderno(p) && typeof notaNav!=="undefined") notaNav={escola:tp.escola,
     turma:tp.id, disc:p.disciplina||primeiraDisc(tp), per:p.periodo||1, prova:p.id};
   manAluno=null; pintarResultados(); pintarDesempenho(); montarManual();
+  if(typeof pintarSeletores==="function") pintarSeletores();
 }
 function refletirBarra(){
   const p=provaAtiva(), t=turmaAtiva(), b=$("#barra");
@@ -1453,6 +1457,7 @@ function montarCasaInterno(box){
   if(casaNivel==="banco")       return telaBanco(box);
   if(casaNivel==="relSaepe")    return telaRelSaepe(box);
   if(casaNivel==="partPlano")   return telaPartPlano(box);
+  if(casaNivel==="evolucao")    return telaEvolucao(box);
   if(casaNivel==="turmas")   return telaTurmas(box);
   if(casaNivel==="provas")   return telaProvas(box);
   if(casaNivel==="alunos")   return telaAlunos(box);
@@ -3572,14 +3577,129 @@ function telaSimulados(box){
     <button class="btn gho" id="bPlano" style="margin-top:9px">Participação ·
       ${String(participacaoDistribuida(t.id)).replace(".",",")} de
       ${String(P.totalParticipacao).replace(".",",")} pontos</button>
+    <button class="btn gho" id="bEvolucao" style="margin-top:9px">Evolução por descritor</button>
     <button class="btn gho" id="bBanco" style="margin-top:9px">Banco de descritores</button>`;
   box.innerHTML=h;
   $("#mVolta").onclick=()=>{casaNivel="disciplinas";montarCasa();};
   $("#bNovoSim").onclick=()=>{ casaSim=criarSimulado(t).id; casaNivel="simulado"; montarCasa(); };
   $("#bBanco").onclick=()=>{casaComp=casaComp||"LP";casaNivel="banco";montarCasa();};
   $("#bPlano").onclick=()=>{casaNivel="partPlano";montarCasa();};
+  $("#bEvolucao").onclick=()=>{casaNivel="evolucao";montarCasa();};
   box.querySelectorAll("[data-s]").forEach(b=>b.onclick=()=>{
     casaSim=b.dataset.s; casaNivel="simulado"; montarCasa(); });
+}
+
+/* ── evolução por descritor ────────────────────────────────────────
+   Uma tela por turma: como cada estudante vem se saindo em cada
+   descritor, comparado com a última vez em que aquele descritor foi
+   avaliado. Descritor ausente de um simulado não aparece como queda —
+   ele simplesmente não foi medido ali. */
+let evolComp=null, evolAluno=null;
+
+function telaEvolucao(box){
+  const t=turmaDe(casaTurma);
+  if(!t){ casaNivel="turmas"; return montarCasa(); }
+  evolComp=evolComp||"LP";
+  const sims=simuladosDa(t.id);
+  const hist=historicoPorDescritor(sims);
+  const e=escolaDe(t.escola)||{curto:""};
+  let h=`<div class="migalha"><button id="mVolta">‹ Simulados</button><span>·</span>
+      <span>${esc(t.nome)}</span></div>
+    <h2>Evolução por descritor</h2>
+    <p class="sub">${esc(t.nome)} · ${hist.avaliacoes.length}
+      ${hist.avaliacoes.length===1?"simulado corrigido":"simulados corrigidos"} ·
+      comparação com a última vez em que cada descritor foi avaliado</p>`;
+
+  if(!hist.linhas.length){
+    h+=`<div class="vazio"><b>Ainda não há histórico</b>
+      Corrija ao menos um simulado com descritores para ver a evolução.</div>`;
+    box.innerHTML=h;
+    $("#mVolta").onclick=()=>{casaNivel="simulados";montarCasa();};
+    return;
+  }
+
+  h+=`<div class="esco" style="grid-template-columns:repeat(2,1fr);margin-bottom:12px">`+
+    COMPONENTES.map(c=>`<button data-comp="${c.id}" class="${evolComp===c.id?"sel":""}">
+      <div class="t">${esc(c.nome)}</div></button>`).join("")+`</div>`;
+
+  const doComp=hist.linhas.filter(L=>L.comp===evolComp);
+  const R=resumoLongitudinal(hist).filter(x=>x.comp===evolComp);
+
+  if(!doComp.length){
+    h+=`<p class="hint">Nenhum descritor deste componente foi avaliado ainda.</p>`;
+  }else{
+    const cores={melhorou:"var(--mint)", manteve:"var(--sky)",
+                 piorou:"var(--coral)", primeira:"var(--mute)"};
+    const sinal=d=>d==null?"":(d>0?"+":"")+d.toFixed(0).replace("-","−")+" p.p.";
+
+    h+=`<div class="rot">Resumo do componente</div>`;
+    R.forEach(x=>{
+      h+=`<div class="item" style="cursor:default"><div class="cor">
+        <div class="t1">${esc(rotuloDesc(evolComp,x.cod))}</div>
+        <div class="t2">${x.estudantes} estudante${x.estudantes===1?"":"s"} ·
+          <span style="color:${cores.melhorou}">${x.melhorou} melhorou</span> ·
+          <span style="color:${cores.manteve}">${x.manteve} manteve</span> ·
+          <span style="color:${cores.piorou}">${x.piorou} piorou</span>${
+          x.persistentes?` · <span style="color:var(--coral)">${x.persistentes}
+            com dificuldade persistente</span>`:""}</div></div>
+        <div class="nt" style="color:${x.mediaAtual>=50?"var(--mint)":"var(--coral)"}">${
+          x.mediaAtual==null?"—":Math.round(x.mediaAtual)+"%"}</div></div>`;
+    });
+
+    const persistentes=doComp.filter(L=>L.persistente);
+    if(persistentes.length){
+      h+=`<div class="rot">Dificuldade persistente — abaixo de ${hist.piso}% em
+        avaliações sucessivas</div>`;
+      persistentes.forEach(L=>{
+        h+=`<div class="aluno" style="cursor:default"><div style="flex:1;min-width:0">
+          <div class="nm"><span style="color:var(--mute);font-family:var(--mono);font-size:12px">${
+            esc(L.numero)} </span>${esc(L.nome)}</div>
+          <div class="rs">${esc(rotuloDesc(evolComp,L.cod))} · ${L.abaixoSeguidas}
+            avaliações seguidas</div></div>
+          <div class="nt" style="color:var(--coral)">${Math.round(L.atual.pct)}%</div></div>`;
+      });
+    }
+
+    h+=`<div class="rot">Estudante por estudante</div>`;
+    const porAluno={};
+    doComp.forEach(L=>{ (porAluno[L.numero]=porAluno[L.numero]||{nome:L.nome,linhas:[]})
+      .linhas.push(L); });
+    Object.keys(porAluno).sort(ordNum).forEach(n=>{
+      const A=porAluno[n];
+      h+=`<div class="grupo"><div class="esc">
+        <span class="nm">${esc(n)} · ${esc(A.nome)}</span><span class="ln"></span></div>`;
+      A.linhas.forEach(L=>{
+        h+=`<div class="item" style="cursor:default"><div class="cor">
+          <div class="t1">${esc(rotuloDesc(evolComp,L.cod))}</div>
+          <div class="t2">${L.anterior
+            ? Math.round(L.anterior.pct)+"% ("+esc(L.anterior.simulado.titulo)+") → "+
+              Math.round(L.atual.pct)+"% ("+esc(L.atual.simulado.titulo)+")"
+            : Math.round(L.atual.pct)+"% em "+esc(L.atual.simulado.titulo)}</div></div>
+          <div class="nt" style="font-size:13px;color:${cores[L.classe]}">${
+            L.classe==="primeira"?"1ª vez":sinal(L.delta)}</div></div>`;
+      });
+      h+=`</div>`;
+    });
+  }
+
+  h+=`<div class="rot">Exportar</div>
+    <button class="btn sec" id="evolXlsx">Baixar planilha da evolução (Excel)</button>
+    <p class="hint">A comparação de cada descritor é com a última vez em que ele
+      foi avaliado, e não com o simulado anterior: um descritor que não entrou
+      num simulado fica como <b>não avaliado</b>, nunca como zero. O mesmo código
+      em Língua Portuguesa e em Matemática são descritores diferentes e nunca são
+      comparados entre si. A tolerância para “manteve” é de ±${hist.tolerancia}
+      pontos percentuais.</p>`;
+
+  box.innerHTML=h;
+  $("#mVolta").onclick=()=>{casaNivel="simulados";montarCasa();};
+  box.querySelectorAll("[data-comp]").forEach(b=>b.onclick=()=>{
+    evolComp=b.dataset.comp; montarCasa(); });
+  if($("#evolXlsx")) $("#evolXlsx").onclick=()=>{
+    try{
+      baixarXlsx(abasDaEvolucao(hist), "evolucao_"+t.nome+".xlsx");
+    }catch(err){ console.error(err); alert("Não foi possível montar a planilha."); }
+  };
 }
 
 /* Um simulado novo já nasce gravado, como rascunho: o professor pode sair
@@ -3793,7 +3913,12 @@ function telaSimulado(box){
   const totalAlunos=(t.alunos||[]).filter(ativo).length;
   h+=passo(7,"Resultados",
       {ok:corrigidos>0, txt:corrigidos?corrigidos+" de "+totalAlunos+" corrigidos":"aguardando"})+
-    `<button class="item" id="bRel"><div class="cor">
+    `<button class="item" id="bCorrigirSim"><div class="cor">
+      <div class="t1">Corrigir cartões deste simulado</div>
+      <div class="t2">Deixa o caderno ativo e abre a câmera — dá para lançar
+        à mão pela aba Manual também</div>
+      </div><span class="ch">›</span></button>
+    <button class="item" id="bRel"><div class="cor">
       <div class="t1">Resultados por componente</div>
       <div class="t2">Proficiência, padrões de desempenho e acerto por descritor,
         separados em Língua Portuguesa e Matemática</div>
@@ -3806,9 +3931,11 @@ function telaSimulado(box){
     ${corrigidos
       ? ""
       : `<div class="diag"><b>Ainda sem correções</b>
-         Depois de aplicar, use a câmera na aba <b>Ler</b> e aponte para cada
-         cartão-resposta: o app reconhece o estudante pelo QR e as notas vão
-         aparecendo aqui. Dá para corrigir na ordem que quiser.</div>`}`;
+         Depois de aplicar, use o botão acima: ele deixa este caderno ativo e
+         abre a câmera. Aponte para cada cartão-resposta — o app reconhece o
+         estudante pelo QR e as notas vão aparecendo aqui. Dá para corrigir na
+         ordem que quiser, e o caderno também aparece no seletor das abas
+         <b>Ler</b> e <b>Manual</b>.</div>`}`;
   box.innerHTML=h;
 
   /* ── tudo grava sozinho ─────────────────────────────────────────── */
@@ -3843,6 +3970,9 @@ function telaSimulado(box){
   $("#bBanco").onclick=()=>{casaComp=casaComp||"LP";casaNivel="banco";montarCasa();};
   $("#bRel").onclick=()=>{irParticipacao=false;casaNivel="relSaepe";montarCasa();};
   $("#bPart").onclick=()=>{irParticipacao=true;casaNivel="relSaepe";montarCasa();};
+  $("#bCorrigirSim").onclick=()=>{
+    if(pr.nq<MIN_Q_CARTAO){ alert("O caderno ainda não tem itens."); return; }
+    ativar(pr.id); irPara("ler"); };
   $("#smDel").onclick=()=>{
     if(!confirm("Excluir “"+(sm.titulo||"simulado")+"” e as correções dele?")) return;
     E.provas=E.provas.filter(x=>x.id!==pr.id);
@@ -4152,6 +4282,148 @@ function apurarComp(sm,comp){
           metodo,par,padraoMedio:padraoDe(media,sm.etapa,comp)};
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   ANÁLISE LONGITUDINAL POR DESCRITOR
+   Como cada estudante vem se saindo, descritor a descritor, ao longo dos
+   simulados. A comparação é sempre com a ÚLTIMA VEZ EM QUE AQUELE
+   DESCRITOR FOI AVALIADO — não com o simulado anterior. Descritor que
+   não apareceu num simulado é "não avaliado", nunca 0%: tratar ausência
+   como zero inventaria uma queda que não existe.
+
+   A chave lógica é aluno + disciplina + descritor. O mesmo código em
+   componentes diferentes são coisas diferentes: `D17` é "relações
+   lógico-discursivas" em Língua Portuguesa e "equação do 2º grau" em
+   Matemática. Compará-los entre si produziria um histórico sem sentido.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* tolerância, em pontos percentuais, para considerar que "manteve" */
+const TOL_LONGITUDINAL=5;
+/* abaixo disto, em avaliações sucessivas, é dificuldade persistente */
+const PISO_DIFICULDADE=50;
+
+const chaveLong=(numero,comp,cod)=>String(numero)+"|"+comp+"|"+codDesc(cod);
+
+/* Ordem dos simulados no tempo. `criado` é o carimbo de criação; o ano e
+   o título desempatam para os que vieram de cópia de segurança antiga. */
+function ordenarSimulados(sims){
+  return sims.slice().sort((a,b)=>
+    ((a.criado||0)-(b.criado||0)) || ((a.ano||0)-(b.ano||0)) ||
+    String(a.titulo||"").localeCompare(String(b.titulo||"")));
+}
+
+/* Acerto de UM estudante em UM descritor de UM caderno.
+   Devolve null quando o descritor não foi avaliado ali ou quando o
+   estudante não fez o simulado — os dois são ausência, não zero. */
+function acertoNoDescritor(pr,reg,comp,cod){
+  if(!pr||!reg) return null;
+  const g=String(pr.gabC||"").toUpperCase(), alvo=codDesc(cod);
+  const idx=itensDe(pr,comp).filter(i=>codDesc((pr.desc||[])[i]||"")===alvo);
+  if(!idx.length) return null;
+  const certos=idx.filter(i=>reg.Rc && reg.Rc[i]===g[i]).length;
+  return {itens:idx.length, acertos:certos, pct:100*certos/idx.length};
+}
+
+/* Descritores de um caderno, por componente, sem repetir. */
+function descritoresDo(pr,comp){
+  const vistos=[];
+  itensDe(pr,comp).forEach(i=>{
+    const c=codDesc((pr.desc||[])[i]||"");
+    if(c && !vistos.includes(c)) vistos.push(c);
+  });
+  return vistos;
+}
+
+/* Classificação de uma medida contra a anterior do MESMO descritor. */
+function classificarLong(pct,anterior,tol){
+  if(anterior==null) return {classe:"primeira", rotulo:"primeira avaliação", delta:null};
+  const d=pct-anterior;
+  const t=(tol==null?TOL_LONGITUDINAL:tol);
+  if(d>t)  return {classe:"melhorou", rotulo:"melhorou", delta:d};
+  if(d<-t) return {classe:"piorou",   rotulo:"piorou",   delta:d};
+  return {classe:"manteve", rotulo:"manteve", delta:d};
+}
+
+/* O histórico completo de um recorte de simulados.
+   `sims` são os cadernos a considerar, em qualquer ordem; a função os
+   ordena no tempo. Devolve uma linha por (estudante, componente,
+   descritor), com todas as medidas e a comparação com a anterior. */
+function historicoPorDescritor(sims,opc){
+  opc=opc||{};
+  const tol=opc.tolerancia==null?TOL_LONGITUDINAL:opc.tolerancia;
+  const piso=opc.piso==null?PISO_DIFICULDADE:opc.piso;
+  const ordem=ordenarSimulados(sims);
+  const mapa={};                      // chave lógica → linha
+  const avaliacoes=[];                // os simulados que renderam medida
+
+  ordem.forEach(sm=>{
+    const pr=provaDoSim(sm), t=turmaDe(sm.turma);
+    if(!pr||!t) return;
+    const rotulo={id:sm.id, titulo:sm.titulo||"Simulado", ano:sm.ano,
+                  turma:t.nome, etapa:sm.etapa};
+    let usou=false;
+    COMPONENTES.forEach(c=>{
+      const cods=descritoresDo(pr,c.id);
+      if(!cods.length) return;
+      resDa(pr.id).forEach(reg=>{
+        cods.forEach(cod=>{
+          const m=acertoNoDescritor(pr,reg,c.id,cod);
+          if(!m) return;
+          usou=true;
+          const k=chaveLong(reg.numero,c.id,cod);
+          const L=mapa[k]||(mapa[k]={numero:reg.numero, nome:reg.nome,
+            turma:t.nome, comp:c.id, cod:codDesc(cod),
+            texto:textoDesc(c.id,cod), medidas:[]});
+          if(!L.nome && reg.nome) L.nome=reg.nome;
+          L.medidas.push(Object.assign({simulado:rotulo}, m));
+        });
+      });
+    });
+    if(usou) avaliacoes.push(rotulo);
+  });
+
+  const linhas=Object.values(mapa).map(L=>{
+    const m=L.medidas;
+    const atual=m[m.length-1];
+    /* a comparação é com a última vez em que ESTE descritor foi medido */
+    const anterior=m.length>1?m[m.length-2]:null;
+    const cls=classificarLong(atual.pct, anterior?anterior.pct:null, tol);
+    /* dificuldade persistente: abaixo do piso em avaliações sucessivas */
+    let seguidas=0;
+    for(let i=m.length-1;i>=0 && m[i].pct<piso;i--) seguidas++;
+    return Object.assign(L,{
+      atual, anterior, delta:cls.delta, classe:cls.classe, rotuloClasse:cls.rotulo,
+      vezes:m.length, abaixoSeguidas:seguidas,
+      persistente: seguidas>=2,
+      media: m.reduce((x,y)=>x+y.pct,0)/m.length
+    });
+  });
+
+  linhas.sort((a,b)=>
+    ordNum(a.numero,b.numero) ||
+    String(a.comp).localeCompare(String(b.comp)) ||
+    numDesc(a.cod)-numDesc(b.cod));
+  return {linhas, avaliacoes, tolerancia:tol, piso};
+}
+const numDesc=c=>{ const m=/(\d+)/.exec(String(c||"")); return m?+m[1]:999; };
+
+/* Resumo por descritor de um recorte: quantos melhoraram, mantiveram,
+   pioraram, e quantos estão em dificuldade persistente. */
+function resumoLongitudinal(hist){
+  const mapa={};
+  hist.linhas.forEach(L=>{
+    const k=L.comp+"|"+L.cod;
+    const R=mapa[k]||(mapa[k]={comp:L.comp, cod:L.cod, texto:L.texto,
+      melhorou:0, manteve:0, piorou:0, primeira:0, persistentes:0,
+      estudantes:0, somaAtual:0});
+    R[L.classe]++; R.estudantes++; R.somaAtual+=L.atual.pct;
+    if(L.persistente) R.persistentes++;
+  });
+  return Object.values(mapa).map(R=>Object.assign(R,{
+    mediaAtual: R.estudantes?R.somaAtual/R.estudantes:null
+  })).sort((a,b)=>
+    String(a.comp).localeCompare(String(b.comp)) || numDesc(a.cod)-numDesc(b.cod));
+}
+
 /* ── séries e agrupamento de simulados ─────────────────────────────
    Uma série reúne as turmas com a mesma etapa: 3º A, 3º B, 3º C. Como o
    professor digita a série livremente, a comparação é feita sobre uma
@@ -4457,6 +4729,94 @@ function baixarAnalise(nivel,recorte,titulo,blocos){
     "analise_"+nivel+"_"+recorte+".csv","text/csv");
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   EXPORTAÇÃO PARA EXCEL
+   Três abas: resultados individuais, descritores e a análise do recorte.
+   O gerador de .xlsx é próprio (`planilha.js`) — o app precisa abrir sem
+   internet, e uma biblioteca de planilha custaria mais do que todo o
+   resto junto. Números vão como número, não como texto: quem recebe a
+   planilha precisa poder somar e ordenar sem converter coluna nenhuma.
+   ═══════════════════════════════════════════════════════════════════ */
+const num2=x=>x==null?null:Math.round(Number(x)*100)/100;
+
+function abasDoSimulado(sm){
+  const t=turmaDe(sm.turma), e=t?escolaDe(t.escola):null, et=etapaDe(sm.etapa);
+  const apuros={};
+  COMPONENTES.forEach(c=>{ apuros[c.id]=apurarComp(sm,c.id); });
+  const part=participacaoDe(sm);
+
+  /* 1 — resultados individuais: uma linha por estudante */
+  const ind=[["nº","Estudante","Turma","Escola",
+    "Proficiência L. Port.","Padrão L. Port.","Acertos L. Port.","Itens L. Port.",
+    "Proficiência Mat.","Padrão Mat.","Acertos Mat.","Itens Mat.",
+    "Participação","Origem da participação","Acertos no caderno","Itens do caderno"]];
+  part.forEach(L=>{
+    const linha=[String(L.aluno.numero), L.aluno.nome, t?t.nome:"", e?(e.curto||e.nome):""];
+    COMPONENTES.forEach(c=>{
+      const A=apuros[c.id];
+      const D=A?A.linhas.find(x=>x.aluno.numero===L.aluno.numero):null;
+      linha.push(num2(D&&D.prof), (D&&D.padrao)?D.padrao.nome:"",
+                 D&&D.acertos!=null?D.acertos:null, A?A.total:null);
+    });
+    linha.push(num2(L.nota), L.manual!=null?"lançada":(L.calculada!=null?"acertos":""),
+               L.acertos!=null?L.acertos:null, L.total);
+    ind.push(linha);
+  });
+
+  /* 2 — descritores, com a descrição por extenso */
+  const desc=[["Componente","Descritor","Descrição","Acerto médio (%)","Itens","Estudantes"]];
+  COMPONENTES.forEach(c=>{
+    const A=apuros[c.id]; if(!A) return;
+    A.descritores.forEach(d=>desc.push([nomeComp(c.id), d.cod,
+      textoDesc(c.id,d.cod), num2(d.pct), d.itens, A.feitos.length]));
+  });
+
+  /* 3 — a análise do recorte, com os descritores críticos */
+  const an=[["Recorte","Componente","Proficiência média","Padrão médio","Método",
+             "Estudantes","Itens","Descritores críticos (abaixo de 50%)"]];
+  COMPONENTES.forEach(c=>{
+    const A=apuros[c.id]; if(!A||!A.feitos.length) return;
+    const criticos=A.descritores.filter(d=>d.pct!=null&&d.pct<50).map(d=>d.cod).join(", ");
+    an.push([(t?t.nome:"")+" · "+(sm.titulo||""), nomeComp(c.id), num2(A.media),
+      A.padraoMedio?A.padraoMedio.nome:"", A.metodo==="tri"?"TRI 3 parâmetros":"percentual",
+      A.feitos.length, A.total, criticos]);
+  });
+
+  return [
+    {nome:"Resultados individuais", linhas:ind,
+     larguras:[6,30,10,14,15,15,13,12,15,15,13,12,13,20,16,14]},
+    {nome:"Descritores", linhas:desc, larguras:[18,11,52,16,8,12]},
+    {nome:"Análise "+(t?t.nome:""), linhas:an, larguras:[30,18,17,15,20,12,8,34]}
+  ];
+}
+
+function abasDaEvolucao(hist){
+  const L1=[["nº","Estudante","Turma","Componente","Descritor","Descrição",
+    "Acerto atual (%)","Acerto anterior (%)","Diferença (p.p.)","Situação",
+    "Avaliações","Simulado atual","Simulado anterior","Dificuldade persistente"]];
+  hist.linhas.forEach(L=>L1.push([String(L.numero), L.nome, L.turma,
+    nomeComp(L.comp), L.cod, L.texto,
+    num2(L.atual.pct), L.anterior?num2(L.anterior.pct):null, num2(L.delta),
+    L.rotuloClasse, L.vezes, L.atual.simulado.titulo,
+    L.anterior?L.anterior.simulado.titulo:"", L.persistente?"sim":""]));
+
+  const R=resumoLongitudinal(hist);
+  const L2=[["Componente","Descritor","Descrição","Acerto médio atual (%)",
+    "Estudantes","Melhoraram","Mantiveram","Pioraram","1ª avaliação","Dificuldade persistente"]];
+  R.forEach(x=>L2.push([nomeComp(x.comp), x.cod, x.texto, num2(x.mediaAtual),
+    x.estudantes, x.melhorou, x.manteve, x.piorou, x.primeira, x.persistentes]));
+
+  const L3=[["Simulado","Turma","Ano","Etapa"]];
+  hist.avaliacoes.forEach(a=>L3.push([a.titulo, a.turma, a.ano, etapaDe(a.etapa).nome]));
+
+  return [
+    {nome:"Evolução por estudante", linhas:L1,
+     larguras:[6,28,10,18,11,46,15,17,15,18,11,20,20,20]},
+    {nome:"Resumo por descritor", linhas:L2, larguras:[18,11,46,19,11,12,12,11,12,20]},
+    {nome:"Simulados considerados", linhas:L3, larguras:[28,12,8,30]}
+  ];
+}
+
 function telaRelSaepe(box){
   const vg=x=>x==null?"":Number(x).toFixed(2).replace(".",",").replace(/,00$/,",0");
   const sm=simuladoDe(casaSim);
@@ -4599,7 +4959,8 @@ function telaRelSaepe(box){
   }
 
   h+=`<div class="rot">Exportar</div>
-    <button class="btn sec" id="relCsv">Baixar CSV do simulado</button>
+    <button class="btn sec" id="relXlsx">Baixar planilha do simulado (Excel)</button>
+    <button class="btn gho" id="relCsv" style="margin-top:9px">Baixar CSV do simulado</button>
     <p class="hint">A proficiência é uma <b>estimativa</b>. O modelo é o mesmo do
       Saeb — logístico de 3 parâmetros, com acerto casual de 1/5 —, mas os parâmetros
       dos itens são calibrados nas respostas desta turma, não nos milhares de
@@ -4640,6 +5001,14 @@ function telaRelSaepe(box){
       L.manual!=null?"lançada":(L.calculada!=null?"acertos":"")].join(";"));
     baixar([cab.join(";"),...lin].join("\r\n"),
       "participacao_"+t.nome+"_"+sm.ano+".csv","text/csv");
+  };
+  $("#relXlsx").onclick=()=>{
+    try{
+      const n=baixarXlsx(abasDoSimulado(sm),
+        "saepe_"+(t?t.nome:"turma")+"_"+(sm.ano||"")+".xlsx");
+      if(!n) alert("Não foi possível montar a planilha.");
+    }catch(err){ console.error(err);
+      alert("Não foi possível montar a planilha. Use o CSV enquanto isso."); }
   };
   $("#relCsv").onclick=()=>{
     const e=escolaDe(t.escola)||{curto:""};
@@ -5005,7 +5374,7 @@ Volume do prisma">${esc(F.habs)}</textarea>
 const video=$("#video"), over=$("#over"), ctx=over.getContext("2d");
 const tmp=document.createElement("canvas"), tctx=tmp.getContext("2d",{willReadFrequently:true});
 let stream=null, rodando=false, hist=[], travado=null, ultimoQuad=null, alunoQR=null, semQR=0;
-let semCartao=0, giroLayout=0;
+let semCartao=0, giroLayout=0, giroQR=0;
 
 async function iniciar(){
   if(!provaAtiva()){ irPara("casa"); return; }
@@ -5057,12 +5426,53 @@ function formatosConhecidos(){
     if(p.nq>=MIN_Q_CARTAO && !fmts.some(f=>f.k===k)) fmts.push({k,nq:p.nq,no:p.no}); });
   return fmts;
 }
+function formatoAtual(){ return LAY.n_questions+"x"+LAY.n_options; }
+/* Os formatos a tentar, começando pelo que está ativo. Se o layout ativo
+   não for de nenhuma prova cadastrada (prova nenhuma escolhida, por
+   exemplo), ele entra na lista assim mesmo — senão, com um único formato
+   conhecido, o giro nunca acontecia e o app ficava presoo para sempre. */
+function candidatosDeLayout(){
+  const fmts=formatosConhecidos(), atual=formatoAtual();
+  const lista=fmts.filter(f=>f.k===atual);
+  if(!lista.length) lista.push({k:atual,nq:LAY.n_questions,no:LAY.n_options});
+  return lista.concat(fmts.filter(f=>f.k!==atual));
+}
 function tentarOutroLayout(){
-  const fmts=formatosConhecidos();
+  const fmts=candidatosDeLayout();
   if(fmts.length<2) return false;
-  giroLayout=(giroLayout+1)%fmts.length;
-  const f=fmts[giroLayout];
-  return aplicarLayout(f.nq,f.no);
+  /* pula o formato ativo: girar para ele mesmo gastava mais 8 quadros
+     sem mudar nada na tela */
+  for(let i=0;i<fmts.length;i++){
+    giroLayout=(giroLayout+1)%fmts.length;
+    const f=fmts[giroLayout];
+    if(f.k!==formatoAtual()) return aplicarLayout(f.nq,f.no);
+  }
+  return false;
+}
+/* O QR mora numa janela calculada a partir do layout ATIVO. Quando o
+   cartão na frente da câmera é de outro tamanho, essa janela cai no lugar
+   errado e o QR NUNCA é lido — os marcadores, esses, são encontrados. Era
+   o caso do cartão de simulado com uma prova comum ativa: "Cartão
+   localizado / aproxime um pouco", para sempre, sem capturar resposta
+   nenhuma. Em vez de esperar o giro de formato (um a cada 8 quadros),
+   tentamos os outros formatos JÁ NESTE QUADRO, poucos por vez para não
+   derrubar a taxa de leitura. O formato que decodificar fica valendo. */
+const FORMATOS_POR_QUADRO=2;
+function lerQRDeQualquerFormato(src,quad){
+  const cands=candidatosDeLayout();
+  const p=lerQR(src,quad);                     // o ativo, sempre
+  if(p||cands.length<2) return p;
+  const antes={nq:LAY.n_questions,no:LAY.n_options};
+  const outros=cands.filter(f=>f.k!==formatoAtual());
+  for(let i=0;i<Math.min(FORMATOS_POR_QUADRO,outros.length);i++){
+    giroQR=(giroQR+1)%outros.length;
+    const f=outros[giroQR];
+    aplicarLayout(f.nq,f.no);
+    const q=lerQR(src,quad);
+    if(q) return q;                            // deixa o formato que leu
+  }
+  aplicarLayout(antes.nq,antes.no);            // nada leu: volta ao de antes
+  return null;
 }
 function analisar(imgData,aoVivo){
   const src=cinza(imgData), quad=fiduciais(reduzir(src,620));
@@ -5074,7 +5484,7 @@ function analisar(imgData,aoVivo){
     else faixa("Procurando o cartão","Enquadre a moldura tracejada inteira");
     return false; }
   semCartao=0;
-  if(!alunoQR){ const p=lerQR(src,quad);
+  if(!alunoQR){ const p=lerQRDeQualquerFormato(src,quad);
     if(p){ const r=aplicarQR(p);
       if(r==="trocou"){ hist=[]; faixa("Formato ajustado","Mantenha o cartão enquadrado"); return false; }
       if(r) semQR=0; else semQR++;
@@ -5353,6 +5763,22 @@ function pintarSeletor(idCaixa, aoTrocar){
     if(aoTrocar) aoTrocar(); });
 }
 
+/* As abas Ler e Manual trabalham com a prova ATIVA, e até aqui só havia
+   um caminho para tornar ativo um caderno de simulado: o botão da etapa 6.
+   Quem já tinha impresso o simulado e voltava depois para corrigir não
+   tinha por onde escolhê-lo — a lista de provas da turma exclui cadernos
+   de propósito (`provasDe`). O resultado eram os dois sintomas juntos: a
+   aba Manual mostrava a prova comum, e a câmera, com o layout da prova
+   comum ativo, achava os marcadores e nunca lia o QR do cartão maior.
+   O seletor aqui inclui os cadernos, e é o mesmo das outras abas. */
+function pintarSeletores(){
+  if($("#lerSel")) pintarSeletor("lerSel", ()=>{ pintarSeletores();
+    const p=provaAtiva();
+    faixa(p?("Pronto — "+(p.titulo||p.codigo)):"Escolha a prova",
+          p?(resDa(p.id).length+" cartões salvos"):"Nenhuma prova selecionada"); });
+  if($("#manSel")) pintarSeletor("manSel", ()=>{ pintarSeletores(); montarManual(); });
+}
+
 /* ── ABA NOTAS ──────────────────────────────────────────────────────
    Escola → Turma → Disciplina → Período → notas. O período mostrado é
    sempre o da turma escolhida: quatro bimestres ou três trimestres. */
@@ -5570,7 +5996,14 @@ function pintarResultados(){
 
   /* 6 — uma prova: quem já foi corrigido e quem falta */
   const p=provaDe(N.prova);
-  if(E.ativa!==p.id) ativar(p.id);
+  /* A aba Notas segue a prova aberta aqui — mas o caderno de simulado
+     NUNCA entra em `notaNav` (não tem período nem disciplina, invariante 7).
+     Sem a guarda abaixo esta linha DESFAZIA, em silêncio, a escolha de um
+     caderno feita nas abas Ler e Manual: `ativar(caderno)` chama
+     `pintarResultados()`, que reativava a última prova comum aberta em
+     Notas. Era por isso que a correção manual “só funcionava para as
+     avaliações normais” e que a câmera ficava com o layout errado. */
+  if(E.ativa!==p.id && !ehCaderno(provaAtiva())) ativar(p.id);
   sel.innerHTML=migalhaNotas()+
     `<button class="item" id="resVoltaPer" style="margin-bottom:10px"><div class="cor">
       <div class="t1">${esc(p.titulo||p.codigo)}</div>
@@ -5837,7 +6270,8 @@ function irPara(v){
   document.querySelectorAll(".view").forEach(s=>s.classList.toggle("on",s.id==="v-"+v));
   if(v!=="ler"&&rodando) parar();
   if(v==="casa") montarCasa();
-  if(v==="man") montarManual();
+  if(v==="ler") pintarSeletores();
+  if(v==="man"){ pintarSeletores(); montarManual(); }
   if(v==="des") pintarDesempenho();
   if(v==="res") pintarResultados();
 }
@@ -5910,6 +6344,7 @@ function avisoFlutuante(texto, cls, segundos){
   if(typeof window.jspdf==="undefined") faltando.push("jspdf.umd.min.js");
   if(typeof qrcode!=="function") faltando.push("qrcode.min.js");
   if(typeof gerarProvas!=="function") faltando.push("gerador.js");
+  if(typeof montarXlsx!=="function") faltando.push("planilha.js");
   if(typeof registrarFontes!=="function") faltando.push("fonte.js");
   if(typeof mammoth==="undefined") faltando.push("mammoth.browser.min.js");
   if(typeof pdfjsLib==="undefined") faltando.push("pdf.min.js");
@@ -5926,7 +6361,7 @@ if(E.ativa && provaDe(E.ativa)) ativar(E.ativa); else refletirBarra();
 /* quem já tinha cadastro não passa pelo assistente */
 if(E.turmas.length) guarda.esc(SETUP_FEITO,"1");
 if(precisaAssistente()) casaNivel="assistente";
-montarCasa(); pintarResultados(); pintarDesempenho(); montarManual();
+montarCasa(); pintarResultados(); pintarDesempenho(); montarManual(); pintarSeletores();
 faixa("Toque em iniciar câmera",
   provaAtiva()?resDa(E.ativa).length+" cartões salvos":"Escolha a prova na aba Turmas");
 </script>
