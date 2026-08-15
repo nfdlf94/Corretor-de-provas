@@ -12,7 +12,7 @@ const { JSDOM, VirtualConsole } = require("jsdom");
 
 const RAIZ = __dirname;
 const LOCAIS = ["jsqr.js","embaralho.js","layout.js","jspdf.umd.min.js",
-                "qrcode.min.js","fonte.js","gerador.js","planilha.js"];
+                "qrcode.min.js","fonte.js","gerador.js","planilha.js","saepe-oficial.js"];
 const TALOS = {
   "mammoth.browser.min.js": "window.mammoth={};",
   "pdf.min.js": "window.pdfjsLib={GlobalWorkerOptions:{}};"
@@ -96,7 +96,8 @@ function estadoBase(nAlunos){
 /* caderno de simulado pronto: nLP itens de LP + nMAT de Matemática */
 function comSimulado(E, opc){
   opc = opc || {};
-  const nLP = opc.nLP || 6, nMAT = opc.nMAT || 6, nq = nLP + nMAT;
+  const nLP = opc.nLP == null ? 6 : opc.nLP,
+        nMAT = opc.nMAT == null ? 6 : opc.nMAT, nq = nLP + nMAT;
   const id = opc.id || "sim1";
   const comps = [].concat(Array(nLP).fill("LP"), Array(nMAT).fill("MAT"));
   const letras = ["A","B","C","D","E"];

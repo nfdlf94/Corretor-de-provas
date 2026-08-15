@@ -2,7 +2,7 @@
    Desbugando a Matemática · correção de provas
 
    AO PUBLICAR UMA VERSÃO NOVA: troque o número em VERSAO. */
-const VERSAO = "v32";
+const VERSAO = "v35";
 const CACHE = "dbm-omr-" + VERSAO;
 
 /* O que o app precisa para ABRIR e corrigir provas. A instalação só
@@ -14,6 +14,7 @@ const ESSENCIAIS = [
   "./embaralho.js",
   "./gerador.js",
   "./planilha.js",
+  "./saepe-oficial.js",
   "./fonte.js",
   "./jsqr.js",
   "./jspdf.umd.min.js",

@@ -1082,3 +1082,159 @@ aqui no CONTEXTO; agora está na tela de resultados.
 da edição de 2018 — o caderno de 2024 enviado é o de Matemática. O teto
 da faixa é por etapa, então LP já herdou o 425 do 3º EM; falta conferir os
 três pontos de corte quando aparecer a revista de LP.
+
+
+---
+
+## v33 — a escala de Português termina antes da de Matemática
+
+Conferido no caderno de **Níveis de Desempenho de Língua Portuguesa até o
+3º ano do Ensino Médio**, enviado pelo professor.
+
+**Os cortes de LP estavam certos.** Elementar I até 225 · Elementar II
+226 a 270 · Básico 271 a 305 · Desejável 306 ou mais — exatamente o que
+estava aqui desde 2018. Nada a mudar.
+
+**Mas as duas escalas não terminam no mesmo ponto:**
+
+| 3º EM | níveis | último nível |
+|---|---|---|
+| Matemática | 1 a 9 | acima de **425** |
+| Língua Portuguesa | 1 a 10 | acima de **400** |
+
+Português tem DEZ níveis e termina em 400; Matemática tem nove e vai a
+425. A v32 tinha subido o teto do 3º EM para 425 valendo para os dois —
+o que dava a Português 25 pontos que a escala dele não descreve.
+
+**A faixa passou a ser por componente.** `ETAPAS[].faixas` é
+`{LP:[...], MAT:[...]}`, `faixaDe(sm,comp)` e `profPorPercentual(...,comp)`
+recebem o componente, e a ficha do simulado mostra piso e teto de cada um.
+`faixaDe` aceita as duas formas: o objeto de agora e o par `[piso,teto]`
+das versões antigas, que valia para os dois componentes — simulado
+gravado antes continua abrindo.
+
+O piso ficou onde estava (175 no 3º EM). Ele é convenção — é onde cai
+quem acerta só o que se acerta no chute —, e mexer nele desloca todo
+mundo sem que nenhum documento peça.
+
+Com isso, os três números do 3º EM estão conferidos contra documento:
+cortes de Matemática (caderno 2024), cortes de Português e tetos das duas
+escalas (caderno de níveis de LP). Restam sem conferência os cortes e
+tetos de 5º e 9º ano em Língua Portuguesa, que seguem de 2018.
+
+
+---
+
+## v34 — os dados oficiais entram no app
+
+Pergunta que originou isto: *"você associou cada descritor às habilidades
+descritas em cada nível, como nos documentos oficiais?"*. **Não estavam.**
+O descritor servia só para agrupar percentual de acerto; a dificuldade de
+cada item saía das respostas da própria turma. Por isso a proficiência
+ainda é, no fundo, projeção do percentual.
+
+Esta versão é o **primeiro passo**: trazer os dados oficiais para dentro
+do app. A ancoragem da TRI vem depois, em cima deles.
+
+### `saepe-oficial.js`
+
+Nada aqui foi digitado. Tudo veio de PDF publicado pela rede, com os
+scripts de extração guardados no projeto (`extrai_niveis.py`,
+`extrai_matriz.py`) — dá para reexecutar quando sair edição nova.
+
+- **`SAEPE_MATRIZ`** — Matriz de Referência, Avaliação Somativa 2025.
+  167 descritores: LP 2º EF (10), 5º EF (15), 9º EF (21), 3º EM (21);
+  MAT 5º EF (28), 9º EF (37), 3º EM (35). Numeração sem furos.
+- **`SAEPE_NIVEIS`** — 717 habilidades posicionadas na escala, cada uma
+  com a faixa de pontos do seu nível: MAT 5º EF (130, níveis 1–9), MAT
+  9º EF (207, 1–8), MAT 3º EM (220, 1–9), LP 3º EM (160, 1–10).
+
+A extração tem uma armadilha: o PDF de Matemática mistura, entre os
+níveis, texto de orientação ao gestor ("Observe a Proficiência Média…").
+O filtro separa pelo verbo de comando — habilidade começa no infinitivo.
+O `teste37.js` tranca isso, com a única exceção documentada: o caderno de
+2024 escreve "Determina a solução…" no 9º EF, nível 6.
+
+### O banco de descritores deixou de ser tela em branco
+
+`bancoDesc(comp, etapa)` devolve a matriz oficial da etapa mesclada com o
+que o professor escreveu — **o texto local tem precedência**. Ninguém
+precisa digitar 35 descritores; e quem já digitou não perde nada.
+
+### Por que a âncora tem de ser a HABILIDADE, não o descritor
+
+"Localizar…" aparece em **9 níveis diferentes** de Língua Portuguesa, do
+1 ao 10, mudando de gênero e de exigência — 200 pontos de distância com o
+mesmo código. Um descritor não corresponde a um nível. Quem for
+implementar a ancoragem: associe o ITEM à habilidade específica, e use
+`pontoDoNivel(h)` (o meio da faixa; meio passo além nos extremos abertos)
+como dificuldade âncora.
+
+### Próximo passo, ainda não feito
+
+1. Tela de associação item → habilidade, com sugestão por semelhança de
+   texto e confirmação do professor.
+2. Usar `pontoDoNivel` como `b` âncora em `calibrar`, no lugar do `b`
+   estimado só com a turma — ou como prior, misturando os dois conforme o
+   número de respondentes.
+
+Isso resolveria de uma vez a proficiência "projetada" e a falta de itens
+âncora entre turmas (ver v27 e v29).
+
+
+---
+
+## v35 — a TRI ancorada na escala oficial
+
+Segundo passo do que a v34 preparou. Agora o item pode carregar a
+habilidade oficial (`pr.hab[i]`, id de `SAEPE_NIVEIS`), e a faixa de
+pontos do nível dela vira a **dificuldade do item**, vinda de fora da
+turma.
+
+### O que muda na conta
+
+`calibrar(matriz, no, ancoras)` aceita um `b` por item em θ. Quando
+existe, ele substitui o `b` estimado com as respostas da turma; `a` e `c`
+continuam saindo da turma, porque os documentos não os trazem.
+
+A conversão é a mesma nos dois sentidos:
+`θ = (pontos − referência) / 50`, com a referência no meio da faixa da
+etapa e do componente. Assim θ=0 cai no meio da escala e um
+desvio-padrão vale 50 pontos, como no Saeb.
+
+Com pelo menos `ANCORA_MIN_ITENS` (3) itens ancorados no componente, o
+método passa a ser **`tri-ancorada`** e o nível do grupo deixa de vir do
+percentual de acerto: θ já está na escala oficial, é só converter.
+
+**Medido no `teste38.js`**, três cenários com desempenho bruto IDÊNTICO —
+todos acertam 4 de 8:
+
+| cenário | método | proficiência média |
+|---|---|---|
+| sem associação | tri | 269 (todos no mesmo ponto) |
+| caderno de habilidades de nível 1–2 | tri-ancorada | **261** |
+| caderno de habilidades de nível 8–9 | tri-ancorada | **320** |
+
+Acertar metade de um caderno difícil passou a valer 59 pontos a mais que
+metade de um fácil. Sem âncora, os dois davam o mesmo número — que é o
+defeito que o professor vinha sentindo desde a v30.
+
+### A tela
+
+Ficha do simulado › **Habilidades da escala**. Lista os itens, mostra
+quantos estão associados por componente e se a ancoragem já está ativa.
+Ao abrir um item, sugere habilidades por semelhança de texto entre o
+enunciado (mais o descritor e as alternativas) e as habilidades da etapa;
+há também preenchimento automático dos que faltam e busca livre.
+
+**A sugestão automática acerta o assunto, não o grau de exigência** — e o
+grau é justamente o que define o nível. Ela é ponto de partida, não
+resposta: a tela diz isso, e quem mexer no código não deve transformá-la
+em automatismo silencioso.
+
+### Cuidado ao interpretar
+
+Continua não sendo calibração oficial: `a` e `c` são assumidos, a faixa
+do nível é um intervalo de 25 pontos representado pelo seu ponto médio, e
+a associação item→habilidade é julgamento humano. Errar a associação
+desloca a dificuldade e, com ela, a proficiência da turma.

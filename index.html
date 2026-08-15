@@ -314,6 +314,7 @@ textarea{min-height:132px;resize:vertical;font-family:var(--mono);font-size:12.5
 <script src="fonte.js"></script>
 <script src="gerador.js"></script>
 <script src="planilha.js"></script>
+<script src="saepe-oficial.js"></script>
 <script src="mammoth.browser.min.js"></script>
 <script src="pdf.min.js"></script>
 <script>
@@ -769,23 +770,31 @@ const curtoComp=c=>(COMPONENTES.find(x=>x.id===c)||{curto:c}).curto;
    nenhum estudante conseguia chegar lá. Os tetos abaixo são o início do
    último nível de cada etapa, segundo o caderno de 2024:
 
-     5º EF  níveis 1..9, o último "acima de 325"
-     9º EF  níveis 1..8, o último "acima de 375"
-     3º EM  níveis 1..9, o último "acima de 425"
+     Matemática        Língua Portuguesa
+     5º EF  1..9, "acima de 325"
+     9º EF  1..8, "acima de 375"
+     3º EM  1..9, "acima de 425"    3º EM  1..10, "acima de 400"
 
-   O piso é o começo do nível 1 de cada etapa, arredondado para baixo:
-   abaixo dele a escala não descreve habilidade nenhuma.
+   As duas escalas NÃO terminam no mesmo ponto: no 3º EM, a de Matemática
+   vai a 425 e a de Língua Portuguesa, a 400 (conferido no caderno de
+   níveis de desempenho de LP). Por isso o teto é por componente.
+
+   O piso é convenção: é onde cai quem acerta só o que se acerta no
+   chute. Fica onde já estava, porque mexer nele desloca todo mundo.
 
    ATENÇÃO: isto é PROJEÇÃO, não medida. Sem os itens âncora da rede
    inteira, ninguém coloca um simulado de turma na escala oficial do
    SAEPE — o que o app faz é usar a mesma régua para você ler o resultado
    junto com os padrões de desempenho. */
 const ETAPAS=[
-  {id:"5EF", nome:"5º ano do ensino fundamental", faixa:[100,325],
+  {id:"5EF", nome:"5º ano do ensino fundamental",
+   faixas:{LP:[100,325], MAT:[100,325]},
    cortes:{LP:[125,175,210], MAT:[150,185,220]}},
-  {id:"9EF", nome:"9º ano do ensino fundamental", faixa:[150,375],
+  {id:"9EF", nome:"9º ano do ensino fundamental",
+   faixas:{LP:[150,375], MAT:[150,375]},
    cortes:{LP:[200,235,270], MAT:[225,245,280]}},
-  {id:"3EM", nome:"3º ano do ensino médio", faixa:[175,425],
+  {id:"3EM", nome:"3º ano do ensino médio",
+   faixas:{LP:[175,400], MAT:[175,425]},
    cortes:{LP:[225,270,305], MAT:[250,290,325]}}
 ];
 const PADROES=[
@@ -831,10 +840,18 @@ const acertoCorrigido=(acertos,total,no)=>{
   const chute=1/(no||5);
   return Math.max(0,((acertos/total)-chute)/(1-chute));
 };
-function faixaDe(sm){
-  const et=etapaDe(sm?sm.etapa:"3EM");
-  return (sm&&sm.faixa)||et.faixa;
+/* A faixa de um componente. `sm.faixa` aceita as duas formas: o objeto
+   {LP:[...],MAT:[...]} de agora e o par [piso,teto] das versões antigas,
+   que valia para os dois componentes. */
+function faixaDe(sm,comp){
+  const c=comp||"MAT", et=etapaDe(sm?sm.etapa:"3EM");
+  const f=sm&&sm.faixa;
+  if(Array.isArray(f)) return f;
+  if(f&&Array.isArray(f[c])) return f[c];
+  return (et.faixas&&et.faixas[c])||et.faixa||[175,400];
 }
+const faixaPadrao=(sm,comp)=>
+  (etapaDe(sm?sm.etapa:"3EM").faixas||{})[comp||"MAT"]||[175,400];
 function padraoDe(prof,etapaId,comp){
   if(prof==null) return null;
   const c=etapaDe(etapaId).cortes[comp]||etapaDe(etapaId).cortes.MAT;
@@ -842,10 +859,10 @@ function padraoDe(prof,etapaId,comp){
   return Object.assign({indice:i},PADROES[i]);
 }
 /* percentual → escala, linear dentro da faixa da etapa */
-function profPorPercentual(sm,acertos,total,no){
+function profPorPercentual(sm,acertos,total,no,comp){
   const corr=acertoCorrigido(acertos,total,no);
   if(corr==null) return null;
-  const [piso,teto]=faixaDe(sm);
+  const [piso,teto]=faixaDe(sm,comp);
   return piso+(teto-piso)*corr;
 }
 
@@ -911,7 +928,10 @@ function correl(x,y){
    ao juntar turmas cujos cadernos sortearam itens diferentes: cada item
    é calibrado só com quem o respondeu, e cada θ sai só dos itens que a
    pessoa fez. Sem nenhum `null`, o resultado é idêntico ao de antes. */
-function calibrar(matriz,no){
+/* `ancoras[i]` = dificuldade do item i em θ, vinda da escala oficial.
+   Quando existe, ela substitui o b estimado com a turma — o a e o c
+   continuam saindo da turma, porque o documento não os traz. */
+function calibrar(matriz,no,ancoras){
   const S=matriz.length, I=S?matriz[0].length:0;
   if(!S||!I) return null;
   const c=1/(no||5);
@@ -940,8 +960,10 @@ function calibrar(matriz,no){
     const pEfetivo=Math.min(0.99,Math.max(0.01,(pr-c)/(1-c)));
     const z=probit(1-pEfetivo);                  // z alto = item difícil
     const a=Math.max(0.4,Math.min(2.5,r/Math.sqrt(1-r*r)));
-    const b=Math.max(-3,Math.min(3,z/r));
-    itens.push({a,b,c,pr,r,acertos,respondentes:quantos});
+    const anc=ancoras?ancoras[i]:null;
+    const b=(anc!=null)?Math.max(-4,Math.min(4,anc))
+                       :Math.max(-3,Math.min(3,z/r));
+    itens.push({a,b,c,pr,r,acertos,respondentes:quantos,ancorado:anc!=null});
   }
   return itens;
 }
@@ -973,6 +995,39 @@ const PONTOS_POR_DP=50;
 function escalaTRI(sm,theta,thetaMedio,centro){
   return Math.max(0,Math.min(500,centro+PONTOS_POR_DP*(theta-thetaMedio)));
 }
+
+/* ── ancoragem na escala oficial ───────────────────────────────────
+   A dificuldade de um item, até aqui, saía das respostas da própria
+   turma: se a turma inteira errasse um item fácil, ele virava "difícil".
+   Sem nada externo, o nível do grupo tinha de vir do percentual de
+   acerto — e a proficiência acabava sendo uma projeção dele.
+
+   Os documentos do SAEPE posicionam cada HABILIDADE num nível com faixa
+   de pontos. Associando o item à habilidade, a faixa vira uma âncora de
+   dificuldade vinda de fora da turma. Com âncoras suficientes, o nível do
+   grupo passa a sair de QUAIS itens foram acertados, não de quantos.
+
+   A conversão entre a escala em pontos e o θ do modelo é a mesma dos dois
+   lados: θ = (pontos − referência) / PONTOS_POR_DP, com a referência no
+   meio da faixa da etapa. Assim θ=0 cai no meio da escala e um desvio-
+   padrão vale 50 pontos, como no Saeb. */
+function referenciaEscala(sm,comp){
+  const [piso,teto]=faixaDe(sm,comp);
+  return (piso+teto)/2;
+}
+const pontosParaTheta=(p,ref)=>(p-ref)/PONTOS_POR_DP;
+const thetaParaPontos=(th,ref)=>ref+PONTOS_POR_DP*th;
+
+/* a habilidade associada ao item i, se houver e se for do componente */
+function ancoraDoItem(pr,i,comp){
+  const id=(pr.hab||[])[i];
+  if(!id||typeof habilidadeDe!=="function") return null;
+  const h=habilidadeDe(id);
+  if(!h||h.comp!==comp) return null;
+  const p=pontoDoNivel(h);
+  return p==null?null:{h,ponto:p};
+}
+const ANCORA_MIN_ITENS=3;      // abaixo disto não vale trocar o método
 
 const TRI_MIN_ALUNOS=8, TRI_MIN_ITENS=5;
 /* itens em comum que dois cadernos precisam ter para que a calibração
@@ -1093,6 +1148,7 @@ function itensDoCaderno(pr){
     questao:(pr.questoes||[])[i]||null,
     gab:gabs[i]||"",
     desc:(pr.desc||[])[i]||"",
+    hab:(pr.hab||[])[i]||"",       // id da habilidade oficial, quando associada
     qid:qidDoItem(pr,i),
     orig:(pr.orig||[])[i]||null      // número que a questão tinha no arquivo
   }));
@@ -1109,6 +1165,7 @@ function gravarCaderno(pr,lista){
   pr.questoes=lista.map(x=>x.questao||itemVazio());
   pr.qids=lista.map((x,i)=>x.qid || qidDoTexto((x.questao||{}).enunciado) ||
     ("p"+pr.id+"#"+i));
+  pr.hab=lista.map(x=>x.hab||"");
   propagarNaSerie(pr);
   return pr;
 }
@@ -1145,6 +1202,7 @@ function propagarNaSerie(pr){
       alvo.gabC=pr.gabC;
       alvo.habs=(pr.habs||[]).slice();
       alvo.qids=(pr.qids||[]).slice();
+      alvo.hab=(pr.hab||[]).slice();
       alvo.questoes=JSON.parse(JSON.stringify(pr.questoes||[]));
       outro.qtd=Object.assign({}, sm.qtd);
       outro.alternarBlocos=sm.alternarBlocos;
@@ -1369,7 +1427,22 @@ function participacaoDe(sm){
 }
 
 /* banco de descritores: código → texto, reaproveitado entre simulados */
-const bancoDesc=comp=>((E.descritores||{})[comp]||{});
+/* O banco de descritores vem da Matriz de Referência oficial
+   (`saepe-oficial.js`) e pode ser completado ou corrigido pelo professor.
+   O que ele escreve tem precedência: se a rede publicar uma matriz nova e
+   o texto local divergir, quem manda é o texto local — mas o padrão
+   deixou de ser uma tela em branco para digitar 35 descritores à mão. */
+function etapaDoBanco(){
+  const sm=(typeof casaSim!=="undefined")&&simuladoDe(casaSim);
+  if(sm&&sm.etapa) return sm.etapa;
+  const t=(typeof casaTurma!=="undefined")&&turmaDe(casaTurma);
+  return (t&&sugerirEtapa(t))||"3EM";
+}
+function bancoDesc(comp,etapa){
+  const oficial=(typeof matrizDe==="function")
+    ? matrizDe(comp, etapa||etapaDoBanco()) : {};
+  return Object.assign({}, oficial, (E.descritores||{})[comp]||{});
+}
 function textoDesc(comp,cod){ return bancoDesc(comp)[codDesc(cod)]||""; }
 function rotuloDesc(comp,cod){
   const t=textoDesc(comp,cod);
@@ -1548,6 +1621,7 @@ function montarCasaInterno(box){
   if(casaNivel==="simulado")    return telaSimulado(box);
   if(casaNivel==="itens")       return telaItens(box);
   if(casaNivel==="conferir")    return telaConferir(box);
+  if(casaNivel==="habilidades") return telaHabilidades(box);
 
   if(casaNivel==="banco")       return telaBanco(box);
   if(casaNivel==="relSaepe")    return telaRelSaepe(box);
@@ -3935,20 +4009,25 @@ function telaSimulado(box){
     </div>
     <label>Código impresso no cartão</label>
     <input id="smCod" value="${esc(pr.codigo||"")}">
-    <div class="duo" style="margin-top:10px">
-      <div><label>Piso da escala</label>
-        <input id="smPiso" type="number" inputmode="numeric" value="${faixaDe(sm)[0]}"></div>
-      <div><label>Teto da escala</label>
-        <input id="smTeto" type="number" inputmode="numeric" value="${faixaDe(sm)[1]}"></div>
-    </div>
-    <p class="hint">Intervalo em que a proficiência é projetada. O padrão vem dos
-      níveis da escala do SAEPE para ${esc(et.nome)}${sm.faixa?"":" ("+
-      etapaDe(sm.etapa).faixa.join(" a ")+")"} — mexa só se a rede publicar
-      números diferentes. <b>É projeção, não medida:</b> sem os itens âncora da rede
-      inteira ninguém põe um simulado de turma na escala oficial. O app usa a mesma
-      régua para você ler o resultado junto com os padrões de desempenho.
-      ${sm.faixa?`<button class="btn gho" id="smFaixaPadrao" style="margin-top:8px">
-        Voltar ao padrão da etapa</button>`:""}</p>`;
+    ${COMPONENTES.map(c=>`
+      <div class="duo" style="margin-top:10px">
+        <div><label>${esc(c.nome)} — piso</label>
+          <input id="smPiso${c.id}" type="number" inputmode="numeric"
+            value="${faixaDe(sm,c.id)[0]}"></div>
+        <div><label>${esc(c.nome)} — teto</label>
+          <input id="smTeto${c.id}" type="number" inputmode="numeric"
+            value="${faixaDe(sm,c.id)[1]}"></div>
+      </div>`).join("")}
+    <p class="hint">Intervalo em que a proficiência é projetada, um por componente —
+      as duas escalas não terminam no mesmo ponto. O padrão vem dos níveis de
+      desempenho do SAEPE para ${esc(et.nome)}: ${COMPONENTES.map(c=>
+        esc(c.curto)+" "+faixaPadrao(sm,c.id).join(" a ")).join(" · ")}.
+      Mexa só se a rede publicar números diferentes.
+      <b>É projeção, não medida:</b> sem os itens âncora da rede inteira ninguém põe
+      um simulado de turma na escala oficial. O app usa a mesma régua para você ler o
+      resultado junto com os padrões de desempenho.</p>
+    ${sm.faixa?`<button class="btn gho" id="smFaixaPadrao">Voltar ao padrão da
+      etapa</button>`:""}`;
 
   /* 2 — quantidade de questões */
   const pedidoTotal=COMPONENTES.reduce((n,c)=>n+qtdPedida(sm,c.id),0);
@@ -4011,6 +4090,11 @@ function telaSimulado(box){
     <p class="hint">Aqui aparece cada questão com as alternativas e a que está
       marcada como certa. É a última chance de pegar um gabarito errado antes de
       aplicar — depois, ele só aparece nas notas.</p>
+    <button class="btn gho" id="bHab" style="margin-top:8px">Habilidades da escala ·
+      ${ancorasDoCaderno(pr).comAncora}/${pr.nq}</button>
+    <p class="hint">Associar cada item à habilidade oficial do SAEPE dá a ele uma
+      dificuldade vinda de fora da turma — é o que permite a proficiência sair de
+      <b>quais</b> itens foram acertados, e não de quantos.</p>
     <button class="btn gho" id="bBanco" style="margin-top:8px">Banco de descritores</button>`;
 
   /* 5 — tipos de prova */
@@ -4141,22 +4225,30 @@ function telaSimulado(box){
     sm.alternarBlocos=v; guardar(); montarCasa(); };
 
   const lerFaixa=()=>{
-    const pad=etapaDe(sm.etapa).faixa;
-    let piso=parseInt($("#smPiso").value,10), teto=parseInt($("#smTeto").value,10);
-    if(!isFinite(piso)) piso=pad[0];
-    if(!isFinite(teto)) teto=pad[1];
-    piso=Math.max(0,Math.min(1000,piso)); teto=Math.max(0,Math.min(1000,teto));
-    if(teto<=piso){ alert("O teto precisa ser maior que o piso."); return; }
-    if(piso===pad[0] && teto===pad[1]) delete sm.faixa; else sm.faixa=[piso,teto];
+    const nova={}; let igual=true;
+    for(const c of COMPONENTES){
+      const pad=faixaPadrao(sm,c.id);
+      let piso=parseInt($("#smPiso"+c.id).value,10),
+          teto=parseInt($("#smTeto"+c.id).value,10);
+      if(!isFinite(piso)) piso=pad[0];
+      if(!isFinite(teto)) teto=pad[1];
+      piso=Math.max(0,Math.min(1000,piso)); teto=Math.max(0,Math.min(1000,teto));
+      if(teto<=piso){ alert("O teto de "+c.nome+" precisa ser maior que o piso."); return; }
+      nova[c.id]=[piso,teto];
+      if(piso!==pad[0]||teto!==pad[1]) igual=false;
+    }
+    if(igual) delete sm.faixa; else sm.faixa=nova;
     guardar(); montarCasa(); };
-  $("#smPiso").onchange=lerFaixa;
-  $("#smTeto").onchange=lerFaixa;
+  COMPONENTES.forEach(c=>{
+    $("#smPiso"+c.id).onchange=lerFaixa;
+    $("#smTeto"+c.id).onchange=lerFaixa; });
   if($("#smFaixaPadrao")) $("#smFaixaPadrao").onclick=()=>{
     delete sm.faixa; guardar(); montarCasa(); };
 
   $("#mVolta").onclick=()=>{casaNivel="simulados";montarCasa();};
   $("#bItens").onclick=()=>{casaNivel="itens";montarCasa();};
   $("#bConferir").onclick=()=>{casaNivel="conferir";montarCasa();};
+  $("#bHab").onclick=()=>{habItem=null;casaNivel="habilidades";montarCasa();};
   $("#bBanco").onclick=()=>{casaComp=casaComp||"LP";casaNivel="banco";montarCasa();};
   $("#bRel").onclick=()=>{irParticipacao=false;casaNivel="relSaepe";montarCasa();};
   $("#bPart").onclick=()=>{irParticipacao=true;casaNivel="relSaepe";montarCasa();};
@@ -4486,6 +4578,171 @@ function telaConferir(box){
     gravarCaderno(pr,lista); salvar(); montarCasa(); });
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   ASSOCIAR CADA ITEM À HABILIDADE OFICIAL
+   É o que dá dificuldade ao item vinda de fora da turma. A sugestão é
+   por semelhança de texto entre o item (enunciado + descritor) e as
+   habilidades da etapa; a palavra final é do professor, porque o mesmo
+   descritor mora em vários níveis e só o enunciado diz em qual.
+   ═══════════════════════════════════════════════════════════════════ */
+const PARAR=("de da do das dos e ou em um uma uns umas a o as os no na nos nas "+
+  "por para com que se ao aos à às pelo pela entre sobre sua seu suas seus "+
+  "cada como qual quais dado dada dados dadas partir meio").split(" ");
+function fichas(txt){
+  return String(txt||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+    .toLowerCase().replace(/[^a-z0-9]+/g," ").trim().split(" ")
+    .filter(p=>p.length>3 && !PARAR.includes(p));
+}
+/* semelhança de Jaccard com peso para as palavras do começo da
+   habilidade, que é onde mora o verbo de comando */
+function parecenca(a,b){
+  const A=new Set(a), B=new Set(b);
+  if(!A.size||!B.size) return 0;
+  let comuns=0; A.forEach(p=>{ if(B.has(p)) comuns++; });
+  const jac=comuns/(A.size+B.size-comuns);
+  const verbo=(a[0]&&b[0]&&a[0]===b[0])?0.12:0;
+  return jac+verbo;
+}
+function sugerirHabilidades(pr,i,comp,etapa,quantas){
+  if(typeof habilidadesDe!=="function") return [];
+  const x=itensDoCaderno(pr)[i]||{};
+  const alvo=fichas(((x.questao||{}).enunciado||"")+" "+
+    textoDesc(comp,x.desc||"")+" "+((x.questao||{}).alternativas||[]).join(" "));
+  return habilidadesDe(comp,etapa)
+    .map(h=>({h, nota:parecenca(alvo,fichas(h.texto))}))
+    .sort((a,b)=>b.nota-a.nota)
+    .slice(0,quantas||5);
+}
+/* quantos itens de cada componente já têm habilidade */
+function ancorasDoCaderno(pr){
+  const out={total:0, comAncora:0, porComp:{}};
+  COMPONENTES.forEach(c=>out.porComp[c.id]={total:0, comAncora:0});
+  itensDoCaderno(pr).forEach((x,i)=>{
+    const c=x.comp||"LP", p=out.porComp[c]||(out.porComp[c]={total:0,comAncora:0});
+    out.total++; p.total++;
+    const h=x.hab&&typeof habilidadeDe==="function"?habilidadeDe(x.hab):null;
+    if(h&&h.comp===c){ out.comAncora++; p.comAncora++; }
+  });
+  return out;
+}
+
+let habItem=null;          // item aberto na tela de associação
+
+function telaHabilidades(box){
+  const sm=simuladoDe(casaSim);
+  if(!sm){ casaNivel="simulados"; return montarCasa(); }
+  const pr=provaDoSim(sm);
+  if(!pr||!pr.nq){ casaNivel="simulado"; return montarCasa(); }
+  const itens=itensDoCaderno(pr), A=ancorasDoCaderno(pr);
+  const et=etapaDe(sm.etapa);
+
+  if(habItem==null){
+    let h=`<div class="migalha"><button id="mVolta">‹ ${esc(sm.titulo)}</button></div>
+      <h2>Habilidades da escala</h2>
+      <p class="sub">${A.comAncora} de ${A.total} itens associados · ${esc(et.nome)}</p>
+      <p class="hint" style="margin-top:-4px">Associar o item à habilidade oficial dá a
+        ele uma <b>dificuldade vinda de fora da turma</b>: a faixa de pontos do nível em
+        que o SAEPE posiciona aquela habilidade. Com pelo menos ${ANCORA_MIN_ITENS}
+        itens associados por componente, a proficiência passa a sair de <b>quais</b>
+        itens foram acertados, e não de quantos.</p>`;
+    COMPONENTES.forEach(c=>{
+      const p=A.porComp[c.id]||{total:0,comAncora:0};
+      if(!p.total) return;
+      const pronto=p.comAncora>=ANCORA_MIN_ITENS;
+      h+=`<div class="item" style="cursor:default"><div class="cor">
+        <div class="t1">${esc(c.nome)}</div>
+        <div class="t2">${p.comAncora} de ${p.total} associados${
+          pronto?" · ancoragem ativa":" · faltam "+(ANCORA_MIN_ITENS-p.comAncora)+
+          " para ancorar"}</div></div>
+        <span class="tag${pronto?" ok":""}">${p.comAncora}/${p.total}</span></div>`;
+    });
+    h+=`<div class="rot">Itens</div>`;
+    itens.forEach((x,i)=>{
+      const hb=x.hab&&typeof habilidadeDe==="function"?habilidadeDe(x.hab):null;
+      const enun=String((x.questao||{}).enunciado||"").replace(/\s+/g," ").trim();
+      h+=`<button class="item" data-i="${i}"><div class="nu" style="flex:0 0 24px">${
+        String(i+1).padStart(2,"0")}</div><div class="cor">
+        <div class="t1">${hb?"Nível "+hb.nivel+" · "+esc(hb.texto.slice(0,70))+
+          (hb.texto.length>70?"…":""):"<span style=\"color:var(--mute)\">sem habilidade</span>"}</div>
+        <div class="t2">${esc(x.comp==="MAT"?"Mat.":"Port.")}${x.desc?" · "+esc(x.desc):""} · ${
+          esc(enun.slice(0,60))||"sem enunciado"}${enun.length>60?"…":""}</div></div>
+        ${hb?`<span class="tag ok">${pontoDoNivel(hb)}</span>`:`<span class="ch">›</span>`}</button>`;
+    });
+    h+=`<button class="btn sec" id="habAuto" style="margin-top:14px">Sugerir para os
+      itens ainda sem habilidade</button>
+      <p class="hint">A sugestão automática acerta o assunto, mas não sabe o grau de
+        exigência do enunciado — confira item a item antes de aplicar.</p>`;
+    box.innerHTML=h;
+    $("#mVolta").onclick=()=>{casaNivel="simulado";montarCasa();};
+    box.querySelectorAll("[data-i]").forEach(b=>b.onclick=()=>{
+      habItem=+b.dataset.i; montarCasa(); });
+    $("#habAuto").onclick=()=>{
+      if(!confirm("Preencher com a primeira sugestão os itens que ainda não têm "+
+        "habilidade?\n\nOs já associados não são tocados. Confira depois: a sugestão "+
+        "acerta o assunto, não o grau de exigência.")) return;
+      const lista=itensDoCaderno(pr);
+      lista.forEach((x,i)=>{
+        if(x.hab) return;
+        const sug=sugerirHabilidades(pr,i,x.comp,sm.etapa,1)[0];
+        if(sug&&sug.nota>0.06) lista[i].hab=sug.h.id;
+      });
+      gravarCaderno(pr,lista); salvar(); montarCasa(); };
+    return;
+  }
+
+  /* ── um item ── */
+  const i=habItem, x=itens[i];
+  if(!x){ habItem=null; return montarCasa(); }
+  const comp=x.comp||"LP";
+  const atual=x.hab&&typeof habilidadeDe==="function"?habilidadeDe(x.hab):null;
+  const sug=sugerirHabilidades(pr,i,comp,sm.etapa,8);
+  const enun=String((x.questao||{}).enunciado||"").replace(/\s+/g," ").trim();
+
+  let h=`<div class="migalha"><button id="mVolta">‹ Habilidades</button></div>
+    <h2>Item ${String(i+1).padStart(2,"0")}</h2>
+    <p class="sub">${esc(nomeComp(comp))}${x.desc?" · "+esc(rotuloDesc(comp,x.desc)):""}</p>
+    <div class="hint" style="margin-bottom:10px">${enun?esc(enun.slice(0,420))+
+      (enun.length>420?"…":""):"<b>sem enunciado</b>"}</div>`;
+  if(atual) h+=`<div class="diag"><b>Nível ${atual.nivel} · ${
+    atual.de==null?"até "+atual.ate:atual.ate==null?"acima de "+atual.de:
+    atual.de+" a "+atual.ate} pontos</b>${esc(atual.texto)}</div>`;
+  h+=`<div class="rot">Sugestões para ${esc(nomeComp(comp))}</div>`;
+  sug.forEach(({h:hb,nota})=>{
+    const sel=atual&&atual.id===hb.id;
+    h+=`<button class="item" data-h="${esc(hb.id)}"
+      style="margin-bottom:5px;${sel?"border-color:var(--mint)":""}">
+      <div class="cor"><div class="t1">${esc(hb.texto)}</div>
+      <div class="t2">Nível ${hb.nivel} · ${
+        hb.de==null?"até "+hb.ate:hb.ate==null?"acima de "+hb.de:hb.de+" a "+hb.ate}
+        pontos · âncora ${pontoDoNivel(hb)}</div></div>
+      ${sel?`<span class="tag ok">esta</span>`:""}</button>`;
+  });
+  h+=`<button class="btn gho" id="habTodas" style="margin-top:9px">Ver todas as
+      ${(typeof habilidadesDe==="function"?habilidadesDe(comp,sm.etapa).length:0)}
+      habilidades de ${esc(nomeComp(comp))}</button>
+    ${atual?`<button class="btn gho" id="habLimpar" style="margin-top:9px">Tirar a
+      habilidade deste item</button>`:""}`;
+  box.innerHTML=h;
+  $("#mVolta").onclick=()=>{habItem=null;montarCasa();};
+  const gravarHab=id=>{
+    const lista=itensDoCaderno(pr);
+    lista[i].hab=id;
+    gravarCaderno(pr,lista); salvar(); montarCasa(); };
+  box.querySelectorAll("[data-h]").forEach(b=>b.onclick=()=>gravarHab(b.dataset.h));
+  if($("#habLimpar")) $("#habLimpar").onclick=()=>gravarHab("");
+  $("#habTodas").onclick=()=>{
+    const todas=habilidadesDe(comp,sm.etapa);
+    const txt=prompt("Digite parte do texto da habilidade para filtrar:","");
+    if(txt==null) return;
+    const f=fichas(txt);
+    const achadas=todas.map(hb=>({hb,n:parecenca(f,fichas(hb.texto))}))
+      .sort((a,b)=>b.n-a.n).slice(0,8);
+    const escolha=prompt("Escolha o número:\n\n"+achadas.map((a,k)=>
+      (k+1)+") N"+a.hb.nivel+" — "+a.hb.texto.slice(0,90)).join("\n"));
+    const n=parseInt(escolha,10);
+    if(n>=1&&n<=achadas.length) gravarHab(achadas[n-1].hb.id); };
+}
+
 /* ── banco de descritores, reaproveitado entre simulados ─────────── */
 function telaBanco(box){
   const comp=casaComp||"LP";
@@ -4545,20 +4802,40 @@ function apurarComp(sm,comp){
   /* TRI quando há gente e itens suficientes; senão, percentual */
   let metodo="pct", par=null, thMedio=0, centro=null;
   const matriz=feitos.map(L=>idx.map(i=>(L.res.Rc&&L.res.Rc[i]===g[i])?1:0));
+
+  /* âncoras da escala oficial, uma por item, quando o item foi associado
+     a uma habilidade dos documentos do SAEPE */
+  const ref=referenciaEscala(sm,comp);
+  const ancoras=idx.map(i=>{ const a=ancoraDoItem(pr,i,comp);
+    return a?pontosParaTheta(a.ponto,ref):null; });
+  const nAncoras=ancoras.filter(x=>x!=null).length;
+  const ancorado=nAncoras>=ANCORA_MIN_ITENS;
+
   if(sm.metodo!=="pct" && feitos.length>=TRI_MIN_ALUNOS && idx.length>=TRI_MIN_ITENS){
-    par=calibrar(matriz,pr.no);
+    par=calibrar(matriz,pr.no,ancorado?ancoras:null);
     if(par){
-      metodo="tri";
+      metodo=ancorado?"tri-ancorada":"tri";
       feitos.forEach((L,k)=>{ L.theta=estimarTheta(matriz[k],par); });
       thMedio=feitos.reduce((x,L)=>x+L.theta,0)/feitos.length;
-      /* o nível da turma vem do acerto absoluto; a TRI distribui em volta */
-      const mediaAcertos=feitos.reduce((x,L)=>x+L.acertos,0)/feitos.length;
-      centro=profPorPercentual(sm,mediaAcertos,idx.length,pr.no);
-      feitos.forEach(L=>{ L.prof=escalaTRI(sm,L.theta,thMedio,centro); });
+      if(ancorado){
+        /* com âncoras, o nível do grupo sai de QUAIS itens foram
+           acertados: θ já está na escala oficial, é só converter. Não se
+           usa mais o percentual de acerto para posicionar a turma. */
+        const [piso,teto]=faixaDe(sm,comp);
+        feitos.forEach(L=>{ L.prof=Math.max(piso,Math.min(teto,
+          thetaParaPontos(L.theta,ref))); });
+        centro=thetaParaPontos(thMedio,ref);
+      }else{
+        /* sem âncora: o nível vem do acerto absoluto e a TRI distribui
+           os estudantes em volta dele */
+        const mediaAcertos=feitos.reduce((x,L)=>x+L.acertos,0)/feitos.length;
+        centro=profPorPercentual(sm,mediaAcertos,idx.length,pr.no,comp);
+        feitos.forEach(L=>{ L.prof=escalaTRI(sm,L.theta,thMedio,centro); });
+      }
     }
   }
   if(metodo==="pct")
-    feitos.forEach(L=>{ L.prof=profPorPercentual(sm,L.acertos,idx.length,pr.no); });
+    feitos.forEach(L=>{ L.prof=profPorPercentual(sm,L.acertos,idx.length,pr.no,comp); });
   linhas.forEach(L=>{ if(L.prof==null) L.prof=null;
     L.padrao=L.prof==null?null:padraoDe(L.prof,sm.etapa,comp); });
 
@@ -4570,7 +4847,10 @@ function apurarComp(sm,comp){
   const itens=idx.map((i,k)=>({
     q:i+1, cod:(pr.desc||[])[i]||"",
     pct:feitos.length?100*feitos.filter(L=>L.res.Rc&&L.res.Rc[i]===g[i]).length/feitos.length:null,
-    dif:par?escalaTRI(sm,par[k].b,thMedio,centro):null,
+    dif:par?(par[k].ancorado?thetaParaPontos(par[k].b,ref)
+                            :escalaTRI(sm,par[k].b,thMedio,centro)):null,
+    ancorado:par?!!par[k].ancorado:false,
+    hab:(pr.hab||[])[i]||"",
     a:par?par[k].a:null,
     r:par?par[k].r:null      // correlação item-total: é ela que diz se separa
   }));
@@ -4589,9 +4869,11 @@ function apurarComp(sm,comp){
      isso o resultado precisa sair marcado como PROVISÓRIO, dizendo
      quantos cartões faltam. */
   const faltamParaTri=Math.max(0,TRI_MIN_ALUNOS-feitos.length);
+  const semAncora2=nAncoras<ANCORA_MIN_ITENS;
   const provisorio=(metodo==="pct" && sm.metodo!=="pct" && idx.length>=TRI_MIN_ITENS);
   return {pr,t,comp,total:idx.length,linhas,feitos,media,dist,itens,descritores,
-          metodo,par,provisorio,faltamParaTri,
+          metodo,par,provisorio,faltamParaTri,ref,
+          ancoras:nAncoras, semAncoraOficial:semAncora2,
           padraoMedio:padraoDe(media,sm.etapa,comp)};
 }
 
@@ -4812,7 +5094,7 @@ function apurarConjunto(sims,comp){
   const etapa=sm0.etapa;
   /* nível do recorte pelo acerto absoluto; a TRI distribui em volta */
   const mediaPct=linhas.reduce((x,L)=>x+L.acertos/L.total,0)/linhas.length;
-  const centro=profPorPercentual(sm0, mediaPct*100, 100, no);
+  const centro=profPorPercentual(sm0, mediaPct*100, 100, no, comp);
 
   /* ── itens âncora ────────────────────────────────────────────────
      Uma calibração conjunta só coloca estudantes de CADERNOS DIFERENTES
@@ -4849,7 +5131,7 @@ function apurarConjunto(sims,comp){
     }
   }
   if(metodo==="pct")
-    linhas.forEach(L=>{ L.prof=profPorPercentual(sm0,L.acertos,L.total,no); });
+    linhas.forEach(L=>{ L.prof=profPorPercentual(sm0,L.acertos,L.total,no,comp); });
   linhas.forEach(L=>{ L.padrao=padraoDe(L.prof,etapa,comp); });
 
   const media=linhas.reduce((x,L)=>x+L.prof,0)/linhas.length;
@@ -5229,22 +5511,32 @@ function telaRelSaepe(box){
         <div class="l">Padrão médio</div></div>
       <div><div class="v">${A.feitos.length}<span style="font-size:13px;color:var(--mute)">/${A.linhas.length}</span></div>
         <div class="l">Corrigidos</div></div></div>
-      <p class="hint" style="margin-top:-4px">${A.metodo==="tri"
+      <p class="hint" style="margin-top:-4px">${A.metodo==="tri-ancorada"
+        ? "Calculado por TRI de 3 parâmetros ANCORADA na escala oficial: "+A.ancoras+
+          " dos "+A.total+" itens estão associados a habilidades do SAEPE, e a "+
+          "dificuldade deles vem da faixa de pontos do nível — não das respostas "+
+          "desta turma. A proficiência sai de QUAIS itens foram acertados."
+        : A.metodo==="tri"
         ? "Calculado por TRI de 3 parâmetros, com os "+A.feitos.length+
           " cartões deste componente. Item difícil pesa mais; acerto isolado em item "+
           "difícil, com erro nos fáceis, é lido como chute."
         : "Calculado pelo percentual de acerto"+(sm.metodo!=="pct"
             ?" — a TRI precisa de pelo menos "+TRI_MIN_ALUNOS+" cartões corrigidos.":".")}
         Cortes desta etapa: ${cortes[0]} · ${cortes[1]} · ${cortes[2]}.
-        A proficiência é <b>projetada</b> na faixa ${faixaDe(sm)[0]}–${faixaDe(sm)[1]},
-        que é a escala do SAEPE para esta etapa — sem os itens âncora da rede
-        inteira, um simulado de turma não pode ser calibrado na escala oficial.</p>
+        ${A.metodo==="tri-ancorada"?"":`A proficiência é <b>projetada</b> na faixa ${faixaDe(sm,c.id)[0]}–${faixaDe(sm,c.id)[1]},
+        que é a escala do SAEPE para ${esc(nomeComp(c.id))} nesta etapa — sem os itens âncora da rede
+        inteira, um simulado de turma não pode ser calibrado na escala oficial.`}</p>
+      ${A.metodo==="tri"&&A.semAncoraOficial?`<div class="diag">
+        <b>Dá para melhorar este número</b> Nenhum item deste componente está associado
+        a uma habilidade da escala do SAEPE. Com a associação, a dificuldade dos itens
+        deixa de ser estimada só com esta turma e o resultado fica mais perto do real.
+        A tela fica em <b>Habilidades da escala</b>, na ficha do simulado.</div>`:""}
       ${A.provisorio
         ? `<div class="aviso"><b>Proficiência provisória</b>
            Estes números ainda são percentual de acerto, não TRI: faltam
            ${A.faltamParaTri} cartão${A.faltamParaTri===1?"":"ões"} deste componente
            para a calibração rodar. Enquanto isso, quem acerta tudo aparece no teto
-           da faixa (${faixaDe(sm)[1]}), quem tem o mesmo número de acertos aparece
+           da faixa (${faixaDe(sm,c.id)[1]}), quem tem o mesmo número de acertos aparece
            com a mesma proficiência, e o valor de cada estudante não muda quando os
            outros são corrigidos. Sob TRI os três mudam: dois estudantes com o mesmo
            número de acertos ficam com proficiências diferentes se acertaram itens
@@ -6754,6 +7046,7 @@ function avisoFlutuante(texto, cls, segundos){
   if(typeof qrcode!=="function") faltando.push("qrcode.min.js");
   if(typeof gerarProvas!=="function") faltando.push("gerador.js");
   if(typeof montarXlsx!=="function") faltando.push("planilha.js");
+  if(typeof SAEPE_MATRIZ!=="object") faltando.push("saepe-oficial.js");
   if(typeof registrarFontes!=="function") faltando.push("fonte.js");
   if(typeof mammoth==="undefined") faltando.push("mammoth.browser.min.js");
   if(typeof pdfjsLib==="undefined") faltando.push("pdf.min.js");
