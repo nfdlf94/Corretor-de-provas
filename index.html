@@ -3788,6 +3788,13 @@ function gerarPDF(p,t,modo){
         extra+=`<br><b>Atenção:</b> saiu com ${doc.avisoPaginas} páginas por estudante,
           acima do limite de 4. A letra já foi reduzida ao mínimo — para caber,
           corte questões ou encurte os enunciados.`;
+      /* PRE_FLIGHT_CHECK: o que a conferência automática viu na
+         diagramação. Lista vazia não aparece na tela. */
+      if(doc.preFlight&&doc.preFlight.length){
+        const lista=doc.preFlight.slice(0,8).map(a=>"<li>"+esc(a)+"</li>").join("");
+        const sobra=doc.preFlight.length>8?`<br>… e mais ${doc.preFlight.length-8}.`:"";
+        extra+=`<br><b>Conferência da diagramação:</b><ul style="margin:4px 0 0 18px">${lista}</ul>${sobra}`;
+      }
       const porAluno=doc.paginasPorAluno||
         (doc.getNumberOfPages()/Math.max(1,t.alunos.length)).toFixed(0);
       if(ehCaderno(p)){
@@ -4631,12 +4638,17 @@ function telaSimulado(box){
       const el=$("#smPag"), av=$("#smAjuste");
       const corpo=doc.corpoUsado?String(doc.corpoUsado).replace(".",",")+" pt":"";
       if(el) el.textContent=(doc.paginasPorAluno||"?")+(corpo?" · corpo "+corpo:"");
+      const pf=(doc.preFlight||[]).slice(0,5);
+      const blocoPF=pf.length?`<div class="aviso" style="margin-top:10px">
+          <b>Conferência da diagramação</b>
+          <ul style="margin:4px 0 0 18px">${pf.map(a=>"<li>"+esc(a)+"</li>").join("")}</ul>
+        </div>`:"";
       if(av && doc.avisoPaginas){
         av.innerHTML=`<div class="aviso" style="margin-top:10px">
           Com ${pr.nq} questões a prova sai com ${doc.avisoPaginas} páginas, mesmo na
           menor letra permitida (9 pt). Ao gerar, o app vai propor a maior quantidade
-          que cabe em ${MAX_PAG_SIMULADO} páginas.</div>`;
-      }else if(av) av.innerHTML="";
+          que cabe em ${MAX_PAG_SIMULADO} páginas.</div>`+blocoPF;
+      }else if(av) av.innerHTML=blocoPF;
     }catch(e){ /* previsão é enfeite: se falhar, o botão continua valendo */ }
   };
   setTimeout(()=>{ if(casaNivel==="simulado") prever(); },30);

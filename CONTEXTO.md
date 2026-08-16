@@ -522,9 +522,14 @@ Alcance atual: 5–6 questões em 1 página, 7–14 em 2, 15–20 em 3, e o cade
 de 30 itens do simulado em 4.
 
 No caderno de simulado, cada componente abre com uma **faixa de bloco**
-(LÍNGUA PORTUGUESA, MATEMÁTICA). A faixa é somada à altura da primeira
-questão do bloco, e não é um bloco à parte — assim ela nunca fica órfã no
-pé de uma coluna.
+(LÍNGUA PORTUGUESA, MATEMÁTICA). Desde a v43 ela é a primeira **unidade**
+da questão que abre o componente, marcada como colada — assim ela nunca
+fica órfã no pé de uma coluna.
+
+A partir da v43 a questão **não é mais um bloco indivisível**: ela pode
+começar numa coluna e terminar na outra. Ver a seção da v43 para as
+regras de cola e para a razão de `alturasCanonicas`, `empacotar`,
+`paginasNoPior` e `fluir` terem de medir as mesmas unidades.
 
 ---
 
@@ -1503,6 +1508,10 @@ verdade no motor de layout e não foi feito. Não tente resolver mexendo em
 `melhorCorte`: ele só escolhe onde dividir uma sequência de blocos
 inteiros entre as duas colunas.
 
+> **RESOLVIDO na v43.** `blocosDaProva` passou a devolver unidades com
+> altura própria e marca de cola, e `melhorCorte` recusa cortar dentro de
+> um grupo colado. Ver a seção da v43, no fim deste arquivo.
+
 
 ---
 
@@ -1534,3 +1543,157 @@ palavras, curta, sem pontuação final).
 O `teste45.js` usa um jsPDF de mentira que registra a ORDEM dos desenhos
 — é assim que dá para afirmar que a imagem sai antes do comando sem
 precisar renderizar PDF de verdade.
+
+---
+
+## v43 — a coluna direita deixou de ficar vazia
+
+Esta versão é só do **motor de diagramação**. Nenhuma questão, gabarito,
+descritor ou quantidade de itens mudou; o QR Code, o cartão-resposta e a
+correção não foram tocados.
+
+### 1. A questão virou uma lista de unidades
+
+Era o item 3 da v41, diagnosticado e não resolvido: as duas colunas de uma
+página começam na mesma altura, e na primeira elas começam ABAIXO do
+cartão-resposta, que come uns 90 mm. Uma questão mais alta que a coluna
+encurtada não cabia em nenhuma das duas, e como a ordem não pode mudar (o
+gabarito individual depende dela), a página fechava com a coluna direita
+em branco.
+
+`blocosDaProva` não devolve mais blocos indivisíveis com um único
+`desenhar()`. Cada questão passa por `unidadesQuestao()` e sai como uma
+sequência de unidades com altura própria e uma marca `cola`, que diz
+"esta não pode ser separada da seguinte":
+
+| Unidade | Cola | Por quê |
+|---|---|---|
+| faixa de bloco (LÍNGUA PORTUGUESA) | sim | nunca órfã no pé da coluna |
+| rótulo QUESTÃO NN | sim | idem |
+| instrução, título | sim | idem |
+| figura / gráfico / tabela | sim | anda junto do comando que manda observá-la |
+| linha de parágrafo | só nas 2 primeiras e 2 últimas | viúvas e órfãs |
+| fonte bibliográfica | sim | nunca fica isolada |
+| comando | sim | nunca se separa das alternativas |
+| alternativa 1 e penúltima | sim | nenhuma alternativa sozinha na coluna seguinte |
+| última alternativa | não | fim da questão, corte livre |
+
+`melhorCorte` recebe o vetor de colas e **recusa cortar dentro de um grupo
+colado**. Quando nem o grupo inteiro cabe na coluna, `grupoColado()`
+devolve o tamanho do grupo e ele transborda junto, em vez de a cola ser
+partida no meio — que é o que o antigo `leva = 1` fazia.
+
+**A regra que não pode ser quebrada:** `alturasCanonicas`, `empacotar`,
+`paginasNoPior` e `fluir` medem as MESMAS unidades. Se a contagem de
+páginas medir a questão inteira e o desenho empacotar unidades, a escolha
+do corpo passa a mirar um layout que não é o que sai impresso — e o
+estudante recebe uma página a mais sem ninguém entender por quê.
+
+Efeito medido, com 10 questões de texto longo por componente: a v42
+precisava descer para 10,2 pt para fechar em 4 páginas; a v43 fecha nas
+mesmas 4 páginas **em 10,5 pt**.
+
+De quebra, uma dívida de meio milímetro por figura: `medidasQuestao` media
+`fig.h + 2,5` e `desenharFig` gastava `fig.h + 3`. Com blocos
+indivisíveis isso se diluía; com unidades, não pode.
+
+### 2. "2012. A informação principal desse texto é:"
+
+A regex `Acesso em:[^.]*\.` parava no ponto de **"6 fev."**. O resto da
+referência — "2012." — sobrava e era colado no começo do comando, e o
+endereço do site aparecia impresso como se fosse frase do texto.
+
+`FIM_FONTE` ganhou uma regra gulosa que vai até o ANO
+(`Acesso em:[^\n]{0,60}?\b(19|20)\d{2}\s*\.`), com a antiga mantida como
+rede de segurança para datas sem ano. Entraram também `Adaptado.` /
+`Adaptado de…`, `Disponível em: <url>` e um último recurso para o
+parágrafo que é a referência inteira sem nenhuma dessas fórmulas
+("Fonte: Revista Veja, 2012."), reconhecido por `pareceReferencia`.
+
+O estilo SOURCE_REFERENCE tem **piso de 8 pt** (`Math.max(8, fs − 2,2)`):
+na escada do simulado o corpo chega a 9 pt, e `fs − 2,2` daria 6,8 —
+ilegível numa folha xerocada. O ar depois da fonte subiu de 2,0 para
+2,6 mm.
+
+### 3. Cada elemento com o seu alinhamento
+
+`classificarCorpo()` divide o texto de apoio em três tipos:
+
+- **corpo** — prosa: justificada, com entrada de parágrafo;
+- **verso** — três ou mais linhas curtas SEGUIDAS. Não é reconhecido
+  linha a linha: uma frase curta solta no meio da prosa continua sendo
+  prosa. Verso não é justificado, não leva recuo e tem entrelinha
+  apertada dentro da estrofe;
+- **formula** — expressão isolada e curta com símbolo matemático
+  (`N(t) = 200 · 2ᵗ`): centralizada, sem recuo.
+
+Gráficos e figuras passaram a ser centralizados na área útil da coluna.
+
+Para centralizar ou alinhar à direita uma linha que traz expoente foi
+preciso escrever `larguraComNiveis()`: o `align` do jsPDF não conhece os
+pedaços de sobrescrito e jogaria o expoente para fora da coluna.
+
+### 4. Cabeçalho do Simulado SAEPE
+
+Faixa de 15 mm (contra 13 da prova comum): escola em 7 pt em cima,
+**SIMULADO SAEPE** em 13 pt bold logo abaixo, com filete laranja sob a
+palavra. `PROFESSOR:` sai do cabeçalho e a linha administrativa vira
+`COMPONENTES: … DATA: …`.
+
+O título vai em **branco sobre o navy**, não em laranja: laranja sobre
+navy vira dois cinzas parecidos na impressão em preto e branco, que é
+como a prova é aplicada. O laranja ficou no filete, que é enfeite e não
+carrega informação. A prova comum não mudou em nada.
+
+`cabecalho()` em modo `dry` continua devolvendo exatamente a mesma altura
+do desenho — é dela que sai `topoPrimeira`, e uma diferença de um
+milímetro aqui desalinha a paginação inteira.
+
+### 5. PRE_FLIGHT_CHECK
+
+`preFlightCheck(cfg, molde, corpo)` roda com o corpo já escolhido, antes
+de desenhar, e devolve uma lista de avisos em português (lista vazia =
+passou). Confere:
+
+- **conteúdo** — nº de questões contra o gabarito, alternativas por
+  questão, enunciado ou alternativa em branco, tamanho da lista de
+  componentes;
+- **matemática** — conta os CARACTERES sobrescritos e subscritos do
+  original e os compara com os que sobreviveram à quebra de linha. Conta
+  caracteres e não pedaços porque uma quebra no meio de um expoente
+  divide o pedaço em dois sem perder nada. Sumindo algum, o aviso diz
+  ERRO DE RENDERIZAÇÃO;
+- **diagramação** — referência que vazou para dentro do comando, linha
+  mais larga que a coluna, figura mais larga que a coluna, imagem no
+  arquivo que não foi medida;
+- **cabeçalho SAEPE** — instituição e componentes presentes.
+
+O resultado aparece na tela ao gerar e na previsão do caderno. Ele
+**avisa, não corrige**: mexer no conteúdo é justamente o que o motor de
+diagramação não pode fazer.
+
+### 6. Suítes novas
+
+- `teste46` — cabeçalho SAEPE (professor ausente, título maior e em
+  negrito, dry = desenho) e a separação da fonte bibliográfica, incluindo
+  o caso do "2012.";
+- `teste47` — as unidades: a soma das alturas fecha com `m.h +
+  AR_QUESTAO()`, as colas seguram o que não pode ser separado, e uma
+  questão mais alta que a coluna encurtada passa a ocupar as DUAS colunas;
+- `teste48` — classificação de verso e fórmula, alinhamentos de cada
+  elemento, figura centralizada, expoente que sobrevive à quebra, e os
+  avisos do pre-flight.
+
+O `teste48` usa um `splitTextToSize` de mentira **fiel à largura**: com a
+quebra por chute dos outros arquivos falsos, a conferência de margem daria
+falso positivo.
+
+### O que continua em aberto
+
+- `teste39`, `teste40`, `teste42` e `teste43` leem os PDFs reais do 1º
+  Simulado em `/mnt/user-data/uploads/`. Sem esses arquivos elas não
+  rodam — não é regressão, é insumo faltando.
+- Troca de questão por texto menor (v41) continua dependendo de o arquivo
+  do simulado trazer mais questões do que se pede.
+- Cortes de 5º e 9º ano em Língua Portuguesa seguem da edição de 2018,
+  sem conferência contra documento atual.

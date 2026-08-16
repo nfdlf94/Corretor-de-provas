@@ -239,15 +239,40 @@ const xColuna = (doc, c) => MARG + c * (larguraColuna(doc) + GUT);
 /* ── cabeçalho ──────────────────────────────────────────────────── */
 function cabecalho(doc, cfg, aluno, dry){
   const W = doc.internal.pageSize.getWidth(), util = W - 2 * MARG;
-  const alturaFaixa = 13;
+  /* O Simulado SAEPE ganha dois milímetros a mais de faixa para o título
+     caber com peso tipográfico de verdade. É a única diferença de altura
+     entre os dois cabeçalhos. */
+  const saepe = !!cfg.simulado;
+  const alturaFaixa = saepe ? 15 : 13;
   if(!dry){
     doc.setFillColor(...COR.navy);
     doc.rect(0, 0, W, alturaFaixa, "F");
-    doc.setTextColor(...COR.branco); doc.setFont(FONTE_TEXTO, "bold"); doc.setFontSize(9);
-    doc.text(String(cfg.escola || "").toUpperCase(), MARG, 6);
-    doc.setTextColor(...COR.orange); doc.setFontSize(7);
-    doc.text([cfg.titulo || "AVALIAÇÃO DE APRENDIZAGEM", cfg.periodoLabel]
-               .filter(Boolean).join("  •  ").toUpperCase(), MARG, 10.5);
+    doc.setTextColor(...COR.branco); doc.setFont(FONTE_TEXTO, "bold");
+    if(saepe){
+      /* escola pequena em cima, SIMULADO SAEPE grande embaixo. O título
+         vai em BRANCO sobre o navy porque é o par de maior contraste —
+         em laranja ele empalidece quando a folha sai em preto e branco,
+         que é como a prova é impressa. O laranja fica no filete, que é
+         enfeite e não carrega informação. */
+      doc.setFontSize(7);
+      doc.text(String(cfg.escola || "").toUpperCase(), MARG, 5.2);
+      doc.setFontSize(13);
+      const titulo = "SIMULADO SAEPE";
+      doc.text(titulo, MARG, 12.2);
+      doc.setDrawColor(...COR.orange); doc.setLineWidth(0.8);
+      doc.line(MARG, 13.6, MARG + doc.getTextWidth(titulo), 13.6);
+      const aoLado = String(cfg.periodoLabel || "").replace(/^Simulado SAEPE\s*·?\s*/i, "");
+      if(aoLado){
+        doc.setFont(FONTE_TEXTO, "normal"); doc.setFontSize(7);
+        doc.text(aoLado.toUpperCase(), W - MARG, 12.2, {align: "right"});
+      }
+    }else{
+      doc.setFontSize(9);
+      doc.text(String(cfg.escola || "").toUpperCase(), MARG, 6);
+      doc.setTextColor(...COR.orange); doc.setFontSize(7);
+      doc.text([cfg.titulo || "AVALIAÇÃO DE APRENDIZAGEM", cfg.periodoLabel]
+                 .filter(Boolean).join("  •  ").toUpperCase(), MARG, 10.5);
+    }
     /* com tipos de prova, o professor precisa ver de longe qual é qual */
     const tp = tipoDoAluno(aluno && aluno.numero, cfg.tipos);
     if(tp){
@@ -279,9 +304,14 @@ function cabecalho(doc, cfg, aluno, dry){
 
   if(!dry){
     doc.setTextColor(80, 88, 100); doc.setFont(FONTE_TEXTO, "normal"); doc.setFontSize(7);
-    const linha = "DISCIPLINA: " + (cfg.disciplina || "") +
-      "        PROFESSOR: " + (cfg.professor || "") +
-      "        DATA: ____ / ____ / ______";
+    /* No simulado o nome do professor NÃO aparece: a avaliação é da rede,
+       não da turma de alguém. Os componentes e a data continuam. */
+    const linha = saepe
+      ? "COMPONENTES: " + (cfg.disciplina || "") +
+        "        DATA: ____ / ____ / ______"
+      : "DISCIPLINA: " + (cfg.disciplina || "") +
+        "        PROFESSOR: " + (cfg.professor || "") +
+        "        DATA: ____ / ____ / ______";
     doc.text(linha, MARG, y);
   }
   return y + 4;
@@ -318,11 +348,19 @@ const AR_QUESTAO = () => DENSO ? 2.2 : 3.4;
    comando desaparece. Aqui elas são separadas e recebem tipos próprios. */
 const RE_INSTRUCAO = /^leia(\s+(o|os)\s+(texto|textos|trecho|fragmento)s?)?(\s+abaixo)?\s*[.:]?$/i;
 const RE_COMANDO = /^(qual|quais|que\s|quantos|quantas|de acordo|segundo|nesse|neste|no trecho|na frase|em qual|assinale|o assunto|a ideia|a tese|a expressão|a repetição|a palavra|o autor|o texto|o efeito|o uso|considerando)/i;
-/* fim de referência: são fórmulas fixas da bibliografia */
+/* fim de referência: são fórmulas fixas da bibliografia.
+   A ordem não importa — todas são aplicadas e vale o corte MAIS À DIREITA.
+   Cuidado com "Acesso em: 6 fev. 2012.": a versão antiga (`[^.]*\.`) parava
+   no ponto de "fev." e devolvia "2012. A informação principal desse texto
+   é:" como se fosse o comando. A regra gulosa até o ANO vem antes, e a
+   antiga fica como rede de segurança para datas sem ano. */
 const FIM_FONTE = [
   /Mantida a ortografia original do texto\.\s*/g,
-  /Fragmento\.\s*/g,
+  /\bFragmento\.\s*/g,
+  /\bAdaptado(\s+de[^.]{0,80})?\.\s*/g,
+  /Acesso em:[^\n]{0,60}?\b(19|20)\d{2}\s*\.\s*/g,
   /Acesso em:[^.]*\.\s*/g,
+  /Dispon[ií]vel em:\s*[^\s]+\s*\.?\s*/g,
   /\bp\.\s*\d+\.\s*/g
 ];
 
@@ -341,11 +379,12 @@ function ultimoCorteDeFrase(txt){
 /* parece uma referência bibliográfica inteira? */
 function pareceReferencia(txt){
   return /(19|20)\d{2}|Dispon[ií]vel em|Acesso em|p\.\s*\d+|\bIn:/.test(txt)
+      || /^\s*(Fonte|Revista|Jornal)\b\s*:?/i.test(txt)
       || /^[A-ZÀ-Ý]{2,}[,.]/.test(txt);
 }
 /* onde a referência começa dentro de um parágrafo que também traz texto */
 function inicioDaReferencia(txt){
-  const forte = /^(Dispon[ií]vel em|[A-ZÀ-Ý]{2,}[,.]\s|In:)/;
+  const forte = /^(Dispon[ií]vel em|Fonte\s*:|Revista\s|Jornal\s|[A-ZÀ-Ý]{2,}[,.]\s|In:)/;
   const re = /[.!?]["”’)]?\s+/g;
   let m;
   while((m = re.exec(txt)) !== null){
@@ -395,6 +434,24 @@ function segmentarEnunciado(texto){
     if(sobra) paras.push(sobra);
   }
 
+  /* Rede de segurança: a referência pode vir num parágrafo próprio que não
+     casa com nenhuma das fórmulas de FIM_FONTE — "Fonte: Revista Veja,
+     2012." é o caso típico. Se o parágrafo INTEIRO tem cara de referência
+     e é curto, ele é a fonte, e o que vier depois é o comando. */
+  if(!seg.fonte){
+    for(let i = paras.length - 1; i >= 1; i--){
+      const p = paras[i];
+      if(p.length > 160 || !pareceReferencia(p)) continue;
+      if(!/^\s*(Fonte|Revista|Jornal|Dispon[ií]vel em|In:)\b/i.test(p) &&
+         !/^[A-ZÀ-Ý]{2,}[,.]/.test(p)) continue;
+      seg.fonte = p;
+      const resto = paras.slice(i + 1);
+      if(resto.length) seg.comando = resto.join(" ");
+      paras.length = i;
+      break;
+    }
+  }
+
   /* sem referência: o comando é o último parágrafo, se parecer um */
   if(!seg.comando && paras.length > 1){
     const ultimo = paras[paras.length - 1];
@@ -422,7 +479,46 @@ function segmentarEnunciado(texto){
      visível é um texto pior de ler. Espaço se procura na letra e, em
      último caso, na quantidade de questões. */
   seg.corpo = paras;
+  seg.tiposCorpo = classificarCorpo(paras);
   return seg;
+}
+
+/* ── que tipo de parágrafo é cada pedaço do texto de apoio ──────────
+   Prosa é justificada e com entrada de parágrafo. Verso e fórmula NÃO:
+   justificar um verso espalha as palavras até a margem e destrói a
+   estrutura visual de que o poema depende; e uma expressão isolada
+   (`N(t) = 200 · 2ᵗ`) fica centralizada, como no material oficial. */
+const RE_SIMBOLO = /[=<>≤≥≠±×÷√∑∫∞·]/;
+function pareceFormula(txt){
+  const t = semMarcas(String(txt || "")).trim();
+  if(!t || t.length > 48) return false;
+  if(/[.,;:!?]$/.test(t)) return false;
+  if(!RE_SIMBOLO.test(t)) return false;
+  const palavras = t.split(/\s+/).filter(Boolean);
+  if(palavras.length > 9) return false;
+  /* proporção de letras baixa o bastante para não ser frase */
+  const letras = (t.match(/[A-Za-zÀ-ÿ]/g) || []).length;
+  return letras <= t.length * 0.6;
+}
+
+/* verso não se reconhece linha a linha, e sim pela SEQUÊNCIA: três ou
+   mais linhas curtas seguidas, quebradas pelo autor. Uma frase curta
+   solta no meio da prosa continua sendo prosa. */
+function classificarCorpo(paras){
+  const n = paras.length;
+  const curto = paras.map(p => semMarcas(p).trim().length <= 58);
+  const tipos = new Array(n).fill("corpo");
+  let i = 0;
+  while(i < n){
+    if(!curto[i]){ i++; continue; }
+    let j = i;
+    while(j < n && curto[j]) j++;
+    if(j - i >= 3) for(let k = i; k < j; k++) tipos[k] = "verso";
+    i = j;
+  }
+  for(let k = 0; k < n; k++)
+    if(tipos[k] !== "verso" && pareceFormula(paras[k])) tipos[k] = "formula";
+  return tipos;
 }
 
 /* Quebra o parágrafo dando entrada na primeira linha. Não dá para só
@@ -497,6 +593,20 @@ function pedacosDeNivel(txt){
   return out;
 }
 
+/* quanto ocupa, em mm, uma linha que mistura corpo normal e expoentes.
+   Precisa disso para centralizar uma fórmula ou alinhar a fonte à
+   direita sem que o `align` do jsPDF — que não conhece os pedaços —
+   jogue o expoente para fora da coluna. */
+function larguraComNiveis(doc, txt, fs){
+  let larg = 0;
+  pedacosDeNivel(txt).forEach(p => {
+    doc.setFontSize(p.nivel === 0 ? fs : fs * 0.68);
+    larg += doc.getTextWidth(p.t);
+  });
+  doc.setFontSize(fs);
+  return larg;
+}
+
 /* desenha uma linha que pode ter expoente; devolve a largura usada */
 function textoComNiveis(doc, txt, x, y, fs){
   let dx = 0;
@@ -534,8 +644,20 @@ function medidasQuestao(doc, item, larg, fs, opcoes){
   const RECUO = DENSO ? 4.4 : 5.2;      // entrada de parágrafo, bem visível
   if(seg.instrucao) medir(seg.instrucao, "instrucao", fs - 1.4, "normal");
   if(seg.titulo)    medir(seg.titulo,    "titulo",    fs,       "bold");
-  (seg.corpo || []).forEach(p => medir(p, "corpo", fs, "normal", RECUO));
-  if(seg.fonte)     medir(seg.fonte,     "fonte",     fs - 2.2, "normal");
+  /* verso e fórmula não levam entrada de parágrafo: o recuo desmancha o
+     alinhamento do poema e desloca a expressão que deveria centralizar */
+  const tiposCorpo = seg.tiposCorpo || [];
+  (seg.corpo || []).forEach((p, i) => {
+    const tipo = tiposCorpo[i] || "corpo";
+    medir(p, tipo, fs, "normal", tipo === "corpo" ? RECUO : 0);
+  });
+  /* SOURCE_REFERENCE: corpo menor (≈8–9 pt), cinza, alinhada à direita e
+     com ar próprio antes e depois. O piso de 8 pt existe porque na escada
+     do simulado o corpo chega a 9 pt, e `fs − 2,2` daria 6,8 — ilegível
+     numa folha xerocada. Itálico ficaria melhor, mas a DBMSans embutida
+     só traz normal e bold, e trocar de família aqui quebraria os
+     símbolos matemáticos. */
+  if(seg.fonte)     medir(seg.fonte,     "fonte",  Math.max(8, fs - 2.2), "normal");
   /* O gráfico e a tabela entram AQUI, entre o texto e o comando, como no
      material oficial: primeiro o que se lê, depois o que se vê, e só
      então a pergunta. Desenhá-los depois do comando — como era —
@@ -550,7 +672,10 @@ function medidasQuestao(doc, item, larg, fs, opcoes){
     h += pt.linhas.length * pt.passo + espacoDepois(pt.tipo, partes[i + 1]);
   });
   h += AR_ENUN();
-  if(fig) h += fig.h + 2.5;
+  /* 1,5 mm acima + 1,5 mm abaixo: é exatamente o que desenharFig gasta.
+     Media-se 2,5 e desenhava-se 3 — meio milímetro de dívida por figura,
+     que o novo empacotamento por unidades não pode ter. */
+  if(fig) h += fig.h + 3;
   doc.setFont(FONTE_TEXTO, "normal"); doc.setFontSize(fs);
   const alts = (item.alternativas || []).map(a => {
     const bruto = String(a == null ? "" : a);
@@ -564,67 +689,183 @@ function medidasQuestao(doc, item, larg, fs, opcoes){
 function espacoDepois(tipo, proxima){
   const alvo = proxima ? proxima.tipo : null;
   if(tipo === "instrucao") return DENSO ? 0.6 : 0.9;
-  if(tipo === "titulo")    return DENSO ? 0.8 : 1.2;
-  if(tipo === "fonte")     return DENSO ? 1.4 : 2.0;
-  if(alvo === "fonte")     return DENSO ? 0.9 : 1.3;
+  if(tipo === "titulo")    return DENSO ? 1.0 : 1.5;
+  /* a fonte nunca pode ficar colada no comando seguinte: era daí que
+     saía "2012. A informação principal desse texto é:" com cara de
+     frase única */
+  if(tipo === "fonte")     return DENSO ? 1.8 : 2.6;
+  if(alvo === "fonte")     return DENSO ? 1.0 : 1.4;
   if(alvo === "comando")   return DENSO ? 1.6 : 2.2;
+  /* verso: entrelinha apertada dentro da estrofe, para o poema não
+     parecer uma lista de frases soltas */
+  if(tipo === "verso")     return alvo === "verso" ? (DENSO ? 0.1 : 0.2)
+                                                   : (DENSO ? 1.0 : 1.4);
+  if(tipo === "formula")   return DENSO ? 1.2 : 1.8;
+  if(alvo === "formula")   return DENSO ? 1.2 : 1.8;
   if(tipo === "corpo")     return DENSO ? 0.7 : 1.0;
   return DENSO ? 0.5 : 0.8;
 }
 
-function desenharQuestaoCol(doc, x, y, n, item, larg, fs, opcoes, m){
-  doc.setTextColor(...COR.navy); doc.setFont(FONTE_TEXTO, "bold"); doc.setFontSize(fs - 1.5);
-  doc.text("QUESTÃO " + String(n).padStart(2, "0"), x, y + 2.4);
-  doc.setDrawColor(...COR.orange); doc.setLineWidth(0.6);
-  doc.line(x, y + 3.6, x + 15, y + 3.6);
-  y += AR_ROTULO();
+/* Desenha as linhas [de, ate) de uma parte do enunciado. Cada tipo tem o
+   seu alinhamento — e nenhum herda o do anterior, que era como o endereço
+   do site acabava justificado no meio do parágrafo. */
+function desenharLinhasParte(doc, pt, x, y, larg, de, ate){
+  doc.setFont(FONTE_TEXTO, pt.estilo); doc.setFontSize(pt.fs);
+  if(pt.tipo === "instrucao" || pt.tipo === "fonte") doc.setTextColor(...COR.grey);
+  else if(pt.tipo === "titulo") doc.setTextColor(...COR.navy);
+  else doc.setTextColor(25, 28, 34);
+  /* justificado só no texto corrido e no comando; verso e fórmula têm
+     estrutura visual própria e o justificado a destruiria */
+  const justifica = (pt.tipo === "corpo" || pt.tipo === "comando");
+  for(let k = de; k < ate; k++){
+    const ln = pt.linhas[k];
+    const yy = y + pt.passo * (0.75 + (k - de));
+    if(pt.tipo === "fonte"){
+      /* a fonte é medida pedaço a pedaço quando traz marcas, senão o
+         alinhamento à direita some junto com o expoente */
+      if(temMarcas(ln.t)){
+        const larguraDaLinha = larguraComNiveis(doc, ln.t, pt.fs);
+        textoComNiveis(doc, ln.t, x + larg - larguraDaLinha, yy, pt.fs);
+      }else doc.text(ln.t, x + larg, yy, {align: "right"});
+    }else if(pt.tipo === "titulo" || pt.tipo === "formula"){
+      if(temMarcas(ln.t)){
+        const larguraDaLinha = larguraComNiveis(doc, ln.t, pt.fs);
+        textoComNiveis(doc, ln.t, x + (larg - larguraDaLinha) / 2, yy, pt.fs);
+      }else doc.text(ln.t, x + larg / 2, yy, {align: "center"});
+    }else if(temMarcas(ln.t)){
+      /* linha com expoente: desenhada pedaço a pedaço, sem justificar */
+      textoComNiveis(doc, ln.t, x + ln.dx, yy, pt.fs);
+    }else if(justifica && k < pt.linhas.length - 1){
+      doc.text(ln.t, x + ln.dx, yy, {align: "justify", maxWidth: larg - ln.dx});
+    }else{
+      doc.text(ln.t, x + ln.dx, yy);
+    }
+  }
+  return y + (ate - de) * pt.passo;
+}
 
-  const desenharFig = () => {
-    if(!m.fig) return;
-    try{ doc.addImage(item.imagem.dados, "JPEG", x, y + 1.5, m.fig.w, m.fig.h); }catch(e){}
-    y += m.fig.h + 3;
+/* ── unidades: os pedaços em que uma questão PODE ser partida ───────
+   Até a v42 a questão era um bloco só, com um `desenhar()` indivisível.
+   Numa página de duas colunas isso significava que uma questão mais alta
+   que a coluna encurtada pelo cartão-resposta não cabia em nenhuma das
+   duas — e, como a ordem não pode mudar (o gabarito individual depende
+   dela), a página fechava com a coluna direita vazia.
+
+   Agora a questão vira uma lista de unidades com altura própria. Quem
+   NÃO pode ser separado do seguinte carrega `cola: true`:
+
+   - o rótulo QUESTÃO NN nunca fica sozinho no pé da coluna;
+   - instrução, título e figura vão grudados no que vem depois;
+   - a fonte nunca fica isolada — anda com o comando;
+   - o comando nunca se separa da primeira alternativa;
+   - as duas primeiras e as duas últimas alternativas andam juntas, para
+     nenhuma alternativa cair sozinha na coluna seguinte;
+   - um parágrafo só se divide deixando pelo menos DUAS linhas de cada
+     lado (viúvas e órfãs).
+
+   A soma das alturas das unidades é exatamente `m.h + AR_QUESTAO()`
+   (mais a faixa de bloco, quando houver) — a paginação continua medindo
+   a mesma coisa que o desenho gasta. */
+function unidadesQuestao(doc, n, item, larg, fs, opcoes, m, rotuloBloco){
+  const U = [];
+  const push = (h, cola, desenhar) => U.push({h, cola: !!cola, desenhar});
+
+  if(rotuloBloco){
+    push(ALT_CABECALHO, true, (x, y) => {
+      doc.setFillColor(...COR.navy);
+      doc.rect(x, y, larg, 5.5, "F");
+      doc.setTextColor(...COR.branco); doc.setFont(FONTE_TEXTO, "bold"); doc.setFontSize(6.5);
+      doc.text(String(rotuloBloco).toUpperCase(), x + 2, y + 3.9);
+      return y + ALT_CABECALHO;
+    });
+  }
+
+  push(AR_ROTULO(), true, (x, y) => {
+    doc.setTextColor(...COR.navy); doc.setFont(FONTE_TEXTO, "bold"); doc.setFontSize(fs - 1.5);
+    doc.text("QUESTÃO " + String(n).padStart(2, "0"), x, y + 2.4);
+    doc.setDrawColor(...COR.orange); doc.setLineWidth(0.6);
+    doc.line(x, y + 3.6, x + 15, y + 3.6);
+    return y + AR_ROTULO();
+  });
+
+  /* gráficos e figuras centralizados na área útil da coluna, e nunca
+     separados do comando que manda observá-los */
+  const figH = m.fig ? m.fig.h + 3 : 0;
+  const desenharFig = (x, y) => {
+    if(!m.fig) return y;
+    const xf = x + Math.max(0, (larg - m.fig.w) / 2);
+    try{ doc.addImage(item.imagem.dados, "JPEG", xf, y + 1.5, m.fig.w, m.fig.h); }catch(e){}
+    return y + figH;
   };
 
+  /* Estes nunca podem ser o último elemento de uma coluna: a instrução e
+     o título ficariam órfãos, a fonte ficaria solta e o comando se
+     separaria das alternativas que ele manda escolher. */
+  const GRUDA = {instrucao: 1, titulo: 1, fonte: 1, comando: 1};
+
   m.partes.forEach((pt, i) => {
-    if(i === m.posFig) desenharFig();
-    doc.setFont(FONTE_TEXTO, pt.estilo); doc.setFontSize(pt.fs);
-    if(pt.tipo === "instrucao" || pt.tipo === "fonte") doc.setTextColor(...COR.grey);
-    else if(pt.tipo === "titulo") doc.setTextColor(...COR.navy);
-    else doc.setTextColor(25, 28, 34);
-    /* justificado no texto corrido, como na prova oficial; a última
-       linha do parágrafo fica solta, senão as palavras se esparramam */
-    const justifica = (pt.tipo === "corpo" || pt.tipo === "comando");
-    pt.linhas.forEach((ln, k) => {
-      const yy = y + pt.passo * (0.75 + k);
-      if(temMarcas(ln.t)){
-        /* linha com expoente: desenhada pedaço a pedaço, sem justificar */
-        textoComNiveis(doc, ln.t, x + ln.dx, yy, pt.fs);
-      }else if(pt.tipo === "fonte"){
-        doc.text(ln.t, x + larg, yy, {align: "right"});
-      }else if(pt.tipo === "titulo"){
-        doc.text(ln.t, x + larg / 2, yy, {align: "center"});
-      }else if(justifica && k < pt.linhas.length - 1){
-        doc.text(ln.t, x + ln.dx, yy, {align: "justify", maxWidth: larg - ln.dx});
-      }else{
-        doc.text(ln.t, x + ln.dx, yy);
-      }
-    });
-    y += pt.linhas.length * pt.passo + espacoDepois(pt.tipo, m.partes[i + 1]);
+    if(i === m.posFig && m.fig) push(figH, true, desenharFig);
+    const ultima = (i === m.partes.length - 1);
+    const cola = !!GRUDA[pt.tipo] || ultima;
+    const depois = espacoDepois(pt.tipo, m.partes[i + 1]);
+    const L = pt.linhas.length;
+    /* prosa e verso longos podem começar numa coluna e terminar na
+       outra; título, fonte e comando são curtos e ficam inteiros */
+    const divisivel = (pt.tipo === "corpo" || pt.tipo === "verso") && L >= 4;
+    if(!divisivel){
+      push(L * pt.passo + depois, cola,
+        (x, y) => desenharLinhasParte(doc, pt, x, y, larg, 0, L) + depois);
+      return;
+    }
+    for(let k = 0; k < L; k++){
+      const fim = (k === L - 1);
+      /* corte legal só entre a 2ª linha e a antepenúltima: nunca deixa
+         uma linha só de um lado */
+      const podeCortar = (k >= 1 && k <= L - 3);
+      push(pt.passo + (fim ? depois : 0), fim ? cola : !podeCortar,
+        (x, y) => desenharLinhasParte(doc, pt, x, y, larg, k, k + 1) + (fim ? depois : 0));
+    }
   });
-  if(m.posFig >= m.partes.length) desenharFig();   // questão sem comando
-  y += AR_ENUN();
+
+  /* rabicho do enunciado: a figura da questão SEM comando (que a v42 já
+     desenhava no fim) mais o ar que separa o enunciado das alternativas.
+     Fica sempre numa unidade própria para que a soma das alturas bata
+     com `m.h` qualquer que seja o formato da questão. */
+  const semComando = (m.posFig >= m.partes.length);
+  push((semComando ? figH : 0) + AR_ENUN(), m.alts.length > 0, (x, y) => {
+    if(semComando) y = desenharFig(x, y);
+    return y + AR_ENUN();
+  });
+
+  const nAlt = m.alts.length;
   m.alts.forEach((la, k) => {
-    doc.setFont(FONTE_TEXTO, "bold"); doc.setTextColor(...COR.orange); doc.setFontSize(fs);
-    doc.text(opcoes[k] + ")", x + 1, y + m.passo * 0.75);
-    doc.setFont(FONTE_TEXTO, "normal"); doc.setTextColor(25, 28, 34);
-    la.forEach((ln, i2) => {
-      const yy = y + m.passo * (0.75 + i2);
-      if(temMarcas(ln)) textoComNiveis(doc, ln, x + 7, yy, fs);
-      else doc.text(ln, x + 7, yy);
+    const ultima = (k === nAlt - 1);
+    const extra = AR_ALT() + (ultima ? AR_QUESTAO() : 0);
+    /* nenhuma alternativa fica sozinha: as duas primeiras e as duas
+       últimas viajam sempre juntas */
+    const cola = (k === 0 && nAlt > 1) || (k === nAlt - 2 && nAlt > 1);
+    push(la.length * m.passo + extra, cola, (x, y) => {
+      doc.setFont(FONTE_TEXTO, "bold"); doc.setTextColor(...COR.orange); doc.setFontSize(fs);
+      doc.text(opcoes[k] + ")", x + 1, y + m.passo * 0.75);
+      doc.setFont(FONTE_TEXTO, "normal"); doc.setTextColor(25, 28, 34);
+      la.forEach((ln, i2) => {
+        const yy = y + m.passo * (0.75 + i2);
+        /* linha seguinte de uma alternativa longa mantém o recuo */
+        if(temMarcas(ln)) textoComNiveis(doc, ln, x + 7, yy, fs);
+        else doc.text(ln, x + 7, yy);
+      });
+      return y + la.length * m.passo + extra;
     });
-    y += la.length * m.passo + AR_ALT();
   });
-  return y + AR_QUESTAO();
+  return U;
+}
+
+/* a questão inteira, de uma vez — é o que a v42 fazia, agora escrito em
+   cima das unidades para não existirem dois desenhos diferentes */
+function desenharQuestaoCol(doc, x, y, n, item, larg, fs, opcoes, m){
+  unidadesQuestao(doc, n, item, larg, fs, opcoes, m, null)
+    .forEach(u => { y = u.desenhar(x, y); });
+  return y;
 }
 
 /* folha inteira de rascunho, para igualar a tiragem do simulado */
@@ -653,19 +894,11 @@ function blocosDaProva(doc, cfg, aluno, fs){
   const comps = (cfg.comps && cfg.comps.length === nq) ? cfg.comps : null;
   const chave = chaveDeOrdem(aluno.numero, cfg.tipos);
   const {oq, oa} = ordemDaProva(nq, no, cfg.turma, chave, comps, cfg.alternarBlocos);
-  const blocos = [];
-  const ALT_CAB = ALT_CABECALHO;
-
-  /* faixa que abre cada parte do caderno (LÍNGUA PORTUGUESA, MATEMÁTICA).
-     Vai grudada na primeira questão do bloco para nunca ficar órfã no pé
-     de uma coluna. */
-  const cabecalhoBloco = (x, y, texto) => {
-    doc.setFillColor(...COR.navy);
-    doc.rect(x, y, larg, 5.5, "F");
-    doc.setTextColor(...COR.branco); doc.setFont(FONTE_TEXTO, "bold"); doc.setFontSize(6.5);
-    doc.text(String(texto).toUpperCase(), x + 2, y + 3.9);
-    return y + ALT_CAB;
-  };
+  /* A prova não é mais uma fila de blocos indivisíveis: cada questão
+     entra como uma sequência de unidades, e a faixa de bloco
+     (LÍNGUA PORTUGUESA, MATEMÁTICA) é a primeira unidade da questão que
+     abre o componente — colada, para nunca ficar órfã no pé da coluna. */
+  let blocos = [];
 
   for(let p = 0; p < nq; p++){
     const base = (cfg.questoes || [])[oq[p]] ||
@@ -678,16 +911,13 @@ function blocosDaProva(doc, cfg, aluno, fs){
     const rotulo = abre
       ? ((cfg.rotulosComp || {})[compAtual] || NOME_COMP[compAtual] || compAtual)
       : null;
-    blocos.push({h: m.h + AR_QUESTAO() + (abre ? ALT_CAB : 0), juntoComProximo: false,
-      desenhar: (x, y) => {
-        const yy = rotulo ? cabecalhoBloco(x, y, rotulo) : y;
-        return desenharQuestaoCol(doc, x, yy, p + 1, item, larg, fs, opcoes, m);
-      }});
+    blocos = blocos.concat(
+      unidadesQuestao(doc, p + 1, item, larg, fs, opcoes, m, rotulo));
   }
 
   const disc = cfg.discursivas || [];
   if(disc.length){
-    blocos.push({h: 8, juntoComProximo: true, desenhar: (x, y) => {
+    blocos.push({h: 8, cola: true, desenhar: (x, y) => {
       doc.setFillColor(...COR.navy);
       doc.rect(x, y, larg, 5.5, "F");
       doc.setTextColor(...COR.branco); doc.setFont(FONTE_TEXTO, "bold"); doc.setFontSize(6.5);
@@ -700,7 +930,7 @@ function blocosDaProva(doc, cfg, aluno, fs){
       const linhas = doc.splitTextToSize(String(q.enunciado || ""), larg);
       const espaco = Math.max(14, (q.linhas || 4) * 5.5);
       const h = 5 + linhas.length * passo + espaco + 4;
-      blocos.push({h, juntoComProximo: false, desenhar: (x, y) => {
+      blocos.push({h, cola: false, desenhar: (x, y) => {
         doc.setTextColor(...COR.navy); doc.setFont(FONTE_TEXTO, "bold"); doc.setFontSize(fs - 1.5);
         doc.text((i + 1) + ".  (" + (q.pontos != null ? q.pontos : "") + " pt)", x, y + 2.4);
         doc.setFont(FONTE_TEXTO, "normal"); doc.setFontSize(fs); doc.setTextColor(25, 28, 34);
@@ -718,12 +948,16 @@ function blocosDaProva(doc, cfg, aluno, fs){
 
 /* Onde cortar uma página em duas colunas: o corte que deixa as colunas
    mais parecidas, sem estourar nenhuma. -1 se não couber. */
-function melhorCorte(alturas, capacidade){
+function melhorCorte(alturas, capacidade, colas){
   const total = alturas.reduce((a, b) => a + b, 0);
   let melhor = -1, dif = Infinity;
   let esq = 0;
   for(let k = 1; k <= alturas.length; k++){
     esq += alturas[k - 1];
+    /* cortar depois da unidade k−1 só vale se ela não estiver colada na
+       seguinte — é isso que impede o comando de ficar numa coluna e as
+       alternativas na outra. O corte no fim da lista é sempre legal. */
+    if(k < alturas.length && colas && colas[k - 1]) continue;
     const dir = total - esq;
     if(esq <= capacidade && dir <= capacidade){
       const d = Math.abs(esq - dir);
@@ -731,6 +965,15 @@ function melhorCorte(alturas, capacidade){
     }
   }
   return melhor;
+}
+
+/* quantas unidades formam o grupo colado que começa em `i`. Serve de
+   piso quando nem o grupo inteiro cabe na coluna: em vez de partir a
+   cola no meio, o grupo transborda junto. */
+function grupoColado(colas, i, total){
+  let n = 1;
+  while(i + n < total && colas[i + n - 1]) n++;
+  return n;
 }
 
 /* ── contagem de páginas para TODOS os alunos ──────────────────────
@@ -749,20 +992,28 @@ function alturasCanonicas(doc, cfg, fs){
     /* a permutação das alternativas não muda a soma das alturas */
     const m = medidasQuestao(doc, {enunciado: base.enunciado, imagem: base.imagem,
       alternativas: base.alternativas || []}, larg, fs, opcoes);
-    return m.h + AR_QUESTAO();
+    /* a contagem de páginas precisa enxergar as MESMAS unidades que o
+       desenho vai empacotar — medir a questão inteira daria um número
+       diferente agora que ela pode ser dividida entre as colunas */
+    const U = unidadesQuestao(doc, idx + 1, {enunciado: base.enunciado,
+      imagem: base.imagem, alternativas: base.alternativas || []},
+      larg, fs, opcoes, m, null);
+    return {alturas: U.map(u => u.h), colas: U.map(u => u.cola)};
   });
 }
 
-function empacotar(alturas, topoPrimeira, fundo){
+function empacotar(alturas, topoPrimeira, fundo, colas){
   let paginas = 1, i = 0, topo = topoPrimeira;
   while(i < alturas.length){
     const cap = fundo - topo;
     let leva = 0;
     for(let n = 1; i + n <= alturas.length; n++){
-      if(melhorCorte(alturas.slice(i, i + n), cap) < 0) break;
+      if(melhorCorte(alturas.slice(i, i + n), cap, colas.slice(i, i + n)) < 0) break;
       leva = n;
     }
-    if(leva === 0) leva = 1;              // bloco maior que a coluna: transborda
+    // nem o grupo colado cabe na coluna: transborda inteiro, sem partir
+    if(leva === 0) leva = Math.min(grupoColado(colas, i, alturas.length),
+                                   alturas.length - i);
     i += leva;
     if(i < alturas.length){ paginas++; topo = TOPO; }
   }
@@ -783,11 +1034,15 @@ function paginasNoPior(doc, cfg, alunos, fs, topoPrimeira, fundo){
   let pior = 1;
   chavesDaTurma(cfg, alunos).forEach(chave => {
     const {oq} = ordemDaProva(nq, no, cfg.turma, chave, comps, cfg.alternarBlocos);
-    const alturas = oq.map((idx, p) => {
+    const alturas = [], colas = [];
+    oq.forEach((idx, p) => {
       const abre = comps && (p === 0 || comps[oq[p - 1]] !== comps[idx]);
-      return h[idx] + (abre ? ALT_CABECALHO : 0);
+      if(abre){ alturas.push(ALT_CABECALHO); colas.push(true); }
+      h[idx].alturas.forEach((a, k) => {
+        alturas.push(a); colas.push(h[idx].colas[k]);
+      });
     });
-    pior = Math.max(pior, empacotar(alturas, topoPrimeira, fundo));
+    pior = Math.max(pior, empacotar(alturas, topoPrimeira, fundo, colas));
   });
   return pior;
 }
@@ -814,18 +1069,24 @@ function fluir(doc, cfg, aluno, fs, dry){
 
   const blocos = blocosDaProva(doc, cfg, aluno, fs);
   const alturas = blocos.map(b => b.h);
+  const colas = blocos.map(b => !!b.cola);
 
   let i = 0, topo = topoPrimeira, ultimoUso = topo;
   while(i < blocos.length){
     const cap = fundo - topo;
-    // maior conjunto de blocos que cabe nesta página, já equilibrado
+    // maior conjunto de unidades que cabe nesta página, já equilibrado
     let leva = 0, corte = 1;
     for(let n = 1; i + n <= blocos.length; n++){
-      const k = melhorCorte(alturas.slice(i, i + n), cap);
+      const k = melhorCorte(alturas.slice(i, i + n), cap, colas.slice(i, i + n));
       if(k < 0) break;
       leva = n; corte = k;
     }
-    if(leva === 0){ leva = 1; corte = 1; }   // bloco maior que a coluna: transborda
+    if(leva === 0){
+      /* nem o grupo colado cabe na coluna (uma figura maior que a área
+         útil, por exemplo): transborda inteiro, sem partir a cola */
+      leva = Math.min(grupoColado(colas, i, blocos.length), blocos.length - i);
+      corte = leva;
+    }
 
     if(!dry){
       let ye = topo, yd = topo;
@@ -858,10 +1119,109 @@ function fluir(doc, cfg, aluno, fs, dry){
   return paginas;
 }
 
-/**
- * cfg = {codigo, titulo, escola, turma, disciplina, professor, periodoLabel,
- *        gabaritoCanonico, no, questoes:[...], discursivas:[...]}
- */
+/* ── PRE_FLIGHT_CHECK ───────────────────────────────────────────────
+   Conferência da diagramação ANTES de o PDF ficar pronto. Não corrige
+   conteúdo — só avisa quando a forma comeu alguma coisa: um expoente que
+   sumiu, uma referência que vazou para dentro do comando, uma linha mais
+   larga que a coluna, uma alternativa a menos.
+
+   Roda sobre o MOLDE, com o corpo já escolhido, e devolve uma lista de
+   avisos em português. Lista vazia = passou. */
+function charsDeNivel(txt){
+  let sup = 0, sub = 0;
+  pedacosDeNivel(txt).forEach(p => {
+    const n = p.t.replace(/\s/g, "").length;
+    if(p.nivel > 0) sup += n; else if(p.nivel < 0) sub += n;
+  });
+  return {sup, sub};
+}
+/* soma dos caracteres sobrescritos/subscritos que sobreviveram à quebra
+   de linha. Conta CARACTERES e não pedaços porque uma quebra no meio de
+   um expoente divide o pedaço em dois sem perder nada. */
+function niveisRenderizados(m){
+  let sup = 0, sub = 0;
+  m.partes.forEach(pt => pt.linhas.forEach(ln => {
+    const c = charsDeNivel(ln.t); sup += c.sup; sub += c.sub;
+  }));
+  m.alts.forEach(la => la.forEach(ln => {
+    const c = charsDeNivel(ln); sup += c.sup; sub += c.sub;
+  }));
+  return {sup, sub};
+}
+
+const RE_VAZOU_FONTE = /(Dispon[ií]vel em|Acesso em:|Fragmento\.|Adaptado\.)/;
+
+function preFlightCheck(cfg, doc, fs){
+  const avisos = [];
+  const larg = larguraColuna(doc);
+  const gab = String(cfg.gabaritoCanonico || "").toUpperCase();
+  const nq = gab.length, no = cfg.no || 5;
+  const opcoes = ["A", "B", "C", "D", "E"].slice(0, no);
+  const qs = cfg.questoes || [];
+
+  /* ── CONTEÚDO ── */
+  if(qs.length !== nq)
+    avisos.push("o caderno tem " + qs.length + " questões e o gabarito tem " +
+                nq + " letras");
+  if(cfg.comps && cfg.comps.length && cfg.comps.length !== nq)
+    avisos.push("a lista de componentes não tem o mesmo tamanho do gabarito");
+
+  qs.forEach((q, idx) => {
+    const n = idx + 1;
+    const alts = q.alternativas || [];
+    if(!semMarcas(q.enunciado).trim())
+      avisos.push("questão " + n + ": enunciado vazio");
+    if(alts.length !== no)
+      avisos.push("questão " + n + ": " + alts.length + " alternativas, " +
+                  "eram para ser " + no);
+    if(alts.some(a => !semMarcas(a).trim()))
+      avisos.push("questão " + n + ": alternativa em branco");
+
+    const item = {enunciado: q.enunciado, imagem: q.imagem, alternativas: alts};
+    let m;
+    try{ m = medidasQuestao(doc, item, larg, fs, opcoes); }
+    catch(e){ avisos.push("questão " + n + ": não foi possível medir (" + e.message + ")"); return; }
+
+    /* ── MATEMÁTICA: expoentes e índices ── */
+    const antes = charsDeNivel(q.enunciado);
+    alts.forEach(a => { const c = charsDeNivel(a); antes.sup += c.sup; antes.sub += c.sub; });
+    const depois = niveisRenderizados(m);
+    if(depois.sup < antes.sup || depois.sub < antes.sub)
+      avisos.push("questão " + n + ": ERRO DE RENDERIZAÇÃO — expoente ou índice " +
+                  "sumiu na diagramação (tinha " + antes.sup + "/" + antes.sub +
+                  ", sobrou " + depois.sup + "/" + depois.sub + ")");
+
+    /* ── DIAGRAMAÇÃO ── */
+    const comando = m.partes.filter(p => p.tipo === "comando")
+      .map(p => p.linhas.map(l => semMarcas(l.t)).join(" ")).join(" ");
+    if(comando && RE_VAZOU_FONTE.test(comando))
+      avisos.push("questão " + n + ": a referência bibliográfica vazou para " +
+                  "dentro do comando");
+    m.partes.forEach(pt => {
+      doc.setFont(FONTE_TEXTO, pt.estilo); doc.setFontSize(pt.fs);
+      pt.linhas.forEach(ln => {
+        const w = temMarcas(ln.t) ? larguraComNiveis(doc, ln.t, pt.fs)
+                                  : doc.getTextWidth(semMarcas(ln.t));
+        if(w + (ln.dx || 0) > larg + 0.6)
+          avisos.push("questão " + n + ": linha do " + pt.tipo +
+                      " passa da largura da coluna");
+      });
+    });
+    if(m.fig && m.fig.w > larg + 0.6)
+      avisos.push("questão " + n + ": a figura é mais larga que a coluna");
+    if(q.imagem && !m.fig)
+      avisos.push("questão " + n + ": tem imagem no arquivo e nenhuma foi medida");
+  });
+
+  /* ── CABEÇALHO SAEPE ── */
+  if(cfg.simulado){
+    if(!String(cfg.disciplina || "").trim())
+      avisos.push("cabeçalho: os componentes do simulado não aparecem");
+    if(!String(cfg.escola || "").trim())
+      avisos.push("cabeçalho: a instituição não aparece");
+  }
+  return avisos;
+}
 function gerarProvas(cfg, alunos, jsPDFctor){
   const Ctor = jsPDFctor || (window.jspdf && window.jspdf.jsPDF);
   const doc = new Ctor({unit: "mm", format: "a4", compress: true});
@@ -922,6 +1282,12 @@ function gerarProvas(cfg, alunos, jsPDFctor){
   doc.paginasPorAluno = escolha.pgs;
   if(escolha.pgs > teto) doc.avisoPaginas = escolha.pgs;
 
+  /* PRE_FLIGHT_CHECK: com o corpo já escolhido, confere a diagramação
+     antes de desenhar. O que dá para corrigir sozinho já foi corrigido
+     na medição; o que resta vira aviso na tela. */
+  try{ doc.preFlight = preFlightCheck(cfg, molde, corpo); }
+  catch(e){ doc.preFlight = ["a conferência automática falhou: " + e.message]; }
+
   /* guarda quantas páginas cada estudante recebeu de fato: o encaixe
      nas colunas muda com a ordem, e o professor precisa saber se a
      tiragem sai pareja antes de grampear */
@@ -952,4 +1318,7 @@ function gerarProvas(cfg, alunos, jsPDFctor){
 
 if(typeof module !== "undefined") module.exports =
   {desenharCartao, gerarProvas, gabaritoIndividual, montarPayload, encurtarNome, nomeCurtoQR, soAscii,
-   pedacosDeNivel, remarcar, semMarcas, temMarcas, medidasQuestao, desenharQuestaoCol, prepararFontes, medirFigura};
+   pedacosDeNivel, remarcar, semMarcas, temMarcas, medidasQuestao, desenharQuestaoCol, prepararFontes, medirFigura,
+   segmentarEnunciado, classificarCorpo, pareceFormula, unidadesQuestao, melhorCorte,
+   grupoColado, empacotar, preFlightCheck, charsDeNivel, cabecalho, larguraComNiveis,
+   AR_QUESTAO};
