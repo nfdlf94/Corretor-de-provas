@@ -805,7 +805,13 @@ const PADROES=[
 ];
 const etapaDe=id=>ETAPAS.find(e=>e.id===id)||ETAPAS[2];
 
-const simuladosDa=tid=>(E.simulados||[]).filter(s=>s.turma===tid)
+/* Um simulado sem caderno é um fantasma: aparece na lista, não abre nada
+   e a tela rebate de volta. Acontecia quando a prova era apagada e o
+   registro do simulado ficava — em exclusão antiga, ou numa turma irmã
+   antes de a exclusão passar a alcançar a série (v36). Some da lista, e
+   `converterSimulados` limpa de vez ao abrir o app. */
+const simuladoVivo=s=>!!(s && s.prova && provaDe(s.prova));
+const simuladosDa=tid=>(E.simulados||[]).filter(s=>s.turma===tid && simuladoVivo(s))
   .sort((a,b)=>b.criado-a.criado);
 const simuladoDe=id=>(E.simulados||[]).find(s=>s.id===id)||null;
 const provaDoSim=sm=>sm?provaDe(sm.prova):null;
@@ -2283,52 +2289,146 @@ const VAO_MINIMO = 45;     // pontos de espaço vertical que denunciam uma figur
 const ESCALA_FIG = 2;      // resolução do recorte
 const FOLGA_FIG = 5;       // afasta o recorte das linhas de texto vizinhas
 
+/* ── expoentes e índices ───────────────────────────────────────────
+   No PDF, "5t²" não é um pedaço de texto só: é "5t" na linha de base e
+   "2" um pouco acima, em corpo menor. Como o agrupamento em linhas usava
+   só a altura do y, o expoente caía numa LINHA À PARTE — e o resto da
+   frase ia junto. Era assim que "h(t) = 20t − 5t² descreve a trajetória"
+   virava, na prova impressa:
+
+       A expressão h(t) = 20t − 5t
+       2 descreve a trajetória de uma bola de golfe…
+
+   O mesmo acontecia com "2^(0,5x)" e "20 · 2^(t−1)". Agora o pedaço
+   menor e deslocado para cima é reconhecido como expoente e volta para a
+   linha, em algarismo sobrescrito quando existe (t², x³) ou com `^( )`
+   quando o conteúdo não tem versão sobrescrita. Índices vão em subscrito
+   pela mesma regra. */
+const SOBRE={"0":"⁰","1":"¹","2":"²","3":"³","4":"⁴","5":"⁵","6":"⁶","7":"⁷",
+  "8":"⁸","9":"⁹","+":"⁺","-":"⁻","−":"⁻","=":"⁼","(":"⁽",")":"⁾","n":"ⁿ","i":"ⁱ"};
+const SUB={"0":"₀","1":"₁","2":"₂","3":"₃","4":"₄","5":"₅","6":"₆","7":"₇",
+  "8":"₈","9":"₉","+":"₊","-":"₋","−":"₋","=":"₌","(":"₍",")":"₎"};
+function emNivel(txt,mapa,marca){
+  const t=String(txt||"").trim();
+  if(!t) return "";
+  const cabe=[...t].every(ch=>mapa[ch]||ch===" ");
+  if(cabe) return [...t].map(ch=>ch===" "?"":mapa[ch]).join("");
+  return marca+"("+t.replace(/\s+/g," ")+")";
+}
+const sobrescrito=t=>emNivel(t,SOBRE,"^");
+const subscrito  =t=>emNivel(t,SUB,"_");
+
+function agruparLinhas(itens){
+  const linhas=[];
+  (itens||[]).forEach(it=>{
+    const y=it.transform[5], h=it.height||10, txt=it.str;
+    const u=linhas[linhas.length-1];
+    /* Pedaço em corpo MENOR e deslocado da linha de base: expoente ou
+       índice. Vem antes da junção normal porque o deslocamento típico é
+       de 2 a 4 pontos — dentro da tolerância de mesma linha, que é o que
+       fazia "5t²" virar "5t" e "2" soltos. Deslocamento quase zero é
+       texto miúdo na própria linha, não índice. */
+    if(u && txt.trim() && h<u.h*0.85){
+      const d=y-u.y;
+      if(d>=1 && d<u.h*0.8){ u.txt+=sobrescrito(txt); return; }
+      if(d<=-1 && -d<u.h*0.8){ u.txt+=subscrito(txt); return; }
+    }
+    if(u && Math.abs(u.y-y)<=3){ u.txt+=txt; u.h=Math.max(u.h,h); return; }
+    linhas.push({y, h, txt});
+  });
+  return linhas;
+}
+
+/* As faixas da página que serão recortadas como imagem — o gráfico, o
+   esquema, a tabela. Separado de `conteudoDePdf` para poder ser testado
+   com a geometria de um arquivo real, sem precisar do pdf.js rodando. */
+function bandasDeLinhas(linhas, topo){
+  const bandas=[];
+
+  /* 0) figura NO ALTO DA PÁGINA. O gráfico que abre a página não tem
+     linha de texto acima dele, e a varredura de vãos — que compara
+     pares de linhas — passava direto. Era o caso do gráfico da questão
+     11 do simulado de Matemática, que começa a página 4: ele
+     simplesmente não saía na prova. `topo` é a altura em que as linhas
+     costumam começar nas OUTRAS páginas; se nesta a primeira linha
+     começa bem mais abaixo, o que está no meio é figura. */
+  if(topo && linhas.length){
+    const primeira=linhas[0];
+    const vao=topo-(primeira.y+primeira.h);
+    if(vao>=VAO_MINIMO)
+      bandas.push({tipo:"figura", depois:-1, engole:[],
+        de:primeira.y+primeira.h+FOLGA_FIG, ate:topo-FOLGA_FIG});
+  }
+
+  // 1) vãos grandes = gráfico, esquema ou desenho
+  for(let k=0;k<linhas.length-1;k++){
+    const vao=linhas[k].y-(linhas[k+1].y+linhas[k+1].h);
+    if(vao>=VAO_MINIMO)
+      bandas.push({tipo:"figura", depois:k, engole:[],
+        de:linhas[k+1].y+linhas[k+1].h+FOLGA_FIG,
+        ate:linhas[k].y-FOLGA_FIG});
+  }
+
+  // 2) blocos de linhas tabulares = tabela; vira imagem, com as bordas
+  let k=0;
+  while(k<linhas.length){
+    if(!pareceTabela(linhas[k].txt)){ k++; continue; }
+    let fim=k;
+    while(fim+1<linhas.length && pareceTabela(linhas[fim+1].txt)) fim++;
+    if(fim>k){                                   // pelo menos duas linhas
+      let ini=k;
+      // puxa o cabeçalho da tabela, que costuma não ter números
+      if(ini>0){
+        const acima=String(linhas[ini-1].txt).trim();
+        if(acima.split(/\s+/).length<=6 && acima.length<=60 && !/[:.]$/.test(acima)) ini--;
+      }
+      bandas.push({tipo:"tabela", depois:ini-1, engole:[ini,fim],
+        de:linhas[fim].y-linhas[fim].h*0.4-FOLGA_FIG,
+        ate:linhas[ini].y+linhas[ini].h+FOLGA_FIG});
+    }
+    k=fim+1;
+  }
+
+  /* 3) tabela partida ao meio. O cabeçalho em duas linhas ("Número dito
+     por" / "Carlos") não passa no teste de linha tabular e rachava a
+     tabela em dois recortes, cada um com metade dela. Faixas do mesmo
+     tipo quase encostadas viram uma só. */
+  bandas.sort((a,b)=>b.ate-a.ate);
+  for(let j=0;j<bandas.length-1;j++){
+    const A=bandas[j], B=bandas[j+1];
+    if(A.tipo!=="tabela"||B.tipo!=="tabela") continue;
+    if(A.de-B.ate>28) continue;                 // longe demais: são duas
+    B.ate=Math.max(A.ate,B.ate);
+    B.de=Math.min(A.de,B.de);
+    B.depois=Math.min(A.depois,B.depois);
+    if(A.engole.length&&B.engole.length)
+      B.engole=[Math.min(A.engole[0],B.engole[0]),Math.max(A.engole[1],B.engole[1])];
+    else B.engole=A.engole.length?A.engole:B.engole;
+    bandas.splice(j,1); j--;
+  }
+  return bandas;
+}
+
 async function conteudoDePdf(arquivo){
   const doc=await abrirPdf(arquivo);
   const paginas=[], figuras=[];
+
+  /* Primeira passada: onde as páginas costumam começar. Serve de
+     referência para descobrir a figura que abre uma página — sem ela,
+     a margem de cima seria confundida com desenho em toda página. */
+  const pgs=[], topos=[];
   for(let i=1;i<=doc.numPages;i++){
     const pg=await doc.getPage(i);
-    const c=await pg.getTextContent();
+    const linhas=agruparLinhas((await pg.getTextContent()).items);
+    pgs.push({pg, linhas});
+    if(linhas.length) topos.push(linhas[0].y+linhas[0].h);
+  }
+  const topoUsual=topos.length
+    ? topos.slice().sort((a,b)=>a-b)[Math.floor(topos.length/2)] : 0;
 
-    // agrupa os pedaços em linhas, guardando altura para medir os vãos
-    const linhas=[];
-    c.items.forEach(it=>{
-      const y=it.transform[5], h=it.height||10;
-      const u=linhas[linhas.length-1];
-      if(u && Math.abs(u.y-y)<=3){ u.txt+=it.str; u.h=Math.max(u.h,h); }
-      else linhas.push({y, h, txt:it.str});
-    });
-
-    const bandas=[];
-
-    // 1) vãos grandes = gráfico, esquema ou desenho
-    for(let k=0;k<linhas.length-1;k++){
-      const vao=linhas[k].y-(linhas[k+1].y+linhas[k+1].h);
-      if(vao>=VAO_MINIMO)
-        bandas.push({tipo:"figura", depois:k, engole:[],
-          de:linhas[k+1].y+linhas[k+1].h+FOLGA_FIG,
-          ate:linhas[k].y-FOLGA_FIG});
-    }
-
-    // 2) blocos de linhas tabulares = tabela; vira imagem, com as bordas
-    let k=0;
-    while(k<linhas.length){
-      if(!pareceTabela(linhas[k].txt)){ k++; continue; }
-      let fim=k;
-      while(fim+1<linhas.length && pareceTabela(linhas[fim+1].txt)) fim++;
-      if(fim>k){                                   // pelo menos duas linhas
-        let ini=k;
-        // puxa o cabeçalho da tabela, que costuma não ter números
-        if(ini>0){
-          const acima=String(linhas[ini-1].txt).trim();
-          if(acima.split(/\s+/).length<=6 && acima.length<=60 && !/[:.]$/.test(acima)) ini--;
-        }
-        bandas.push({tipo:"tabela", depois:ini-1, engole:[ini,fim],
-          de:linhas[fim].y-linhas[fim].h*0.4-FOLGA_FIG,
-          ate:linhas[ini].y+linhas[ini].h+FOLGA_FIG});
-      }
-      k=fim+1;
-    }
+  for(let i=0;i<pgs.length;i++){
+    const pg=pgs[i].pg, linhas=pgs[i].linhas;
+    const bandas=bandasDeLinhas(linhas, topoUsual);
 
     let recortes=[];
     if(bandas.length) recortes=await recortarFiguras(pg, bandas);
@@ -4042,7 +4142,11 @@ function telaSimulado(box){
   const sm=simuladoDe(casaSim);
   if(!sm){ casaNivel="simulados"; return montarCasa(); }
   const pr=provaDoSim(sm), t=turmaDe(sm.turma);
-  if(!pr||!t){ casaNivel="simulados"; return montarCasa(); }
+  if(!pr||!t){
+    /* sem caderno não há o que abrir: some com o registro em vez de
+       rebater para a lista e deixar o fantasma lá */
+    if(!pr && sm){ E.simulados=E.simulados.filter(x=>x.id!==sm.id); salvar(); }
+    casaNivel="simulados"; return montarCasa(); }
   const et=etapaDe(sm.etapa), f=faltasDoCaderno(pr);
   const corrigidos=resDa(pr.id).length;
   const nAlunos=(t.alunos||[]).filter(ativo).length;
@@ -7172,6 +7276,13 @@ function converterSimulados(){
     pr.qids=Array.from({length:pr.nq},(_,i)=>qidDoItem(pr,i));
     mexeu=true;
   });
+  /* fantasmas: registro de simulado cujo caderno não existe mais */
+  const fantasmas=(E.simulados||[]).filter(sm=>!simuladoVivo(sm));
+  if(fantasmas.length){
+    const ids=fantasmas.map(x=>x.id);
+    E.simulados=E.simulados.filter(x=>!ids.includes(x.id));
+    mexeu=true;
+  }
   (E.simulados||[]).forEach(sm=>{
     if(sm.matriz===undefined){ sm.matriz=null; mexeu=true; }
     if(!sm.serie){ const t=turmaDe(sm.turma); if(t){ sm.serie=chaveSerie(t); mexeu=true; } }

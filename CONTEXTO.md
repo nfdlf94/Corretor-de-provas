@@ -1324,3 +1324,83 @@ toda. A ancoragem faz item difícil valer mais, mas não cria atalho.
 Continua tudo por estudante e item a item: doze estudantes com 5 acertos
 saíram com três proficiências distintas, e dois que acertaram exatamente
 os mesmos itens saíram exatamente iguais — como manda a TRI.
+
+
+---
+
+## v38 — expoentes quebrados e o simulado fantasma
+
+### O expoente ia para outra linha, e levava a frase junto
+
+Nas fotos da prova gerada:
+
+    A expressão h(t) = 20t − 5t
+    2 descreve a trajetória de uma bola de golfe…
+    N(x) = 500
+     · 2
+    0,5x .
+
+No PDF, `5t²` não é um pedaço de texto só: é `5t` na linha de base e `2`
+logo acima, em corpo menor. O agrupamento em linhas usava só a distância
+vertical (`|u.y − y| ≤ 3`), e o expoente — deslocado 2 a 4 pontos —
+podia cair fora, virando **linha nova**. O resto da frase ia junto,
+porque vinha depois dele.
+
+`agruparLinhas` agora reconhece o pedaço **em corpo menor e deslocado da
+linha de base** antes de decidir se é linha nova: para cima é expoente,
+para baixo é índice. Vira algarismo sobrescrito quando existe (`t²`,
+`x³`, `aⁿ`, `H₂O`) e `^( )` quando não existe (`2^(0,5x)`,
+`2^(t − 1)`). Deslocamento quase zero continua sendo texto miúdo na
+mesma linha, não índice.
+
+A ordem importa: a checagem de expoente vem ANTES da junção por
+proximidade, porque o deslocamento típico cabe dentro da tolerância de
+mesma linha. Foi por isso que o `H₂O` só passou depois de reordenar.
+
+### O simulado que aparecia na lista e não abria
+
+Um registro de simulado cujo caderno já não existe (`sm.prova` apontando
+para prova apagada) aparecia na lista com o rótulo "em branco" e, ao ser
+tocado, `telaSimulado` rebatia para a lista — nada abria, e o fantasma
+continuava lá. Acontecia com exclusões antigas e com turmas irmãs
+apagadas antes de a exclusão passar a alcançar a série (v36).
+
+Três camadas: `simuladosDa` filtra por `simuladoVivo`,
+`converterSimulados` limpa os registros órfãos ao abrir o app, e
+`telaSimulado` apaga o registro em vez de rebater. O `teste41.js` cobre
+os três caminhos.
+
+
+---
+
+## v39 — os gráficos e a tabela que faltavam
+
+O recorte de figuras já funcionava (foi resolvido nas provas comuns),
+mas nunca tinha sido medido contra um arquivo de simulado. Rodando a
+detecção com a geometria REAL do arquivo do professor, dois furos:
+
+**1. Figura no alto da página não era achada.** A varredura compara
+pares de linhas para achar vãos grandes — logo, o gráfico que ABRE uma
+página, sem texto acima, passava direto. Era o caso do gráfico da questão
+11, que começa a página 4 do simulado de Matemática: sumia da prova.
+
+A correção precisa de uma referência, senão a margem de cima viraria
+"figura" em toda página. `conteudoDePdf` faz uma primeira passada por
+todas as páginas e guarda a altura em que elas COSTUMAM começar (mediana
+dos topos); `bandasDeLinhas(linhas, topo)` só cria a faixa se esta página
+começar bem mais abaixo que as outras.
+
+**2. Tabela partida ao meio.** O cabeçalho em duas linhas ("Número dito
+por" / "Carlos") não passa no teste de linha tabular e rachava a tabela
+da questão 10 em dois recortes, cada um com metade. Faixas de tabela
+quase encostadas (menos de 28pt entre elas) agora viram uma só.
+
+Resultado no arquivo do professor: **5 gráficos e 2 tabelas**, contra 4 e
+3 (uma delas pela metade) antes. E nenhum falso positivo: o simulado de
+Português, que é só texto, continua sem gerar recorte, e as páginas de
+gabarito e descritores também não.
+
+`bandasDeLinhas` foi separada de `conteudoDePdf` justamente para poder
+ser medida sem o pdf.js: o `teste42.js` converte o bbox do `pdftotext`
+para o formato de linha que o pdf.js entrega e roda a mesma função. É o
+jeito de testar recorte de imagem sem depender de renderização.
