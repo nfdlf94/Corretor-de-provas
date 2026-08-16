@@ -2389,10 +2389,26 @@ function emNivel(txt,mapa,ini,fim){
 const sobrescrito=t=>emNivel(t,SOBRE,M_SUP_INI,M_SUP_FIM);
 const subscrito  =t=>emNivel(t,SUB,M_SUB_INI,M_SUB_FIM);
 
+/* Junta os pedaços de uma linha NA ORDEM HORIZONTAL, não na ordem em que
+   o pdf.js os entregou. É por isso que existe: o expoente e o índice
+   quase nunca vêm no meio da sequência — o pdf.js emite primeiro o corpo
+   da linha e depois os pedaços deslocados. Concatenar na ordem de chegada
+   jogava o "₀" de P₀ lá no fim da frase ("o tempo em₀ ₀ anos") e fazia o
+   "ᵗ" de 1,01ᵗ desaparecer do lugar em que significa alguma coisa.
+
+   Dentro de uma linha, x crescente É a ordem de leitura. O `sort` do JS
+   é estável, então pedaços com o mesmo x mantêm a ordem de chegada. */
+function juntarPedacos(pecas){
+  return pecas.slice()
+    .map((p, i) => ({p, i}))
+    .sort((a, b) => (a.p.x - b.p.x) || (a.i - b.i))
+    .map(o => o.p.txt).join("");
+}
+
 function agruparLinhas(itens){
   const linhas=[];
   (itens||[]).forEach(it=>{
-    const y=it.transform[5], h=it.height||10, txt=it.str;
+    const y=it.transform[5], x=it.transform[4], h=it.height||10, txt=it.str;
     const u=linhas[linhas.length-1];
     /* Pedaço em corpo MENOR e deslocado da linha de base: expoente ou
        índice. Vem antes da junção normal porque o deslocamento típico é
@@ -2401,13 +2417,13 @@ function agruparLinhas(itens){
        texto miúdo na própria linha, não índice. */
     if(u && txt.trim() && h<u.h*0.85){
       const d=y-u.y;
-      if(d>=1 && d<u.h*0.8){ u.txt+=sobrescrito(txt); return; }
-      if(d<=-1 && -d<u.h*0.8){ u.txt+=subscrito(txt); return; }
+      if(d>=1 && d<u.h*0.8){ u.pecas.push({x, txt:sobrescrito(txt)}); return; }
+      if(d<=-1 && -d<u.h*0.8){ u.pecas.push({x, txt:subscrito(txt)}); return; }
     }
-    if(u && Math.abs(u.y-y)<=3){ u.txt+=txt; u.h=Math.max(u.h,h); return; }
-    linhas.push({y, h, txt});
+    if(u && Math.abs(u.y-y)<=3){ u.pecas.push({x, txt}); u.h=Math.max(u.h,h); return; }
+    linhas.push({y, h, pecas:[{x, txt}]});
   });
-  return linhas;
+  return linhas.map(l=>({y:l.y, h:l.h, txt:juntarPedacos(l.pecas)}));
 }
 
 /* As faixas da página que serão recortadas como imagem — o gráfico, o

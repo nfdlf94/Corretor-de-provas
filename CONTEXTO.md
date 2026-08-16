@@ -1697,3 +1697,64 @@ falso positivo.
   do simulado trazer mais questões do que se pede.
 - Cortes de 5º e 9º ano em Língua Portuguesa seguem da edição de 2018,
   sem conferência contra documento atual.
+
+---
+
+## v44 — o expoente que ia parar no fim da frase
+
+### 1. `agruparLinhas` juntava na ordem de chegada, não na ordem de leitura
+
+Nas fotos da prova gerada, a matemática saía assim:
+
+    P(t) = P · 1,01 , em que P = 10 000 … o tempo em₀  ₀ anos.
+    N(t) = 2 · 3 , em que N é o número de bactérias…
+
+Os dois "₀" de P₀ tinham sido atirados para o fim da frase e o "ᵗ" de
+1,01ᵗ e de 3ᵗ havia sumido do lugar em que significa alguma coisa.
+
+A causa **não estava na diagramação**: estava na LEITURA do PDF. O pdf.js
+não entrega o expoente no meio da sequência — ele emite primeiro o corpo
+da linha e depois os pedaços deslocados da linha de base.
+`agruparLinhas` fazia `u.txt += sobrescrito(txt)`, isto é, concatenava na
+ordem de CHEGADA. Quando essa ordem coincidia com a de leitura, funcionava
+(foi por isso que a v41 passou nos testes); quando não coincidia, o
+expoente ia para o fim da linha.
+
+Dentro de uma linha, **x crescente É a ordem de leitura**. Agora cada
+linha acumula `pecas: [{x, txt}]` e `juntarPedacos()` ordena por x antes
+de juntar. O `sort` do JS é estável, então pedaços com o mesmo x mantêm a
+ordem de chegada e o texto sem expoente nenhum sai idêntico ao de antes.
+
+De quebra isso melhora as tabelas achatadas numa linha só: as colunas
+passam a sair em ordem de x.
+
+**Esta correção é na leitura do arquivo.** O caderno guarda o que foi
+lido na importação — os simulados já importados precisam ser importados
+de novo.
+
+Por que o PRE_FLIGHT_CHECK não pegou: ele compara o enunciado GUARDADO
+com o que foi renderizado, e o enunciado guardado já vinha errado da
+importação. Ele mede fidelidade de renderização, não de leitura — e a
+renderização estava correta.
+
+### 2. A estrofe centralizada como bloco
+
+Pedido do professor, e é o padrão das provas de concurso: o poema é
+deslocado para o meio da coluna. `centralizarVersos()` calcula o
+deslocamento pelo verso MAIS LARGO do bloco e aplica o mesmo `dxBloco` a
+todos os versos da estrofe.
+
+Os versos continuam **alinhados à esquerda entre si**. Centralizar cada
+verso isoladamente transformaria a estrofe num losango e destruiria
+justamente a estrutura visual de que o poema depende — que é a razão de
+`verso` existir como tipo desde a v43. O título do poema continua
+centralizado como título, e a prosa não ganha deslocamento nenhum.
+
+### 3. Suíte nova
+
+`teste49` cobre as duas coisas: os pedaços fora de ordem (o caso do
+`N(t) = 2 · 3ᵗ` e o do `P₀ · 1,01ᵗ … Adote 1,01²⁰ = 1,22.`, com os itens
+na ordem em que o pdf.js os entrega), a sobrevivência do expoente até o
+papel — desenhado em corpo menor, levantado da linha de base e à direita
+do 3 que ele eleva — e a estrofe centralizada com folga igual dos dois
+lados.

@@ -627,6 +627,33 @@ function textoComNiveis(doc, txt, x, y, fs){
   return dx;
 }
 
+/* ── poema: a estrofe centralizada como BLOCO ───────────────────────
+   É o que as provas oficiais fazem, e o que o professor pediu. A estrofe
+   inteira é deslocada para o meio da coluna, mas os versos continuam
+   alinhados à ESQUERDA entre si — centralizar cada verso isoladamente
+   transformaria a estrofe num losango e destruiria justamente a
+   estrutura visual de que o poema depende. O deslocamento é calculado
+   pelo verso MAIS LARGO do bloco. */
+function centralizarVersos(doc, partes, larg){
+  let i = 0;
+  while(i < partes.length){
+    if(partes[i].tipo !== "verso"){ i++; continue; }
+    let j = i, maior = 0;
+    while(j < partes.length && partes[j].tipo === "verso"){
+      doc.setFont(FONTE_TEXTO, partes[j].estilo); doc.setFontSize(partes[j].fs);
+      partes[j].linhas.forEach(ln => {
+        const w = temMarcas(ln.t) ? larguraComNiveis(doc, ln.t, partes[j].fs)
+                                  : doc.getTextWidth(semMarcas(ln.t));
+        if(w > maior) maior = w;
+      });
+      j++;
+    }
+    const dx = Math.max(0, (larg - maior) / 2);
+    for(let k = i; k < j; k++) partes[k].dxBloco = dx;
+    i = j;
+  }
+}
+
 function medidasQuestao(doc, item, larg, fs, opcoes){
   doc.setFont(FONTE_TEXTO, "normal"); doc.setFontSize(fs);
   const passo = fs * ENTRELINHA();
@@ -666,6 +693,7 @@ function medidasQuestao(doc, item, larg, fs, opcoes){
   const fig = medirFigura(item.imagem, larg);
   const posFig = partes.length;
   if(seg.comando)   medir(seg.comando,   "comando",   fs,       "bold");
+  centralizarVersos(doc, partes, larg);
 
   let h = AR_ROTULO();
   partes.forEach((pt, i) => {
@@ -717,6 +745,8 @@ function desenharLinhasParte(doc, pt, x, y, larg, de, ate){
   /* justificado só no texto corrido e no comando; verso e fórmula têm
      estrutura visual própria e o justificado a destruiria */
   const justifica = (pt.tipo === "corpo" || pt.tipo === "comando");
+  /* deslocamento da ESTROFE inteira; zero em tudo que não é verso */
+  const dxBloco = pt.dxBloco || 0;
   for(let k = de; k < ate; k++){
     const ln = pt.linhas[k];
     const yy = y + pt.passo * (0.75 + (k - de));
@@ -734,11 +764,11 @@ function desenharLinhasParte(doc, pt, x, y, larg, de, ate){
       }else doc.text(ln.t, x + larg / 2, yy, {align: "center"});
     }else if(temMarcas(ln.t)){
       /* linha com expoente: desenhada pedaço a pedaço, sem justificar */
-      textoComNiveis(doc, ln.t, x + ln.dx, yy, pt.fs);
+      textoComNiveis(doc, ln.t, x + dxBloco + ln.dx, yy, pt.fs);
     }else if(justifica && k < pt.linhas.length - 1){
       doc.text(ln.t, x + ln.dx, yy, {align: "justify", maxWidth: larg - ln.dx});
     }else{
-      doc.text(ln.t, x + ln.dx, yy);
+      doc.text(ln.t, x + dxBloco + ln.dx, yy);
     }
   }
   return y + (ate - de) * pt.passo;
