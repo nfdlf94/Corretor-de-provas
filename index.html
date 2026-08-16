@@ -2448,10 +2448,15 @@ function bandasDeLinhas(linhas, topo){
     while(fim+1<linhas.length && pareceTabela(linhas[fim+1].txt)) fim++;
     if(fim>k){                                   // pelo menos duas linhas
       let ini=k;
-      // puxa o cabeçalho da tabela, que costuma não ter números
-      if(ini>0){
+      /* Puxa o cabeçalho da tabela, que costuma não ter números. Pode
+         ocupar DUAS linhas — "Número dito por" / "Carlos" —, e puxar só
+         uma deixava a outra solta no meio do enunciado, impressa em cima
+         da imagem da tabela. */
+      for(let volta=0; volta<2 && ini>0; volta++){
         const acima=String(linhas[ini-1].txt).trim();
+        if(!acima) break;
         if(acima.split(/\s+/).length<=6 && acima.length<=60 && !/[:.]$/.test(acima)) ini--;
+        else break;
       }
       bandas.push({tipo:"tabela", depois:ini-1, engole:[ini,fim],
         de:linhas[fim].y-linhas[fim].h*0.4-FOLGA_FIG,

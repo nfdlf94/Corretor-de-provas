@@ -536,6 +536,13 @@ function medidasQuestao(doc, item, larg, fs, opcoes){
   if(seg.titulo)    medir(seg.titulo,    "titulo",    fs,       "bold");
   (seg.corpo || []).forEach(p => medir(p, "corpo", fs, "normal", RECUO));
   if(seg.fonte)     medir(seg.fonte,     "fonte",     fs - 2.2, "normal");
+  /* O gráfico e a tabela entram AQUI, entre o texto e o comando, como no
+     material oficial: primeiro o que se lê, depois o que se vê, e só
+     então a pergunta. Desenhá-los depois do comando — como era —
+     empurrava "Qual é a lei de formação dessa função?" para cima do
+     gráfico que ela manda observar. */
+  const fig = medirFigura(item.imagem, larg);
+  const posFig = partes.length;
   if(seg.comando)   medir(seg.comando,   "comando",   fs,       "bold");
 
   let h = AR_ROTULO();
@@ -543,7 +550,6 @@ function medidasQuestao(doc, item, larg, fs, opcoes){
     h += pt.linhas.length * pt.passo + espacoDepois(pt.tipo, partes[i + 1]);
   });
   h += AR_ENUN();
-  const fig = medirFigura(item.imagem, larg);
   if(fig) h += fig.h + 2.5;
   doc.setFont(FONTE_TEXTO, "normal"); doc.setFontSize(fs);
   const alts = (item.alternativas || []).map(a => {
@@ -551,7 +557,7 @@ function medidasQuestao(doc, item, larg, fs, opcoes){
     return remarcar(doc.splitTextToSize(semMarcas(bruto), larg - 7), bruto);
   });
   alts.forEach(la => { h += la.length * passo + AR_ALT(); });
-  return {h, partes, alts, fig, passo};
+  return {h, partes, alts, fig, posFig, passo};
 }
 
 /* o ar entre as partes: pouco dentro do texto, mais antes do comando */
@@ -573,7 +579,14 @@ function desenharQuestaoCol(doc, x, y, n, item, larg, fs, opcoes, m){
   doc.line(x, y + 3.6, x + 15, y + 3.6);
   y += AR_ROTULO();
 
+  const desenharFig = () => {
+    if(!m.fig) return;
+    try{ doc.addImage(item.imagem.dados, "JPEG", x, y + 1.5, m.fig.w, m.fig.h); }catch(e){}
+    y += m.fig.h + 3;
+  };
+
   m.partes.forEach((pt, i) => {
+    if(i === m.posFig) desenharFig();
     doc.setFont(FONTE_TEXTO, pt.estilo); doc.setFontSize(pt.fs);
     if(pt.tipo === "instrucao" || pt.tipo === "fonte") doc.setTextColor(...COR.grey);
     else if(pt.tipo === "titulo") doc.setTextColor(...COR.navy);
@@ -598,12 +611,8 @@ function desenharQuestaoCol(doc, x, y, n, item, larg, fs, opcoes, m){
     });
     y += pt.linhas.length * pt.passo + espacoDepois(pt.tipo, m.partes[i + 1]);
   });
+  if(m.posFig >= m.partes.length) desenharFig();   // questão sem comando
   y += AR_ENUN();
-
-  if(m.fig){
-    try{ doc.addImage(item.imagem.dados, "JPEG", x, y, m.fig.w, m.fig.h); }catch(e){}
-    y += m.fig.h + 2.5;
-  }
   m.alts.forEach((la, k) => {
     doc.setFont(FONTE_TEXTO, "bold"); doc.setTextColor(...COR.orange); doc.setFontSize(fs);
     doc.text(opcoes[k] + ")", x + 1, y + m.passo * 0.75);
@@ -943,4 +952,4 @@ function gerarProvas(cfg, alunos, jsPDFctor){
 
 if(typeof module !== "undefined") module.exports =
   {desenharCartao, gerarProvas, gabaritoIndividual, montarPayload, encurtarNome, nomeCurtoQR, soAscii,
-   pedacosDeNivel, remarcar, semMarcas, temMarcas, prepararFontes, medirFigura};
+   pedacosDeNivel, remarcar, semMarcas, temMarcas, medidasQuestao, desenharQuestaoCol, prepararFontes, medirFigura};

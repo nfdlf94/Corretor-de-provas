@@ -1502,3 +1502,35 @@ devolve blocos indivisíveis, com um único `desenhar()`. É trabalho de
 verdade no motor de layout e não foi feito. Não tente resolver mexendo em
 `melhorCorte`: ele só escolhe onde dividir uma sequência de blocos
 inteiros entre as duas colunas.
+
+
+---
+
+## v42 — a figura vem antes do comando
+
+Duas correções de posicionamento, vistas nas fotos da prova gerada.
+
+### O comando estava antes do gráfico
+
+No material oficial a sequência é **texto → gráfico ou tabela → comando →
+alternativas**. O app desenhava todas as partes do enunciado (incluindo o
+comando) e só então a figura: "Qual é a lei de formação dessa função?"
+aparecia ACIMA do gráfico que ela manda observar.
+
+`medidasQuestao` agora guarda `posFig` — a posição da figura entre as
+partes, imediatamente antes do `comando` — e `desenharQuestaoCol`
+desenha a imagem ao chegar nessa posição. Questão sem comando continua
+com a figura no fim do enunciado. A altura total não muda, então o
+encaixe nas colunas continua igual.
+
+### Cabeçalho de tabela em duas linhas
+
+"Número dito por" / "Carlos" é um cabeçalho partido em duas linhas. O
+recorte puxava **uma** linha acima do bloco tabular; a outra sobrava
+solta no enunciado e saía impressa por cima da imagem da tabela. Agora
+puxa até duas, enquanto continuarem com cara de cabeçalho (poucas
+palavras, curta, sem pontuação final).
+
+O `teste45.js` usa um jsPDF de mentira que registra a ORDEM dos desenhos
+— é assim que dá para afirmar que a imagem sai antes do comando sem
+precisar renderizar PDF de verdade.
