@@ -1435,3 +1435,70 @@ que citam gráfico ou quadro — e nenhuma das puramente textuais recebe.
 Quem for mexer: `textoDePdf` continua existindo e continua apagando as
 marcas, porque outros pontos dependem de texto limpo. A importação de
 simulado não pode voltar a usá-lo.
+
+
+---
+
+## v41 — expoentes de verdade e a cascata antes do corte
+
+### 1. Expoente com tipografia, não com "^( )"
+
+A v38 tinha resolvido a frase quebrada, não a tipografia: sobrava
+`2^(0,5x)` impresso. Agora o texto guarda MARCAS invisíveis em volta do
+trecho sobrescrito (`\u0002…\u0003`) ou subscrito (`\u0004…\u0005`), e
+cada camada faz a sua parte:
+
+- **leitura** (`emNivel`): usa Unicode quando cabe (`t²`, `x³`, `aⁿ`,
+  `H₂O`) e marca quando não cabe (`0,5x`, `t − 1`);
+- **telas** (`esc`): marcas viram `<sup>` e `<sub>`;
+- **papel** (`gerador.js`): `textoComNiveis` desenha o trecho em corpo
+  0,68 e levantado da linha de base.
+
+A medida da linha usa `semMarcas`, e `remarcar` devolve as marcas às
+linhas depois da quebra — andando pelas duas versões do texto em
+paralelo. Detalhe que custou um teste: no fim de uma linha só ficam as
+marcas de FECHAMENTO; a de abertura pertence à linha seguinte. Linha com
+expoente não é justificada, porque o justificado do jsPDF distribui
+espaços na string inteira e não conhece os pedaços.
+
+`esc` agora resolve as marcas: quem imprimir texto em HTML sem passar por
+ela vai ver quadradinhos.
+
+### 2. A cascata que o professor tinha pedido
+
+Ordem correta, agora implementada em `melhorAjuste`:
+
+1. **escada de fonte** — já existia, roda dentro do gerador (10,5 → 9 pt);
+2. **trocar questão** — `trocasPossiveis` procura, no ARQUIVO que o
+   professor enviou, outra questão do MESMO descritor com texto pelo
+   menos 15% menor, que ainda não esteja no caderno. Troca a mais
+   comprida primeiro, remede, até seis trocas;
+3. **cortar questões** — só depois de esgotadas as trocas.
+
+Para isso, a importação passou a guardar `sm.reserva[comp]` com as
+questões do arquivo (até 60 por componente). **Se o arquivo trouxer
+exatamente a quantidade pedida, não há reserva e não há troca** — é o
+caso dos arquivos atuais, com 15 questões para 15 pedidas. Para a troca
+servir de alguma coisa, o arquivo precisa vir com folga.
+
+O aviso de tela diz o que foi feito: quantas trocas, em quais questões, e
+que nenhuma habilidade saiu do caderno.
+
+### 3. Espaço em branco — diagnosticado, NÃO resolvido
+
+Na foto, a página 1 sai com a questão 1 na coluna esquerda e a direita
+inteira vazia. A causa está em `fluir`: as duas colunas de uma página
+começam na mesma altura, e na primeira página elas começam ABAIXO do
+cartão-resposta, que come cerca de 90 mm. Se o bloco da questão seguinte
+for mais alto que a coluna encurtada, ele não cabe em nenhuma das duas —
+e, como a ordem das questões não pode ser alterada (o gabarito individual
+depende dela), nada mais entra: a página fecha com a coluna direita
+vazia.
+
+A correção certa é deixar uma questão comprida **começar numa coluna e
+continuar na outra**, que é o que uma prova oficial faz. Isso exige
+quebrar o bloco em pedaços com altura própria — hoje `blocosDaProva`
+devolve blocos indivisíveis, com um único `desenhar()`. É trabalho de
+verdade no motor de layout e não foi feito. Não tente resolver mexendo em
+`melhorCorte`: ele só escolhe onde dividir uma sequência de blocos
+inteiros entre as duas colunas.

@@ -439,6 +439,84 @@ function quebrarComRecuo(doc, txt, larg, recuo){
   return [{t: primeira, dx: recuo}].concat(demais.map(t => ({t, dx: 0})));
 }
 
+/* ── expoentes e índices no papel ───────────────────────────────────
+   O texto guarda marcas invisíveis em volta do que é sobrescrito
+   (\u0002…\u0003) ou subscrito (\u0004…\u0005). Elas nascem na leitura
+   do PDF de origem, onde "2^{0,5x}" vem em dois pedaços de tamanhos
+   diferentes. Aqui viram tipografia de verdade: corpo menor, levantado
+   ou baixado em relação à linha de base.
+
+   A quebra de linha mede o texto SEM as marcas (a diferença de largura
+   é pequena e a favor da segurança, porque o sobrescrito é mais estreito
+   que o corpo normal). Linha que traz expoente não é justificada — o
+   justificado do jsPDF distribui espaços na string inteira e não sabe
+   destes pedaços. */
+const M_SUP_INI="\u0002", M_SUP_FIM="\u0003";
+const M_SUB_INI="\u0004", M_SUB_FIM="\u0005";
+const semMarcas = t => String(t == null ? "" : t).replace(/[\u0002-\u0005]/g, "");
+const temMarcas = t => /[\u0002-\u0005]/.test(String(t == null ? "" : t));
+
+/* Depois de quebrar o texto limpo em linhas, devolve as marcas para os
+   lugares certos, andando pelas duas versões em paralelo. É assim que a
+   medida da linha ignora as marcas e o desenho continua sabendo onde
+   estão os expoentes. */
+function remarcar(linhas, marcado){
+  if(!temMarcas(marcado)) return linhas;
+  const src = String(marcado);
+  let i = 0;
+  return linhas.map(l => {
+    let out = "", j = 0;
+    while(j < l.length && i < src.length){
+      const c = src[i];
+      if(c >= "\u0002" && c <= "\u0005"){ out += c; i++; continue; }
+      if(c === l[j]){ out += c; i++; j++; continue; }
+      i++;                       // espaço engolido na quebra de linha
+    }
+    /* só as marcas de FECHAMENTO ficam no fim da linha; uma marca de
+       abertura pertence ao pedaço que vem na linha seguinte */
+    while(i < src.length && (src[i] === "\u0003" || src[i] === "\u0005")){ out += src[i]; i++; }
+    return out;
+  });
+}
+
+/* quebra a linha em pedaços {t, nivel} — nivel 0 normal, 1 sobrescrito,
+   -1 subscrito */
+function pedacosDeNivel(txt){
+  const out = [];
+  let atual = {t: "", nivel: 0};
+  for(const ch of String(txt == null ? "" : txt)){
+    if(ch === M_SUP_INI || ch === M_SUB_INI){
+      if(atual.t) out.push(atual);
+      atual = {t: "", nivel: ch === M_SUP_INI ? 1 : -1};
+    }else if(ch === M_SUP_FIM || ch === M_SUB_FIM){
+      if(atual.t) out.push(atual);
+      atual = {t: "", nivel: 0};
+    }else atual.t += ch;
+  }
+  if(atual.t) out.push(atual);
+  return out;
+}
+
+/* desenha uma linha que pode ter expoente; devolve a largura usada */
+function textoComNiveis(doc, txt, x, y, fs){
+  let dx = 0;
+  pedacosDeNivel(txt).forEach(p => {
+    if(p.nivel === 0){
+      doc.setFontSize(fs);
+      doc.text(p.t, x + dx, y);
+      dx += doc.getTextWidth(p.t);
+    }else{
+      const menor = fs * 0.68;
+      doc.setFontSize(menor);
+      const sobe = p.nivel > 0 ? fs * 0.32 : -fs * 0.12;
+      doc.text(p.t, x + dx, y - sobe);
+      dx += doc.getTextWidth(p.t);
+      doc.setFontSize(fs);
+    }
+  });
+  return dx;
+}
+
 function medidasQuestao(doc, item, larg, fs, opcoes){
   doc.setFont(FONTE_TEXTO, "normal"); doc.setFontSize(fs);
   const passo = fs * ENTRELINHA();
@@ -446,7 +524,10 @@ function medidasQuestao(doc, item, larg, fs, opcoes){
   const partes = [];
   const medir = (txt, tipo, tamanho, estilo, recuo) => {
     doc.setFont(FONTE_TEXTO, estilo); doc.setFontSize(tamanho);
-    const linhas = quebrarComRecuo(doc, String(txt), larg, recuo || 0);
+    const bruto = String(txt);
+    const linhas = quebrarComRecuo(doc, semMarcas(bruto), larg, recuo || 0);
+    const remarcadas = remarcar(linhas.map(o => o.t), bruto);
+    linhas.forEach((o, k) => { o.t = remarcadas[k]; });
     partes.push({tipo, linhas, fs: tamanho, estilo,
                  passo: tamanho * ENTRELINHA()});
   };
@@ -465,8 +546,10 @@ function medidasQuestao(doc, item, larg, fs, opcoes){
   const fig = medirFigura(item.imagem, larg);
   if(fig) h += fig.h + 2.5;
   doc.setFont(FONTE_TEXTO, "normal"); doc.setFontSize(fs);
-  const alts = (item.alternativas || []).map(a =>
-    doc.splitTextToSize(String(a == null ? "" : a), larg - 7));
+  const alts = (item.alternativas || []).map(a => {
+    const bruto = String(a == null ? "" : a);
+    return remarcar(doc.splitTextToSize(semMarcas(bruto), larg - 7), bruto);
+  });
   alts.forEach(la => { h += la.length * passo + AR_ALT(); });
   return {h, partes, alts, fig, passo};
 }
@@ -500,7 +583,10 @@ function desenharQuestaoCol(doc, x, y, n, item, larg, fs, opcoes, m){
     const justifica = (pt.tipo === "corpo" || pt.tipo === "comando");
     pt.linhas.forEach((ln, k) => {
       const yy = y + pt.passo * (0.75 + k);
-      if(pt.tipo === "fonte"){
+      if(temMarcas(ln.t)){
+        /* linha com expoente: desenhada pedaço a pedaço, sem justificar */
+        textoComNiveis(doc, ln.t, x + ln.dx, yy, pt.fs);
+      }else if(pt.tipo === "fonte"){
         doc.text(ln.t, x + larg, yy, {align: "right"});
       }else if(pt.tipo === "titulo"){
         doc.text(ln.t, x + larg / 2, yy, {align: "center"});
@@ -522,7 +608,11 @@ function desenharQuestaoCol(doc, x, y, n, item, larg, fs, opcoes, m){
     doc.setFont(FONTE_TEXTO, "bold"); doc.setTextColor(...COR.orange); doc.setFontSize(fs);
     doc.text(opcoes[k] + ")", x + 1, y + m.passo * 0.75);
     doc.setFont(FONTE_TEXTO, "normal"); doc.setTextColor(25, 28, 34);
-    doc.text(la, x + 7, y + m.passo * 0.75);
+    la.forEach((ln, i2) => {
+      const yy = y + m.passo * (0.75 + i2);
+      if(temMarcas(ln)) textoComNiveis(doc, ln, x + 7, yy, fs);
+      else doc.text(ln, x + 7, yy);
+    });
     y += la.length * m.passo + AR_ALT();
   });
   return y + AR_QUESTAO();
@@ -852,4 +942,5 @@ function gerarProvas(cfg, alunos, jsPDFctor){
 }
 
 if(typeof module !== "undefined") module.exports =
-  {desenharCartao, gerarProvas, gabaritoIndividual, montarPayload, encurtarNome, nomeCurtoQR, soAscii, prepararFontes, medirFigura};
+  {desenharCartao, gerarProvas, gabaritoIndividual, montarPayload, encurtarNome, nomeCurtoQR, soAscii,
+   pedacosDeNivel, remarcar, semMarcas, temMarcas, prepararFontes, medirFigura};

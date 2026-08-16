@@ -44,12 +44,16 @@ setTimeout(() => {
      === "A expressão h(t) = 20t − 5t² descreve a trajetória de uma bola de golfe.",
      "o expoente volta para a linha: 5t²");
 
+  /* o que não cabe em algarismo sobrescrito sai MARCADO — o gerador
+     desenha em corpo menor acima da linha, e `esc` mostra <sup> na tela
+     (ver teste44). A notação "^( )" foi só um paliativo da v38. */
+  const SUP = "\u0002", FSUP = "\u0003";
   ok(linha([["N(x) = 500 · 2", 700, 10], ["0,5x", 704, 6]])[0]
-     === "N(x) = 500 · 2^(0,5x)",
-     "expoente sem versão sobrescrita vira ^( ): " + linha([["N(x) = 500 · 2",700,10],["0,5x",704,6]])[0]);
+     === "N(x) = 500 · 2" + SUP + "0,5x" + FSUP,
+     "expoente sem versão sobrescrita sai marcado, para virar sobrescrito de verdade");
 
   ok(linha([["f(t) = 20 · 2", 700, 10], ["t − 1", 704, 6], [", em que f(t)…", 700, 10]])[0]
-     === "f(t) = 20 · 2^(t − 1), em que f(t)…",
+     === "f(t) = 20 · 2" + SUP + "t − 1" + FSUP + ", em que f(t)…",
      "e a frase continua na mesma linha depois do expoente");
 
   ok(linha([["x", 700, 10], ["3", 704, 6]])[0] === "x³", "x³ em algarismo sobrescrito");

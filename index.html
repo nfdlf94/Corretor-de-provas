@@ -582,7 +582,14 @@ const guarda=(()=>{ let mem={},ok=false;
           esc:(k,v)=>{try{ok?localStorage.setItem(k,v):(mem[k]=v);}catch(e){mem[k]=v;}}};})();
 
 const $=s=>document.querySelector(s);
-const esc=t=>String(t==null?"":t).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+/* `esc` também resolve as marcas de expoente e índice: nas telas elas
+   viram <sup>/<sub>, no papel quem desenha é o gerador. Sem isto, os
+   caracteres de controle apareceriam como quadradinhos. */
+const esc=t=>String(t==null?"":t)
+  .replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))
+  .replace(/\u0002([^\u0003]*)\u0003/g,"<sup>$1</sup>")
+  .replace(/\u0004([^\u0005]*)\u0005/g,"<sub>$1</sub>")
+  .replace(/[\u0002-\u0005]/g,"");
 const primeiroNome=n=>String(n).split(" ").slice(0,2).join(" ");
 const uid=p=>p+"-"+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 const ordNum=(a,b)=>String(a).localeCompare(String(b),undefined,{numeric:true});
@@ -1336,10 +1343,63 @@ function medirCaderno(sm,pr,t,lista){
 }
 
 /* Maior quantidade por componente que cabe no teto de páginas. */
+/* ── tamanho de um item, para saber quem é o comprido ── */
+const tamanhoDoItem=x=>String((x.questao||{}).enunciado||"").length+
+  ((x.questao||{}).alternativas||[]).reduce((n,a)=>n+String(a||"").length,0);
+
+/* Troca de questão por outra do MESMO descritor e texto menor, tirada do
+   próprio arquivo que o professor enviou. Vem ANTES de cortar questões:
+   perder uma questão muda a prova; trocar por outra do mesmo descritor
+   mede a mesma habilidade num texto mais curto. */
+function trocasPossiveis(sm,lista){
+  const reserva=(sm.reserva)||{};
+  const usados=new Set(lista.map(x=>qidDoTexto((x.questao||{}).enunciado)));
+  const saida=[];
+  lista.forEach((x,i)=>{
+    const pool=reserva[x.comp]||[];
+    const meu=tamanhoDoItem(x);
+    pool.forEach(c=>{
+      if(codDesc(c.desc||"")!==codDesc(x.desc||"")) return;
+      const qid=qidDoTexto((c.questao||{}).enunciado);
+      if(!qid||usados.has(qid)) return;
+      const cand=tamanhoDoItem(c);
+      if(cand>=meu*0.85) return;               // precisa ser bem menor
+      saida.push({i, ganho:meu-cand, novo:c, antigo:x});
+    });
+  });
+  return saida.sort((a,b)=>b.ganho-a.ganho);
+}
+
 function melhorAjuste(sm){
   const pr=provaDoSim(sm), t=turmaDe(sm.turma);
   if(!pr||!t||!pr.nq) return null;
-  const base=itensDoCaderno(pr);
+  let base=itensDoCaderno(pr);
+
+  /* 1º a escada de fonte, que já roda dentro do gerador; 2º as trocas;
+     3º e só então o corte. */
+  const m0=medirCaderno(sm,pr,t,base);
+  if(m0 && m0.paginas<=MAX_PAG_SIMULADO)
+    return {corte:0, trocas:[], lista:base, paginas:m0.paginas, corpo:m0.corpo,
+            qtd:COMPONENTES.reduce((o,c)=>{o[c.id]=base.filter(x=>x.comp===c.id).length;return o;},{})};
+
+  const trocas=[];
+  let atual=base.slice();
+  for(let n=0;n<6;n++){
+    const cands=trocasPossiveis(sm,atual).filter(c=>!trocas.some(t2=>t2.i===c.i));
+    if(!cands.length) break;
+    const c=cands[0];
+    const nova=atual.slice();
+    nova[c.i]=Object.assign({},atual[c.i],{questao:c.novo.questao, gab:c.novo.gab,
+      desc:c.novo.desc||atual[c.i].desc, niv:c.novo.niv||null, hab:"", qid:""});
+    const m=medirCaderno(sm,pr,t,nova);
+    if(!m) break;
+    atual=nova;
+    trocas.push({i:c.i, ganho:c.ganho, de:c.antigo, para:c.novo});
+    if(m.paginas<=MAX_PAG_SIMULADO)
+      return {corte:0, trocas, lista:atual, paginas:m.paginas, corpo:m.corpo,
+              qtd:COMPONENTES.reduce((o,c2)=>{o[c2.id]=atual.filter(x=>x.comp===c2.id).length;return o;},{})};
+  }
+  base=atual;
   const porComp={};
   COMPONENTES.forEach(c=>porComp[c.id]=base.filter(x=>x.comp===c.id));
   const maior=Math.max(...COMPONENTES.map(c=>porComp[c.id].length));
@@ -1353,7 +1413,7 @@ function melhorAjuste(sm){
     if(lista.length<MIN_Q_CARTAO) break;
     const m=medirCaderno(sm,pr,t,lista);
     if(!m) return null;                 // não deu para medir: gera como está
-    ultimo={corte, lista, paginas:m.paginas, corpo:m.corpo,
+    ultimo={corte, trocas, lista, paginas:m.paginas, corpo:m.corpo,
       qtd:COMPONENTES.reduce((o,c)=>{o[c.id]=Math.max(0,porComp[c.id].length-corte);return o;},{})};
     if(m.paginas<=MAX_PAG_SIMULADO) return ultimo;
   }
@@ -2311,15 +2371,23 @@ const SOBRE={"0":"⁰","1":"¹","2":"²","3":"³","4":"⁴","5":"⁵","6":"⁶",
   "8":"⁸","9":"⁹","+":"⁺","-":"⁻","−":"⁻","=":"⁼","(":"⁽",")":"⁾","n":"ⁿ","i":"ⁱ"};
 const SUB={"0":"₀","1":"₁","2":"₂","3":"₃","4":"₄","5":"₅","6":"₆","7":"₇",
   "8":"₈","9":"₉","+":"₊","-":"₋","−":"₋","=":"₌","(":"₍",")":"₎"};
-function emNivel(txt,mapa,marca){
+/* Quando o conteúdo não tem versão em algarismo sobrescrito — "0,5x",
+   "t − 1" —, o texto guarda MARCAS invisíveis em volta. O gerador as
+   desenha em corpo menor e acima da linha de base, e `esc` as converte
+   em <sup>/<sub> nas telas. Assim "2^(0,5x)" deixou de existir: no
+   papel e na tela sai 2 com 0,5x sobrescrito, como manda a norma. */
+/* as constantes M_SUP_INI/M_SUP_FIM/M_SUB_INI/M_SUB_FIM e `semMarcas`
+   vêm de gerador.js, que é quem desenha os expoentes no papel */
+
+function emNivel(txt,mapa,ini,fim){
   const t=String(txt||"").trim();
   if(!t) return "";
   const cabe=[...t].every(ch=>mapa[ch]||ch===" ");
   if(cabe) return [...t].map(ch=>ch===" "?"":mapa[ch]).join("");
-  return marca+"("+t.replace(/\s+/g," ")+")";
+  return ini+t.replace(/\s+/g," ")+fim;
 }
-const sobrescrito=t=>emNivel(t,SOBRE,"^");
-const subscrito  =t=>emNivel(t,SUB,"_");
+const sobrescrito=t=>emNivel(t,SOBRE,M_SUP_INI,M_SUP_FIM);
+const subscrito  =t=>emNivel(t,SUB,M_SUB_INI,M_SUB_FIM);
 
 function agruparLinhas(itens){
   const linhas=[];
@@ -4499,6 +4567,12 @@ function telaSimulado(box){
       const lido=lerSimuladoDoc(txt, figuras);
       if(!lido.itens.length) throw new Error("não encontrei questões numeradas");
       const sel=selecionarItens(sm,comp,lido.itens);
+      /* guarda TODAS as questões do arquivo. Se depois o caderno não
+         couber nas páginas, dá para trocar uma questão comprida por
+         outra do MESMO descritor e texto menor, em vez de cortar. */
+      sm.reserva=Object.assign({},sm.reserva);
+      sm.reserva[comp]=lido.itens.slice(0,60).map(x=>({
+        questao:x.questao, gab:x.gab, desc:x.desc, niv:x.niv||null}));
       if(sel.erro){ info(`<div class="aviso" style="margin-top:10px">${esc(sel.erro)}</div>`); return; }
       if(resDa(pr.id).length && !confirm("Trocar as questões invalida os "+
         resDa(pr.id).length+" cartões já corrigidos deste simulado.\n\nContinuar?")){
@@ -4568,7 +4642,19 @@ function telaSimulado(box){
       voltaPara.prova="simulado"; casaProva=pr.id; ativar(pr.id);
       casaNivel="prova"; montarCasa(); };
     const aj=melhorAjuste(sm);
-    if(!aj || aj.corte===0){ abrir(); return; }   // coube como está
+    if(!aj){ abrir(); return; }
+    if(aj.corte===0 && !(aj.trocas||[]).length){ abrir(); return; }  // coube como está
+    if(aj.corte===0 && aj.trocas.length){
+      /* coube trocando questões: nenhuma habilidade se perde */
+      const lista=aj.trocas.map(t2=>"questão "+(t2.i+1)).join(", ");
+      if(!confirm("As questões não cabiam em "+MAX_PAG_SIMULADO+" páginas nem na menor "+
+        "letra permitida.\n\nTroquei "+aj.trocas.length+" questão"+
+        (aj.trocas.length===1?"":"ões")+" por outra do MESMO descritor e texto mais "+
+        "curto, do próprio arquivo que você enviou ("+lista+").\n\nA prova fica com "+
+        aj.lista.length+" questões, corpo "+String(aj.corpo).replace(".",",")+" pt. "+
+        "Nenhuma habilidade sai do caderno.\n\nAplicar?")) return;
+      aplicarAjuste(sm,aj); montarCasa(); setTimeout(abrir,0); return;
+    }
     const antes=pr.nq;
     const resumo=COMPONENTES.filter(c=>aj.qtd[c.id]!=null)
       .map(c=>aj.qtd[c.id]+" de "+nomeComp(c.id)).join(" e ");
@@ -4576,8 +4662,11 @@ function telaSimulado(box){
       alert("Mesmo com "+aj.lista.length+" questões e a menor letra permitida, a prova "+
         "sai com "+aj.paginas+" páginas. Reduza a quantidade pedida ou use enunciados menores.");
       return; }
+    const jaTrocou=(aj.trocas||[]).length
+      ? "Já troquei "+aj.trocas.length+" questão por outra do mesmo descritor e "+
+        "texto menor, e mesmo assim não coube.\n\n" : "";
     if(!confirm("As "+antes+" questões não cabem em "+MAX_PAG_SIMULADO+" páginas, nem "+
-      "reduzindo a letra até 9 pt.\n\nA maior quantidade que cabe é "+resumo+
+      "reduzindo a letra até 9 pt.\n\n"+jaTrocou+"A maior quantidade que cabe é "+resumo+
       " — "+aj.lista.length+" questões, corpo "+String(aj.corpo).replace(".",",")+" pt.\n\n"+
       "Aplicar esse ajuste? As questões retiradas saem do fim de cada bloco; "+
       "gabarito e descritores continuam certos.")) return;
