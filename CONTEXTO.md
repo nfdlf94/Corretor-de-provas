@@ -1404,3 +1404,34 @@ gabarito e descritores também não.
 ser medida sem o pdf.js: o `teste42.js` converte o bbox do `pdftotext`
 para o formato de linha que o pdf.js entrega e roda a mesma função. É o
 jeito de testar recorte de imagem sem depender de renderização.
+
+
+---
+
+## v40 — a figura era recortada e jogada fora na linha seguinte
+
+O professor cobrou os gráficos de novo, e a causa era muito mais simples
+do que a geometria da v39.
+
+A importação do SIMULADO chamava `textoDePdf`, cuja última linha é:
+
+```js
+.replace(new RegExp(MARCA_FIG+"\\d+","g"),"")   // apaga as marcas
+```
+
+Ou seja: `conteudoDePdf` detectava o gráfico, recortava a imagem e
+devolvia tudo certo — e `textoDePdf` apagava as marcas antes de entregar
+o texto. Sem a marca, `lerQuestoes` nunca põe `figIdx` na questão, e
+`casarFiguras` não tem o que casar. **Nenhuma figura chegava ao caderno
+de simulado, em nenhuma versão.** A importação de prova comum não passa
+por aí — usa `conteudoDePdf` direto —, e é por isso que lá as figuras
+sempre funcionaram e aqui nunca.
+
+`textoEFigurasDePdf` devolve o texto COM as marcas mais os recortes;
+`lerSimuladoDoc(txt, figuras)` chama `casarFiguras`. Medido no arquivo do
+professor: as questões **2, 3, 7, 9, 10, 11 e 14** recebem a figura — as
+que citam gráfico ou quadro — e nenhuma das puramente textuais recebe.
+
+Quem for mexer: `textoDePdf` continua existindo e continua apagando as
+marcas, porque outros pontos dependem de texto limpo. A importação de
+simulado não pode voltar a usá-lo.

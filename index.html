@@ -1074,7 +1074,7 @@ function codDesc(x){
      D01 — texto da habilidade — Questões: 1, 5
 
    As questões em si são lidas pelo MESMO parser das provas comuns. */
-function lerSimuladoDoc(txt){
+function lerSimuladoDoc(txt, figuras){
   const linhas=String(txt).split(/\r?\n/);
   const limpo=l=>String(l).replace(/[*_#]/g,"").trim();
   /* Os títulos vêm espaçados letra a letra no material novo
@@ -1169,6 +1169,8 @@ function lerSimuladoDoc(txt){
   fechar(bloco);
 
   const lidas=lerQuestoes(corpo);
+  /* devolve o gráfico ou a tabela recortada para a questão que o cita */
+  if(figuras&&figuras.length) casarFiguras(lidas.questoes, figuras);
   const itens=(lidas.questoes||[]).map((q,i)=>{
     const letra=chave[i+1]||"";
     const k="ABCDE".indexOf(letra);
@@ -1179,6 +1181,7 @@ function lerSimuladoDoc(txt){
             nivDe:nv?nv.de:null, nivAte:nv?nv.ate:null};
   });
   return {itens, descritores, chave, niveis,
+          comFigura:itens.filter(x=>x.questao&&x.questao.imagem).length,
           semGab:itens.filter(x=>!x.gab).length,
           semDesc:itens.filter(x=>!x.desc).length,
           semNivel:itens.filter(x=>!x.niv).length,
@@ -2516,6 +2519,17 @@ async function textoDePdf(arquivo){
   const {paginas}=await conteudoDePdf(arquivo);
   return paginas.map(p=>p.linhas.join("\n"))
     .join("\n").replace(new RegExp(MARCA_FIG+"\\d+","g"),"");
+}
+
+/* O MESMO texto, mas com as marcas de figura preservadas, mais os
+   recortes. `textoDePdf` apaga as marcas — e era ele que a importação
+   do SIMULADO usava. Por isso gráfico e tabela nunca chegavam ao
+   caderno: eles eram detectados e recortados, e a linha seguinte jogava
+   tudo fora. A importação das provas comuns não passava por aqui, e é
+   por isso que lá as figuras sempre funcionaram. */
+async function textoEFigurasDePdf(arquivo){
+  const {paginas, figuras}=await conteudoDePdf(arquivo);
+  return {txt:paginas.map(p=>p.linhas.join("\n")).join("\n"), figuras};
 }
 
 async function textoDeDocx(arquivo){
@@ -4475,12 +4489,14 @@ function telaSimulado(box){
     const info=t=>{ const el=$("#impInfo"); if(el) el.innerHTML=t; };
     info(`<div class="diag" style="margin-top:10px">Lendo ${esc(arq.name)}…</div>`);
     try{
-      let txt="";
+      let txt="", figuras=[];
       if(/\.docx$/i.test(arq.name))     txt=await textoDeDocx(arq);
-      else if(/\.pdf$/i.test(arq.name)) txt=await textoDePdf(arq);
+      else if(/\.pdf$/i.test(arq.name)){
+        const r=await textoEFigurasDePdf(arq); txt=r.txt; figuras=r.figuras||[];
+      }
       else                              txt=await arq.text();
       if(!txt.trim()) throw new Error("o arquivo não devolveu texto");
-      const lido=lerSimuladoDoc(txt);
+      const lido=lerSimuladoDoc(txt, figuras);
       if(!lido.itens.length) throw new Error("não encontrei questões numeradas");
       const sel=selecionarItens(sm,comp,lido.itens);
       if(sel.erro){ info(`<div class="aviso" style="margin-top:10px">${esc(sel.erro)}</div>`); return; }
