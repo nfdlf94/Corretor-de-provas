@@ -1328,9 +1328,12 @@ function medirCaderno(sm,pr,t,lista){
     nq:lista.length, comps:lista.map(x=>x.comp),
     gabC:lista.map(x=>x.gab||"A").join(""),
     questoes:lista.map(x=>x.questao||itemVazio())});
-  /* mede com a TURMA INTEIRA: cada estudante recebe as questões em outra
-     ordem, e o encaixe nas colunas muda com ela — medir por um aluno só
-     fazia o colega do lado receber uma página a mais */
+  /* mede com a SÉRIE INTEIRA: `cfgDoCaderno` traz todas as turmas que
+     recebem este caderno, e `paresDeOrdem` procura o pior caso entre
+     todas. Cada estudante recebe as questões em outra ordem e o encaixe
+     nas colunas muda com ela; medir por um aluno só fazia o colega do
+     lado receber uma página a mais, e medir só pela turma da vez fazia a
+     turma B cair para 18 questões com o mesmo arquivo da A. */
   const turma=(t.alunos||[]).filter(ativo);
   const alunos=turma.length?turma:[{numero:"01",nome:"ESTUDANTE"}];
   try{
@@ -1420,11 +1423,15 @@ function melhorAjuste(sm){
   return ultimo;                      // nem o mínimo coube: devolve o último medido
 }
 
-/* Aplica o corte, preservando tudo o que cada item carrega. */
+/* Aplica o corte, preservando tudo o que cada item carrega.
+   `sm.qtd` é atualizado ANTES de `gravarCaderno`: é ele que dispara
+   `propagarNaSerie`, e a propagação copia o `qtd` do simulado de origem.
+   Na ordem inversa as turmas irmãs herdavam a quantidade ANTIGA e
+   ficavam com o caderno cortado mas o contador dizendo outra coisa. */
 function aplicarAjuste(sm,aj){
   const pr=provaDoSim(sm);
-  gravarCaderno(pr,aj.lista);
   sm.qtd=Object.assign({},sm.qtd,aj.qtd);
+  gravarCaderno(pr,aj.lista);
   salvar();
   if(E.ativa===pr.id) ativar(pr.id);
   return pr;
@@ -4710,6 +4717,21 @@ function telaSimulado(box){
 }
 
 /* configuração do PDF do caderno, usada na previsão e na geração */
+/* Todas as turmas que recebem este caderno: a do simulado e as irmãs de
+   matriz. É o que faz a escolha do corpo e o corte de questões serem da
+   SÉRIE, e não de quem clicou em gerar primeiro. */
+function turmasDoCaderno(sm){
+  const out=[];
+  [sm].concat(irmaosDaMatriz(sm)).forEach(s=>{
+    const t=turmaDe(s.turma);
+    if(!t) return;
+    const vivos=(t.alunos||[]).filter(ativo);
+    out.push({turma:t.nome,
+      alunos:vivos.length?vivos:[{numero:"01",nome:"ESTUDANTE"}]});
+  });
+  return out;
+}
+
 function cfgDoCaderno(sm,pr,t){
   const e=escolaDe(t.escola)||{nome:""};
   return {codigo:pr.codigo,titulo:pr.titulo,escola:e.nome,turma:t.nome,
@@ -4718,7 +4740,7 @@ function cfgDoCaderno(sm,pr,t){
     periodoLabel:"Simulado SAEPE · "+(sm.ano||""),
     gabaritoCanonico:pr.gabC,no:pr.no,questoes:pr.questoes||[],discursivas:[],
     comps:pr.comps||null, alternarBlocos:alternaBlocos(pr), tipos:sm.tipos||0,
-    simulado:true, maxPaginas:MAX_PAG_SIMULADO,
+    simulado:true, maxPaginas:MAX_PAG_SIMULADO, serie:turmasDoCaderno(sm),
     rotulosComp:COMPONENTES.reduce((m,c)=>{m[c.id]=c.nome;return m;},{})};
 }
 

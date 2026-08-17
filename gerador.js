@@ -1057,13 +1057,39 @@ function chavesDaTurma(cfg, alunos){
   return (alunos || []).map(a => chaveDeOrdem(a.numero, 0));
 }
 
+/* ── quem recebe este caderno ───────────────────────────────────────
+   Num simulado de série o caderno é o MESMO em todas as turmas, mas a
+   ordem das questões é semeada por turma + número — então o encaixe nas
+   colunas muda de turma para turma. Medir só com a turma da vez fazia a
+   turma A fechar em 20 questões e a B, lendo exatamente o mesmo arquivo,
+   cair para 18: cada uma decidia sozinha o corpo da letra e quantas
+   questões cortar.
+
+   A decisão tem de ser da SÉRIE. `cfg.serie` traz todas as turmas que
+   recebem o caderno, e o pior caso é procurado no conjunto inteiro. Sem
+   `cfg.serie` — prova comum, ou simulado de turma única — o
+   comportamento é o de antes. */
+function paresDeOrdem(cfg, alunos){
+  const pares = [], vistos = Object.create(null);
+  const add = (turma, chave) => {
+    const k = String(turma) + "\u0000" + String(chave);
+    if(vistos[k]) return;
+    vistos[k] = 1; pares.push({turma: turma, chave: chave});
+  };
+  const turmas = (cfg.serie && cfg.serie.length)
+    ? cfg.serie : [{turma: cfg.turma, alunos: alunos}];
+  turmas.forEach(t => chavesDaTurma(cfg, t.alunos).forEach(c => add(t.turma, c)));
+  if(!pares.length) add(cfg.turma, "01");
+  return pares;
+}
+
 function paginasNoPior(doc, cfg, alunos, fs, topoPrimeira, fundo){
   const h = alturasCanonicas(doc, cfg, fs);
   const nq = h.length, no = cfg.no || 5;
   const comps = (cfg.comps && cfg.comps.length === nq) ? cfg.comps : null;
   let pior = 1;
-  chavesDaTurma(cfg, alunos).forEach(chave => {
-    const {oq} = ordemDaProva(nq, no, cfg.turma, chave, comps, cfg.alternarBlocos);
+  paresDeOrdem(cfg, alunos).forEach(par => {
+    const {oq} = ordemDaProva(nq, no, par.turma, par.chave, comps, cfg.alternarBlocos);
     const alturas = [], colas = [];
     oq.forEach((idx, p) => {
       const abre = comps && (p === 0 || comps[oq[p - 1]] !== comps[idx]);
@@ -1350,5 +1376,5 @@ if(typeof module !== "undefined") module.exports =
   {desenharCartao, gerarProvas, gabaritoIndividual, montarPayload, encurtarNome, nomeCurtoQR, soAscii,
    pedacosDeNivel, remarcar, semMarcas, temMarcas, medidasQuestao, desenharQuestaoCol, prepararFontes, medirFigura,
    segmentarEnunciado, classificarCorpo, pareceFormula, unidadesQuestao, melhorCorte,
-   grupoColado, empacotar, preFlightCheck, charsDeNivel, cabecalho, larguraComNiveis,
+   grupoColado, empacotar, preFlightCheck, paresDeOrdem, chavesDaTurma, charsDeNivel, cabecalho, larguraComNiveis,
    AR_QUESTAO};

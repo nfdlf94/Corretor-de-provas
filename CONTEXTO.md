@@ -1758,3 +1758,76 @@ na ordem em que o pdf.js os entrega), a sobrevivência do expoente até o
 papel — desenhado em corpo menor, levantado da linha de base e à direita
 do 3 que ele eleva — e a estrofe centralizada com folga igual dos dois
 lados.
+
+---
+
+## v45 — o mesmo caderno em todas as turmas da série
+
+O relato: a turma A fechava com 20 questões e a turma B, lendo
+exatamente o mesmo arquivo, caía para 18.
+
+### Onde estava
+
+**Não estava na propagação de matriz**, que já copiava os itens
+corretamente, nem na leitura. Estava na MEDIÇÃO.
+
+A ordem das questões é semeada por **turma + número**
+(`ordemDaProva` → `semente`). Cada turma embaralha de um jeito e o
+encaixe nas colunas muda com a ordem. Só que:
+
+- `paginasNoPior` percorria `chavesDaTurma(cfg, alunos)` — os alunos da
+  turma da vez;
+- `melhorAjuste` media com `turmaDe(sm.turma)` — a turma da vez.
+
+Resultado: quem clicasse em gerar na turma B decidia o corpo da letra e o
+corte de questões olhando **apenas para os alunos da B**. Cada turma
+chegava a uma resposta própria para uma pergunta que é da série.
+
+### A correção
+
+`cfg.serie` passou a trazer TODAS as turmas que recebem o caderno (a do
+simulado e as irmãs de matriz, via `turmasDoCaderno`), e `paresDeOrdem`
+monta os pares `(turma, chave)` do conjunto inteiro. `paginasNoPior`
+procura o pior caso entre todos eles.
+
+Os pares são deduplicados, mas **o mesmo número em turmas diferentes NÃO
+é o mesmo par**: a semente inclui o nome da turma, então o número 01 da
+3A e o 01 da 3B embaralham diferente e ambos precisam ser medidos. Vale
+também com tipos de prova: as chaves viram TIPO1..N, mas continuam sendo
+por turma.
+
+Sem `cfg.serie` — prova comum, ou simulado de turma única — o
+comportamento é exatamente o de antes.
+
+`aplicarAjuste` teve a ordem invertida: `sm.qtd` é atualizado ANTES de
+`gravarCaderno`, porque é `gravarCaderno` que dispara `propagarNaSerie` e
+a propagação copia o `qtd` do simulado de origem. Na ordem antiga as
+turmas irmãs herdavam a quantidade ANTIGA e ficavam com o caderno cortado
+e o contador dizendo outra coisa.
+
+### Custo
+
+`paginasNoPior` agora mede o pior caso de todas as turmas, não de uma.
+Com 3 turmas de ~20 estudantes são ~60 empacotamentos por degrau de
+fonte, contra ~20. A escada para no primeiro degrau que cabe, então na
+prática o custo sobe pouco — e é o preço de a decisão ser correta.
+
+### O que a v43 já tinha atenuado
+
+Com blocos indivisíveis (até a v42) a paginação era muito sensível à
+ordem, e a divergência entre turmas aparecia com facilidade. As unidades
+da v43 reduziram bastante essa sensibilidade — mas reduzir não é
+eliminar. O `teste50` fixa um conjunto de questões de alturas bem
+variadas em que, medindo cada turma por si, a 3A escolhe 9,5 pt e a 3B e
+a 3C escolhem 9,2 pt. É a asserção que dá sentido às outras: se as
+turmas não divergissem sem `cfg.serie`, o teste estaria passando por
+acidente.
+
+### Suíte nova
+
+`teste50` — três turmas (9, 31 e 24 estudantes) na mesma matriz:
+`cfg.serie` lista as três partindo de qualquer uma; as três escolhem o
+mesmo corpo, as mesmas páginas e o mesmo número de questões; a
+divergência existe quando se mede cada turma por si; `paresDeOrdem`
+dedupe, tipos de prova e o caso sem série; e o corte, quando acontece,
+chega às três provas com o mesmo gabarito canônico e o mesmo `qtd`.
