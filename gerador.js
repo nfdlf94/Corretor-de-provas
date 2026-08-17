@@ -1276,6 +1276,37 @@ function preFlightCheck(cfg, doc, fs){
     if(!String(cfg.escola || "").trim())
       avisos.push("cabeçalho: a instituição não aparece");
   }
+
+  /* ── EQUILÍBRIO POR DESCRITOR ──
+     Com n questões e k descritores, o certo é n÷k de cada, com a sobra
+     distribuída — nunca mais de uma questão de diferença entre o
+     descritor mais e o menos representado. A escolha dos itens já
+     equilibra o que dá; se ainda assim sobrar diferença, ela veio do
+     ARQUIVO (um descritor com poucas questões disponíveis), e é o
+     professor quem precisa saber. */
+  if(cfg.desc && cfg.desc.length === nq){
+    const porComp = {};
+    for(let i = 0; i < nq; i++){
+      const c = (cfg.comps && cfg.comps[i]) || "geral";
+      const d = String(cfg.desc[i] || "").trim() || "(sem descritor)";
+      porComp[c] = porComp[c] || {};
+      porComp[c][d] = (porComp[c][d] || 0) + 1;
+    }
+    Object.keys(porComp).forEach(c => {
+      const contas = Object.keys(porComp[c]).map(d => porComp[c][d]);
+      if(contas.length < 2) return;
+      const maior = Math.max.apply(null, contas), menor = Math.min.apply(null, contas);
+      if(maior - menor <= 1) return;
+      const nome = (cfg.rotulosComp && cfg.rotulosComp[c]) || c;
+      const detalhe = Object.keys(porComp[c]).sort()
+        .map(d => d + ": " + porComp[c][d]).join(", ");
+      avisos.push(nome + ": os descritores estão desequilibrados (" + detalhe +
+                  ") — o arquivo não tem questões suficientes de algum deles");
+    });
+    if(cfg.desc.some(d => !String(d || "").trim()))
+      avisos.push("há questões sem descritor — elas ficam de fora da análise " +
+                  "por habilidade");
+  }
   return avisos;
 }
 function gerarProvas(cfg, alunos, jsPDFctor){

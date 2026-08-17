@@ -1831,3 +1831,72 @@ mesmo corpo, as mesmas páginas e o mesmo número de questões; a
 divergência existe quando se mede cada turma por si; `paresDeOrdem`
 dedupe, tipos de prova e o caso sem série; e o corte, quando acontece,
 chega às três provas com o mesmo gabarito canônico e o mesmo `qtd`.
+
+---
+
+## v46 — mesma quantidade de questões por descritor
+
+Regra do professor: com 10 questões e 5 descritores, 2 de cada. Com 9,
+quatro descritores ficam com 2 e um com 1 — a sobra se **distribui**, não
+se concentra.
+
+### O que havia antes
+
+Escolher n itens de uma lista era `slice(0, n)`. Como o arquivo traz as
+questões **agrupadas por descritor**, cortar o fim apagava um descritor
+inteiro: um caderno de 20 questões em 5 descritores virava 16 em 4, e a
+habilidade sumia da prova e da análise por descritor junto com ela.
+
+Isso acontecia em TRÊS lugares diferentes, cada um com o seu `slice`:
+
+1. `selecionarItens` — quando o arquivo traz mais questões do que se
+   pediu (ali era sorteio puro, que não olhava descritor nenhum);
+2. `ajustarQuantidade` — quando o professor baixa a quantidade pedida;
+3. `melhorAjuste` → `monta(corte)` — quando o caderno não cabe em quatro
+   páginas nem na menor letra.
+
+Os três passaram a chamar `escolherEquilibrado`.
+
+### Como funciona
+
+Sai sempre a questão excedente do descritor **mais numeroso**, uma de
+cada vez, e dentro dele a última. O resultado é o mais equilibrado que a
+lista permite, e a ordem original de quem fica é preservada.
+
+Duas separações importam:
+
+- **Item em branco é lugar reservado, não questão.** Sai antes de
+  qualquer questão de verdade. Sem essa separação ele entrava no
+  equilíbrio como se fosse um descritor, e o caderno perdia uma questão
+  boa para preservar um espaço vazio.
+- **Na importação, o sorteio vem primeiro e o equilíbrio depois.** O
+  sorteio decide QUEM sai dentro de cada descritor — para não pegar
+  sempre as mesmas questões do arquivo; o equilíbrio decide QUANTOS saem
+  de cada um.
+
+Verificado por varredura: para qualquer quantidade de 1 a 20 pedida sobre
+20 questões em 5 descritores, a diferença entre o descritor mais e o
+menos representado nunca passa de uma questão.
+
+### Quando o arquivo não permite equilibrar
+
+Se um descritor tem poucas questões no arquivo (D23 com 1, D22 com 8), o
+equilíbrio faz o melhor possível — os escassos entram com tudo o que têm,
+os abundantes cedem — mas a diferença permanece, e ela veio da FONTE. Dois
+avisos novos dizem isso ao professor:
+
+- na importação, a linha "Por descritor: D22 (2), D23 (2), …" e um alerta
+  quando a diferença passa de uma questão;
+- no `PRE_FLIGHT_CHECK`, o mesmo alerta por componente, mais um aviso
+  quando há questão sem descritor — que fica de fora da análise por
+  habilidade.
+
+Para isso `cfgDoCaderno` passou a levar `desc` ao gerador.
+
+### Suíte nova
+
+`teste51` — o caso do professor (20 → 10 dá 2 de cada; 20 → 9 dá
+2,2,2,2,1), a varredura de 1 a 20, o arquivo torto, a preservação da
+ordem, as bordas (pedir mais do que existe, pedir zero, lista vazia,
+itens em branco), os três pontos de corte usando a mesma regra e os
+avisos do pre-flight.

@@ -1407,7 +1407,11 @@ function melhorAjuste(sm){
   COMPONENTES.forEach(c=>porComp[c.id]=base.filter(x=>x.comp===c.id));
   const maior=Math.max(...COMPONENTES.map(c=>porComp[c.id].length));
   const monta=corte=>{
-    const partes=COMPONENTES.map(c=>porComp[c.id].slice(0,Math.max(0,porComp[c.id].length-corte)));
+    /* tira `corte` questões de cada componente — mas do descritor mais
+       numeroso, não do fim do bloco. Cortar o fim apagava o último
+       descritor inteiro. */
+    const partes=COMPONENTES.map(c=>escolherEquilibrado(porComp[c.id],
+      Math.max(0,porComp[c.id].length-corte)));
     return [].concat.apply([],partes);
   };
   let ultimo=null;
@@ -1455,6 +1459,65 @@ function sortear(lista,quantos){
   return p.slice(0,quantos);
 }
 
+/* ── equilíbrio por descritor ──────────────────────────────────────
+   O simulado deve ter a MESMA quantidade de questões de cada descritor.
+   Com 10 questões e 5 descritores, 2 de cada. Com 9, quatro descritores
+   ficam com 2 e um com 1 — a sobra se distribui, não se concentra.
+
+   Antes, escolher n itens de uma lista era `slice(0, n)`. Como o arquivo
+   traz as questões AGRUPADAS por descritor, cortar o fim apagava um
+   descritor inteiro: um caderno de 20 questões em 5 descritores virava
+   16 questões em 4, e a habilidade sumia da prova e da análise por
+   descritor junto com ela.
+
+   Quem sai é sempre a questão excedente do descritor MAIS numeroso, uma
+   de cada vez, e dentro dele a última. Assim o resultado é o mais
+   equilibrado possível e a ordem original de quem fica é preservada.
+   Itens sem descritor formam o seu próprio grupo — e, por serem
+   normalmente os mais numerosos (item em branco), saem primeiro. */
+const descDoItem=x=>codDesc((x&&x.desc)||"")||"";
+function escolherEquilibrado(lista,quantos){
+  const todos=(lista||[]).slice();
+  if(quantos>=todos.length) return todos;
+  if(quantos<=0) return [];
+  /* Item em branco é lugar reservado, não questão: sai antes de qualquer
+     questão de verdade. Sem esta separação ele entrava no equilíbrio
+     como se fosse um descritor, e o caderno perdia uma questão boa para
+     preservar um espaço vazio. */
+  const cheio=x=>temQuestao(x&&x.questao);
+  const reais=todos.filter(cheio), vazios=todos.filter(x=>!cheio(x));
+  let fica;
+  if(quantos>=reais.length){
+    fica=reais.concat(vazios.slice(0,quantos-reais.length));
+  }else{
+    fica=reais.slice();
+    while(fica.length>quantos){
+      const conta={};
+      fica.forEach(x=>{ const k=descDoItem(x); conta[k]=(conta[k]||0)+1; });
+      let alvo=null, maior=-1;
+      fica.forEach(x=>{ const k=descDoItem(x);
+        if(conta[k]>maior){ maior=conta[k]; alvo=k; } });
+      let i=-1;
+      for(let k=fica.length-1;k>=0;k--) if(descDoItem(fica[k])===alvo){ i=k; break; }
+      if(i<0) break;                       // não deveria acontecer
+      fica.splice(i,1);
+    }
+  }
+  return todos.filter(x=>fica.indexOf(x)>=0);   // devolve na ordem original
+}
+
+/* quantas questões de cada descritor, por componente — é o que a tela e
+   o PRE_FLIGHT_CHECK mostram ao professor */
+function contagemPorDescritor(lista){
+  const fora={};
+  (lista||[]).forEach(x=>{
+    const c=x.comp||"?", d=descDoItem(x)||"(sem descritor)";
+    fora[c]=fora[c]||{};
+    fora[c][d]=(fora[c][d]||0)+1;
+  });
+  return fora;
+}
+
 /* Escolhe os itens que vão entrar, respeitando a quantidade pedida.
    O item viaja INTEIRO — enunciado, alternativas, gabarito, descritor e o
    número que tinha no arquivo. Separar qualquer um deles do resto faria a
@@ -1466,9 +1529,13 @@ function selecionarItens(sm,comp,itens){
   if(itens.length<pedido) return {erro:"O arquivo enviado tem apenas "+itens.length+
     " questões de "+nomeComp(comp)+", mas você pediu "+pedido+
     ". Envie um arquivo com mais questões ou reduza a quantidade pedida."};
+  /* Sorteia PRIMEIRO — para não pegar sempre as mesmas questões de cada
+     descritor — e só então equilibra. O sorteio decide QUEM sai dentro
+     do descritor; o equilíbrio decide QUANTOS saem de cada um. */
+  const numerados=itens.map((x,i)=>Object.assign({},x,{orig:i+1}));
   const escolhidos=(itens.length===pedido)
-    ? itens.map((x,i)=>Object.assign({},x,{orig:i+1}))
-    : sortear(itens.map((x,i)=>Object.assign({},x,{orig:i+1})),pedido)
+    ? numerados
+    : escolherEquilibrado(sortear(numerados,numerados.length),pedido)
         .sort((a,b)=>a.orig-b.orig);
   return {itens:escolhidos, encontradas:itens.length, usadas:escolhidos.length,
           sorteadas:itens.length>pedido};
@@ -1486,14 +1553,15 @@ function aplicarImportacao(sm,comp,itens){
 }
 
 /* Ajusta o caderno quando o professor muda a quantidade pedida: sobra
-   vira item em branco no fim do bloco, falta corta do fim. Nunca mexe no
-   outro componente. */
+   vira item em branco no fim do bloco, falta sai do descritor mais
+   numeroso — nunca do fim do bloco, que apagaria um descritor inteiro.
+   Nunca mexe no outro componente. */
 function ajustarQuantidade(sm,comp){
   const pr=provaDoSim(sm); if(!pr) return;
   const pedido=qtdPedida(sm,comp);
   const doComp=itensDoCaderno(pr).filter(x=>x.comp===comp);
   const outros=itensDoCaderno(pr).filter(x=>x.comp!==comp);
-  const novos=doComp.slice(0,pedido);
+  const novos=escolherEquilibrado(doComp,pedido);
   while(novos.length<pedido) novos.push({comp,questao:null,gab:"",desc:"",orig:null});
   const lista=(comp==="LP")?novos.concat(outros):outros.concat(novos);
   gravarCaderno(pr,lista);
@@ -4637,12 +4705,21 @@ function telaSimulado(box){
         "“Relação de nível de proficiência” a dificuldade do item volta a ser "+
         "estimada só com a turma");
       if(curtas)  alertas.push(curtas+" com menos de "+SAEPE_NO+" alternativas legíveis");
+      /* quantas ficaram de cada descritor — é o que o professor precisa
+         conferir para saber se o equilíbrio foi possível */
+      const distr=contagemPorDescritor(sel.itens.map(x=>({comp,desc:x.desc})))[comp]||{};
+      const chaves=Object.keys(distr).sort();
+      const contas=chaves.map(d=>distr[d]);
+      if(chaves.length>1 && Math.max.apply(null,contas)-Math.min.apply(null,contas)>1)
+        alertas.push("os descritores ficaram desequilibrados — o arquivo não tem "+
+          "questões suficientes de algum deles");
       $("#impInfo").innerHTML=`<div class="diag" style="margin-top:10px">
         <b>${esc(arq.name)}</b>${sel.encontradas} questões encontradas ·
         ${sel.usadas} ${sel.sorteadas?"sorteadas":"usadas"} em ${esc(nomeComp(comp))} ·
         ${lido.descritores.length} descritor${lido.descritores.length===1?"":"es"} e
         ${sel.itens.filter(x=>x.niv).length} n${sel.itens.filter(x=>x.niv).length===1?"ível":"íveis"}
         da escala no arquivo${
+        chaves.length?"<br>Por descritor: "+esc(chaves.map(d=>d+" ("+distr[d]+")").join(", ")):""}${
         sel.sorteadas?"<br>Sorteadas as originais: "+
           sel.itens.map(x=>x.orig).join(", "):""}</div>${
         alertas.length?`<div class="aviso" style="margin-top:8px">${
@@ -4741,6 +4818,7 @@ function cfgDoCaderno(sm,pr,t){
     gabaritoCanonico:pr.gabC,no:pr.no,questoes:pr.questoes||[],discursivas:[],
     comps:pr.comps||null, alternarBlocos:alternaBlocos(pr), tipos:sm.tipos||0,
     simulado:true, maxPaginas:MAX_PAG_SIMULADO, serie:turmasDoCaderno(sm),
+    desc:(pr.desc||[]).slice(),
     rotulosComp:COMPONENTES.reduce((m,c)=>{m[c.id]=c.nome;return m;},{})};
 }
 
