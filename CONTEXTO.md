@@ -1900,3 +1900,89 @@ Para isso `cfgDoCaderno` passou a levar `desc` ao gerador.
 ordem, as bordas (pedir mais do que existe, pedir zero, lista vazia,
 itens em branco), os três pontos de corte usando a mesma regra e os
 avisos do pre-flight.
+
+---
+
+## v47 — questões com as alternativas dentro da figura
+
+O caso: "Assinale a alternativa cujo gráfico representa essa função", com
+os cinco gráficos numa imagem só. Comparando o original com o caderno
+gerado apareceram três coisas — e a terceira não era de diagramação.
+
+### 1. A figura saía antes do comando
+
+A regra da v43 ("primeiro o que se lê, depois o que se vê, e só então a
+pergunta") vale para o gráfico de **apoio**. Quando a figura carrega as
+alternativas ela é a RESPOSTA, e desenhá-la antes fazia o aluno ver as
+cinco opções antes de saber o que procurar nelas.
+
+`alternativasNaFigura()` detecta o caso — imagem presente e TODAS as
+alternativas sem texto — e `posFig` passa a apontar para depois do
+comando. Uma alternativa preenchida que seja, e a questão volta a ser
+tratada como gráfico de apoio.
+
+### 2. Cinco linhas "A)" vazias
+
+Embaixo da figura saíam A), B), C), D), E) sem nada ao lado, porque as
+alternativas não têm texto. Ruído e meia coluna desperdiçada. Nessas
+questões `m.alts` fica vazio e nenhuma letra é impressa — as letras já
+estão dentro da imagem.
+
+Cuidado que isso trouxe: o ar entre uma questão e a seguinte
+(`AR_QUESTAO`) vinha pendurado na ÚLTIMA alternativa. Sem alternativas
+ele sumia e a soma das unidades deixava de bater com `m.h`. Passou para o
+rabicho do enunciado quando `m.alts` está vazio.
+
+### 3. O defeito silencioso: a correção saía errada
+
+O app embaralha as alternativas por estudante e monta o gabarito
+individual a partir desse embaralhamento. **A imagem é a mesma para todos
+e não gira junto.** O gabarito apontava para a bolha errada e a questão
+saía mal corrigida sem nenhum aviso.
+
+`ordemDaProva` ganhou um parâmetro `fixas`: os índices canônicos cujas
+alternativas não podem ser permutadas. A trava é aplicada ALI, depois de
+`embaralharEmBlocos` reordenar `oq` — porque `oa[p]` é a permutação da
+POSIÇÃO p e o item canônico que caiu nela é `oq[p]`. Fazer isso dentro de
+`embaralho.js` exigiria mexer no que é espelho de `embaralho.py`; do jeito
+que ficou, o espelho continua valendo palavra por palavra.
+
+Os quatro pontos que precisam enxergar a MESMA trava:
+
+- `blocosDaProva` (o que é impresso);
+- `desenharCartao` → `gabaritoIndividual` (o gabarito no QR);
+- `ordemDe`, no `index.html` (a correção);
+- e `paginasNoPior`, que não precisa: `fixas` mexe só em `oa`, e a
+  paginação depende de `oq`.
+
+Medido no `teste52`: sem a trava, 7 de 8 posições travadas saíam com a
+letra errada.
+
+### Pre-flight
+
+Deixou de acusar "alternativa em branco" nessas questões — não é erro, é
+o formato — e passou a explicar: as opções estão na figura, a ordem fica
+travada na original, e a figura foi desenhada depois do comando.
+Alternativa em branco de verdade (algumas preenchidas, outras não)
+continua sendo acusada.
+
+### O que NÃO foi resolvido
+
+**A figura fica pequena.** Uma imagem de cinco gráficos lado a lado tem
+uns 300 mm de largura no original e a coluna do caderno tem 89 mm. O
+`medirFigura` reduz para caber, e os gráficos saem em cerca de um terço do
+tamanho. O `FIG_MAX_H` não é o limite aqui — a largura da coluna é.
+
+A correção de verdade seria uma figura que atravessa as DUAS colunas, e
+isso não cabe no modelo atual de fluxo: a ordem de leitura é coluna
+esquerda inteira e depois a direita, e uma faixa de largura total no meio
+da coluna esquerda seria lida fora de ordem. É trabalho de arquitetura no
+`fluir`, não um ajuste — ficou anotado e não foi feito.
+
+### Suíte nova
+
+`teste52` — a detecção (e os casos que NÃO são: sem imagem, com uma
+alternativa preenchida), a figura depois do comando, o gráfico de apoio
+que não mudou, a ausência das letras vazias, as alturas fechando, a trava
+do embaralhamento, o gabarito individual igual ao canônico nas travadas,
+a divergência que existia sem a trava, e os avisos do pre-flight.

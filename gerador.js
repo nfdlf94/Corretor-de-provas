@@ -101,17 +101,56 @@ const NOME_COMP = {LP: "LÍNGUA PORTUGUESA", MAT: "MATEMÁTICA"};
 /* A ordem das questões: sorteio de sempre, agrupado por componente
    quando o caderno tem blocos. Cartão e prova PRECISAM usar esta mesma
    função — se divergirem, a turma inteira sai com nota errada. */
-function ordemDaProva(nq, no, turma, numero, comps, alternar){
-  return (comps && comps.length === nq)
+/* ── alternativas desenhadas DENTRO da figura ───────────────────────
+   Questão de "assinale a alternativa cujo gráfico representa a função":
+   as cinco opções são cinco gráficos, e vêm todas na mesma imagem. O
+   caderno não tem texto nenhum para escrever ao lado de A), B), C)…
+
+   Duas consequências, e a segunda é grave:
+
+   1. a figura é a RESPOSTA, não o apoio — tem de ser desenhada DEPOIS do
+      comando, e não entre o texto e a pergunta como um gráfico comum;
+
+   2. as alternativas NÃO PODEM ser embaralhadas. O app troca as letras
+      de lugar por estudante e monta o gabarito individual a partir dessa
+      troca. Como a imagem é a mesma para todos e não gira junto, o
+      gabarito apontaria para a bolha errada e a questão inteira sairia
+      mal corrigida — em silêncio. Nestas questões a ordem das
+      alternativas fica travada na original. */
+function alternativasNaFigura(q){
+  if(!q || !q.imagem || !q.imagem.dados) return false;
+  const alts = q.alternativas || [];
+  if(!alts.length) return false;
+  return alts.every(a => !semMarcas(String(a == null ? "" : a)).trim());
+}
+function indicesFixos(questoes){
+  const out = [];
+  (questoes || []).forEach((q, i) => { if(alternativasNaFigura(q)) out.push(i); });
+  return out;
+}
+
+function ordemDaProva(nq, no, turma, numero, comps, alternar, fixas){
+  const r = (comps && comps.length === nq)
     ? embaralharEmBlocos(nq, no, turma, numero, comps, alternar)
     : embaralharProva(nq, no, turma, numero);
+  if(fixas && fixas.length){
+    /* `oa[p]` é a permutação da POSIÇÃO p, e o item canônico que caiu ali
+       é `oq[p]` — por isso a trava é aplicada aqui, depois de os blocos
+       reordenarem `oq`, e não dentro de embaralho.js. Assim o espelho em
+       embaralho.py continua valendo palavra por palavra. */
+    const presa = {};
+    fixas.forEach(i => { presa[i] = 1; });
+    const identidade = Array.from({length: no}, (_, k) => k);
+    r.oa = r.oa.map((perm, p) => presa[r.oq[p]] ? identidade.slice() : perm);
+  }
+  return r;
 }
 
 /* ── gabarito individual: espelho de embaralho.py ─────────────────── */
-function gabaritoIndividual(gabCanonico, turma, numero, no, comps, alternar){
+function gabaritoIndividual(gabCanonico, turma, numero, no, comps, alternar, fixas){
   const gab = String(gabCanonico).toUpperCase(), nq = gab.length;
   const letras = ["A","B","C","D","E"].slice(0, no);
-  const {oq, oa} = ordemDaProva(nq, no, turma, numero, comps, alternar);
+  const {oq, oa} = ordemDaProva(nq, no, turma, numero, comps, alternar, fixas);
   let out = "";
   for(let p = 0; p < nq; p++){
     const certa = letras.indexOf(gab[oq[p]]);
@@ -131,7 +170,7 @@ function desenharCartao(doc, opt){
   const L = montarLayout(nq, no);
   const W = L.box_w, H = L.box_h, fid = L.fid_size, qz = L.quiet_zone, r = L.bubble_r;
   const gab = gabaritoIndividual(gabC, opt.turma, opt.chave || opt.numero, no,
-                                 opt.comps, opt.alternar);
+                                 opt.comps, opt.alternar, opt.fixas);
 
   const cx = opt.x + fid/2, cy = opt.y + fid/2;      // centro do fiducial ↖
   const P = (mx, my) => [cx + mx, cy + my];
@@ -691,7 +730,11 @@ function medidasQuestao(doc, item, larg, fs, opcoes){
      empurrava "Qual é a lei de formação dessa função?" para cima do
      gráfico que ela manda observar. */
   const fig = medirFigura(item.imagem, larg);
-  const posFig = partes.length;
+  /* Quando as alternativas estão DENTRO da figura, ela é a resposta e
+     não o apoio: vai DEPOIS do comando. Desenhá-la antes faria o aluno
+     ver as cinco opções antes de saber o que procurar nelas. */
+  const naFigura = alternativasNaFigura(item);
+  const posFig = partes.length + (naFigura && seg.comando ? 1 : 0);
   if(seg.comando)   medir(seg.comando,   "comando",   fs,       "bold");
   centralizarVersos(doc, partes, larg);
 
@@ -705,12 +748,14 @@ function medidasQuestao(doc, item, larg, fs, opcoes){
      que o novo empacotamento por unidades não pode ter. */
   if(fig) h += fig.h + 3;
   doc.setFont(FONTE_TEXTO, "normal"); doc.setFontSize(fs);
-  const alts = (item.alternativas || []).map(a => {
+  /* Cinco linhas "A)" vazias embaixo de uma figura que já traz as cinco
+     opções não ajudam ninguém e ainda comem meia coluna. */
+  const alts = naFigura ? [] : (item.alternativas || []).map(a => {
     const bruto = String(a == null ? "" : a);
     return remarcar(doc.splitTextToSize(semMarcas(bruto), larg - 7), bruto);
   });
   alts.forEach(la => { h += la.length * passo + AR_ALT(); });
-  return {h, partes, alts, fig, posFig, passo};
+  return {h, partes, alts, fig, posFig, passo, naFigura};
 }
 
 /* o ar entre as partes: pouco dentro do texto, mais antes do comando */
@@ -861,10 +906,15 @@ function unidadesQuestao(doc, n, item, larg, fs, opcoes, m, rotuloBloco){
      desenhava no fim) mais o ar que separa o enunciado das alternativas.
      Fica sempre numa unidade própria para que a soma das alturas bata
      com `m.h` qualquer que seja o formato da questão. */
-  const semComando = (m.posFig >= m.partes.length);
-  push((semComando ? figH : 0) + AR_ENUN(), m.alts.length > 0, (x, y) => {
-    if(semComando) y = desenharFig(x, y);
-    return y + AR_ENUN();
+  /* a figura que não coube em nenhum índice de parte — a da questão sem
+     comando, e a que carrega as alternativas e vai depois dele */
+  const figNoFim = (m.posFig >= m.partes.length);
+  /* sem alternativas de texto (elas estão na figura), é este rabicho que
+     carrega o ar que separa uma questão da seguinte */
+  const rabicho = AR_ENUN() + (m.alts.length ? 0 : AR_QUESTAO());
+  push((figNoFim ? figH : 0) + rabicho, m.alts.length > 0, (x, y) => {
+    if(figNoFim) y = desenharFig(x, y);
+    return y + rabicho;
   });
 
   const nAlt = m.alts.length;
@@ -923,7 +973,8 @@ function blocosDaProva(doc, cfg, aluno, fs){
   const opcoes = ["A", "B", "C", "D", "E"].slice(0, no);
   const comps = (cfg.comps && cfg.comps.length === nq) ? cfg.comps : null;
   const chave = chaveDeOrdem(aluno.numero, cfg.tipos);
-  const {oq, oa} = ordemDaProva(nq, no, cfg.turma, chave, comps, cfg.alternarBlocos);
+  const {oq, oa} = ordemDaProva(nq, no, cfg.turma, chave, comps, cfg.alternarBlocos,
+                                indicesFixos(cfg.questoes));
   /* A prova não é mais uma fila de blocos indivisíveis: cada questão
      entra como uma sequência de unidades, e a faixa de bloco
      (LÍNGUA PORTUGUESA, MATEMÁTICA) é a primeira unidade da questão que
@@ -1119,6 +1170,7 @@ function fluir(doc, cfg, aluno, fs, dry){
       codigo: cfg.codigo, gabaritoCanonico: gabC, no,
       comps: (cfg.comps && cfg.comps.length === nq) ? cfg.comps : null,
       alternar: cfg.alternarBlocos, chave: chaveDeOrdem(aluno.numero, cfg.tipos),
+      fixas: indicesFixos(cfg.questoes),
       turma: cfg.turma, numero: aluno.numero, nome: aluno.nome});
   }
   const topoPrimeira = y + altCartao + 8;   // folga para não colidir com a moldura
@@ -1225,15 +1277,20 @@ function preFlightCheck(cfg, doc, fs){
   qs.forEach((q, idx) => {
     const n = idx + 1;
     const alts = q.alternativas || [];
+    const item = {enunciado: q.enunciado, imagem: q.imagem, alternativas: alts};
+    const naFigura = alternativasNaFigura(item);
     if(!semMarcas(q.enunciado).trim())
       avisos.push("questão " + n + ": enunciado vazio");
     if(alts.length !== no)
       avisos.push("questão " + n + ": " + alts.length + " alternativas, " +
                   "eram para ser " + no);
-    if(alts.some(a => !semMarcas(a).trim()))
+    if(naFigura)
+      avisos.push("questão " + n + ": as alternativas estão dentro da figura — " +
+                  "a ordem delas fica travada na original (não dá para embaralhar " +
+                  "uma imagem), e a figura foi desenhada depois do comando");
+    else if(alts.some(a => !semMarcas(a).trim()))
       avisos.push("questão " + n + ": alternativa em branco");
 
-    const item = {enunciado: q.enunciado, imagem: q.imagem, alternativas: alts};
     let m;
     try{ m = medidasQuestao(doc, item, larg, fs, opcoes); }
     catch(e){ avisos.push("questão " + n + ": não foi possível medir (" + e.message + ")"); return; }
@@ -1407,5 +1464,5 @@ if(typeof module !== "undefined") module.exports =
   {desenharCartao, gerarProvas, gabaritoIndividual, montarPayload, encurtarNome, nomeCurtoQR, soAscii,
    pedacosDeNivel, remarcar, semMarcas, temMarcas, medidasQuestao, desenharQuestaoCol, prepararFontes, medirFigura,
    segmentarEnunciado, classificarCorpo, pareceFormula, unidadesQuestao, melhorCorte,
-   grupoColado, empacotar, preFlightCheck, paresDeOrdem, chavesDaTurma, charsDeNivel, cabecalho, larguraComNiveis,
+   grupoColado, empacotar, preFlightCheck, alternativasNaFigura, indicesFixos, ordemDaProva, paresDeOrdem, chavesDaTurma, charsDeNivel, cabecalho, larguraComNiveis,
    AR_QUESTAO};

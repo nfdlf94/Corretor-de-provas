@@ -1722,9 +1722,13 @@ const tiposDe=p=>{
 };
 const ordemDe=(p,turma,numero)=>{
   const chave=chaveDeOrdem(numero,tiposDe(p));   // com tipos, o tipo é a semente
-  return (p && p.comps && p.comps.length===p.nq)
-    ? embaralharEmBlocos(p.nq,p.no,turma,chave,p.comps,alternaBlocos(p))
-    : embaralharProva(p.nq,p.no,turma,chave);
+  /* as questões cujas alternativas estão dentro da figura não embaralham —
+     tem de ser a MESMA trava que o gerador usou, senão a correção lê a
+     bolha certa contra o gabarito errado */
+  const fixas=indicesFixos(p&&p.questoes);
+  return ordemDaProva(p.nq,p.no,turma,chave,
+    (p && p.comps && p.comps.length===p.nq)?p.comps:null,
+    alternaBlocos(p), fixas);
 };
 
 function gabaritoDe(nomeTurma,numero){
