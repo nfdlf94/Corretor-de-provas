@@ -1986,3 +1986,73 @@ alternativa preenchida), a figura depois do comando, o gráfico de apoio
 que não mudou, a ausência das letras vazias, as alturas fechando, a trava
 do embaralhamento, o gabarito individual igual ao canônico nas travadas,
 a divergência que existia sem a trava, e os avisos do pre-flight.
+
+---
+
+## v48 — o fim da PÁGINA também respeita a cola
+
+Nas fotos da avaliação apareceram duas coisas que a v43 deveria ter
+impedido:
+
+- "Assinale a alternativa cujo gráfico representa essa função." no pé de
+  uma página, com os cinco gráficos no alto da seguinte;
+- a questão 10 com a alternativa **A) numa página e B) a E) na outra**.
+
+### A cola era conferida em um lugar só
+
+`melhorCorte` recusa cortar dentro de um grupo colado — mas ele decide
+apenas a divisão entre as **duas colunas**. Quantas unidades entram na
+página (`leva`) era escolhido pelo laço guloso sem olhar para `colas`. O
+fim da página partia o grupo no meio.
+
+`distribuirPagina` passou a exigir que `leva` caia num corte legal:
+`i + leva >= fim` ou `!colas[i + leva − 1]`. `empacotar` e `fluir` usam a
+mesma função — se as duas contas divergirem, a escolha do corpo mira um
+layout que não sai impresso.
+
+### O que foi medido, e o que não deu certo
+
+Primeira tentativa: trocar o equilíbrio por "encher a coluna esquerda até
+o limite e só então a direita", na expectativa de juntar as sobras e
+fazer o grupo grande caber. Varredura em 230 provas com gráfico:
+**nunca economizou uma página e gastou uma a mais em 6 casos.** Encher é
+localmente ganancioso e globalmente pior — uma esquerda cheia demais
+deixa a direita sem espaço para o grupo colado seguinte. Foi revertido; o
+laço que cresce `n` enquanto existir divisão viável já é o máximo de
+conteúdo possível na página.
+
+O que a mesma varredura mostrou do defeito real: **153 das 230 provas
+partiam pelo menos um grupo colado no fim de uma página** (165 quebras no
+total). Depois da correção, zero.
+
+O preço é honesto e está medido: 6 dos 230 casos ganham uma página,
+porque o comando e o gráfico de 50 mm que ele manda observar descem
+juntos em vez de se separarem. Uma questão inteira vale mais que meia
+folha.
+
+### A dica de corpo
+
+Como manter o grupo inteiro às vezes custa folha, a prova comum passou a
+informar quando uma letra menor resolveria: "Saiu com 3 páginas. Em 9,5 pt
+caberia em 2 — o app não desce sozinho de 10 pt para não comprometer a
+leitura."
+
+O piso de 10 pt é decisão do projeto (`CORPOS`) e **não foi furado
+aqui**. O app continua sem descer sozinho; só conta ao professor que a
+saída existe. Quem decide é ele.
+
+### O que continua em aberto
+
+A figura de cinco gráficos ainda sai em cerca de um terço do tamanho
+original, porque a coluna tem 89 mm (v47, "o que NÃO foi resolvido").
+Enquanto ela for um bloco de ~50 mm indivisível, vai continuar abrindo
+buracos no pé das colunas. A saída de verdade é a figura que atravessa as
+duas colunas — trabalho de arquitetura no `fluir`.
+
+### Suíte nova
+
+`teste53` — o caso mínimo, uma varredura de 400 provas pseudoaleatórias
+(1103 páginas) em que nenhum grupo colado é partido nem entre colunas nem
+entre páginas e nenhuma paginação trava, a questão gráfica em dez
+posições diferentes sem o comando se separar da figura, e a conferência
+de que `empacotar` e o fluxo do desenho contam as mesmas páginas.

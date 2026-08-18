@@ -3883,6 +3883,12 @@ function gerarPDF(p,t,modo){
         extra+=`<br><b>Atenção:</b> saiu com ${doc.avisoPaginas} páginas por estudante,
           acima do limite de 4. A letra já foi reduzida ao mínimo — para caber,
           corte questões ou encurte os enunciados.`;
+      /* uma letra menor economizaria folha? É decisão do professor. */
+      if(doc.dicaCorpo)
+        extra+=`<br>Saiu com ${doc.dicaCorpo.de} páginas por estudante. Em
+          ${String(doc.dicaCorpo.fs).replace(".",",")} pt caberia em
+          ${doc.dicaCorpo.pgs} — o app não desce sozinho de 10 pt para não
+          comprometer a leitura.`;
       /* PRE_FLIGHT_CHECK: o que a conferência automática viu na
          diagramação. Lista vazia não aparece na tela. */
       if(doc.preFlight&&doc.preFlight.length){

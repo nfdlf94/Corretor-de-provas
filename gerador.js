@@ -1083,19 +1083,47 @@ function alturasCanonicas(doc, cfg, fs){
   });
 }
 
+/* Como fica UMA página a partir de `i`: onde termina a coluna esquerda
+   (`corte`) e onde termina a página (`leva`), ambos contados a partir
+   de `i`.
+
+   O laço cresce `n` enquanto existir uma divisão em que as DUAS colunas
+   cabem — e isso já é o máximo de conteúdo possível na página. Medi a
+   alternativa (encher a esquerda até o limite e só então a direita) em
+   230 combinações de prova com gráfico: nunca economizou uma página e
+   gastou uma a mais em 6 casos. Encher é localmente ganancioso e
+   globalmente pior, porque uma esquerda cheia demais deixa a direita
+   sem espaço para o grupo colado seguinte.
+
+   O que faltava era outra coisa: `leva` podia cair NO MEIO de um grupo
+   colado. A cola era respeitada entre as duas colunas (por `melhorCorte`)
+   mas não no fim da página — e era daí que saía "Assinale a alternativa
+   cujo gráfico representa essa função." no pé de uma página com os cinco
+   gráficos na seguinte, e a questão 10 com a alternativa A) numa página
+   e B) a E) na outra. */
+function distribuirPagina(alturas, colas, i, fim, cap){
+  const legal = n => (i + n >= fim) || !colas[i + n - 1];
+  let leva = 0, corte = 1;
+  for(let n = 1; i + n <= fim; n++){
+    const k = melhorCorte(alturas.slice(i, i + n), cap, colas.slice(i, i + n));
+    if(k < 0) break;
+    if(!legal(n)) continue;          // fim de página não parte grupo colado
+    leva = n; corte = k;
+  }
+  if(leva === 0){
+    /* nem o primeiro grupo colado cabe (uma figura maior que a coluna):
+       transborda inteiro, sem partir a cola */
+    leva = Math.min(grupoColado(colas, i, fim), fim - i);
+    corte = leva;
+  }
+  return {corte, leva};
+}
+
 function empacotar(alturas, topoPrimeira, fundo, colas){
   let paginas = 1, i = 0, topo = topoPrimeira;
   while(i < alturas.length){
-    const cap = fundo - topo;
-    let leva = 0;
-    for(let n = 1; i + n <= alturas.length; n++){
-      if(melhorCorte(alturas.slice(i, i + n), cap, colas.slice(i, i + n)) < 0) break;
-      leva = n;
-    }
-    // nem o grupo colado cabe na coluna: transborda inteiro, sem partir
-    if(leva === 0) leva = Math.min(grupoColado(colas, i, alturas.length),
-                                   alturas.length - i);
-    i += leva;
+    const {leva} = distribuirPagina(alturas, colas, i, alturas.length, fundo - topo);
+    i += Math.max(1, leva);
     if(i < alturas.length){ paginas++; topo = TOPO; }
   }
   return paginas;
@@ -1181,20 +1209,11 @@ function fluir(doc, cfg, aluno, fs, dry){
 
   let i = 0, topo = topoPrimeira, ultimoUso = topo;
   while(i < blocos.length){
-    const cap = fundo - topo;
-    // maior conjunto de unidades que cabe nesta página, já equilibrado
-    let leva = 0, corte = 1;
-    for(let n = 1; i + n <= blocos.length; n++){
-      const k = melhorCorte(alturas.slice(i, i + n), cap, colas.slice(i, i + n));
-      if(k < 0) break;
-      leva = n; corte = k;
-    }
-    if(leva === 0){
-      /* nem o grupo colado cabe na coluna (uma figura maior que a área
-         útil, por exemplo): transborda inteiro, sem partir a cola */
-      leva = Math.min(grupoColado(colas, i, blocos.length), blocos.length - i);
-      corte = leva;
-    }
+    /* a MESMA conta que `empacotar` faz ao contar as páginas: se as duas
+       divergirem, a escolha do corpo mira um layout que não é o que sai
+       impresso */
+    const d = distribuirPagina(alturas, colas, i, blocos.length, fundo - topo);
+    const corte = d.corte, leva = Math.max(1, d.leva);
 
     if(!dry){
       let ye = topo, yd = topo;
@@ -1420,6 +1439,18 @@ function gerarProvas(cfg, alunos, jsPDFctor){
       minimo = Math.min(...medidas.map(m => m.pgs));
     }
     escolha = medidas.find(m => m.pgs === minimo);   // CORPOS vem do maior
+    /* Manter o grupo colado inteiro custa folha: às vezes o comando e o
+       gráfico de 50 mm que ele manda observar não cabem no pé da coluna
+       e descem juntos, abrindo uma página. O piso de 10 pt é decisão do
+       projeto e não é furado aqui — mas o professor merece saber que
+       existe uma saída, e decidir. */
+    if(escolha.pgs > 1){
+      const apertado = CORPOS_APERTO
+        .map(fs => ({fs, pgs: medir(fs)}))
+        .find(m => m.pgs < escolha.pgs);
+      if(apertado) doc.dicaCorpo = {fs: apertado.fs, pgs: apertado.pgs,
+                                    de: escolha.pgs};
+    }
   }
   const corpo = escolha.fs;
   doc.corpoUsado = corpo;
@@ -1464,5 +1495,5 @@ if(typeof module !== "undefined") module.exports =
   {desenharCartao, gerarProvas, gabaritoIndividual, montarPayload, encurtarNome, nomeCurtoQR, soAscii,
    pedacosDeNivel, remarcar, semMarcas, temMarcas, medidasQuestao, desenharQuestaoCol, prepararFontes, medirFigura,
    segmentarEnunciado, classificarCorpo, pareceFormula, unidadesQuestao, melhorCorte,
-   grupoColado, empacotar, preFlightCheck, alternativasNaFigura, indicesFixos, ordemDaProva, paresDeOrdem, chavesDaTurma, charsDeNivel, cabecalho, larguraComNiveis,
+   grupoColado, empacotar, distribuirPagina, preFlightCheck, alternativasNaFigura, indicesFixos, ordemDaProva, paresDeOrdem, chavesDaTurma, charsDeNivel, cabecalho, larguraComNiveis,
    AR_QUESTAO};
