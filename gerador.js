@@ -1184,23 +1184,34 @@ function paresDeOrdem(cfg, alunos){
   return pares;
 }
 
-function paginasNoPior(doc, cfg, alunos, fs, topoPrimeira, fundo){
+/* Quantas páginas cada ordem impressa ocupa. Devolve o pior E o melhor
+   caso: a diferença entre os dois é pura ineficiência de empacotamento
+   — o conteúdo é idêntico, só a ordem muda —, e é ela que o nivelamento
+   tem de atacar antes de sair acrescentando folha de rascunho. */
+function paginasDaTurma(doc, cfg, alunos, fs, topoPrimeira, fundo){
   const h = alturasCanonicas(doc, cfg, fs);
   const nq = h.length, no = cfg.no || 5;
   const comps = (cfg.comps && cfg.comps.length === nq) ? cfg.comps : null;
-  let pior = 1;
+  const fixas = indicesFixos(cfg.questoes);
+  let pior = 1, melhor = Infinity;
   paresDeOrdem(cfg, alunos).forEach(par => {
     const {oq, oa} = ordemDaProva(nq, no, par.turma, par.chave, comps,
-      cfg.alternarBlocos, indicesFixos(cfg.questoes));
+      cfg.alternarBlocos, fixas);
     const alturas = [], colas = [];
     oq.forEach((idx, p) => {
       const abre = comps && (p === 0 || comps[oq[p - 1]] !== comps[idx]);
       if(abre){ alturas.push(ALT_CABECALHO); colas.push(true); }
       unidadesNaOrdem(h[idx], oa[p], alturas, colas);
     });
-    pior = Math.max(pior, empacotar(alturas, topoPrimeira, fundo, colas));
+    const pgs = empacotar(alturas, topoPrimeira, fundo, colas);
+    if(pgs > pior) pior = pgs;
+    if(pgs < melhor) melhor = pgs;
   });
-  return pior;
+  return {pior, melhor: melhor === Infinity ? 1 : melhor};
+}
+
+function paginasNoPior(doc, cfg, alunos, fs, topoPrimeira, fundo){
+  return paginasDaTurma(doc, cfg, alunos, fs, topoPrimeira, fundo).pior;
 }
 
 function fluir(doc, cfg, aluno, fs, dry){
@@ -1460,22 +1471,47 @@ function gerarProvas(cfg, alunos, jsPDFctor){
       minimo = Math.min(...medidas.map(m => m.pgs));
     }
     escolha = medidas.find(m => m.pgs === minimo);   // CORPOS vem do maior
-    /* Manter o grupo colado inteiro custa folha: às vezes o comando e o
-       gráfico de 50 mm que ele manda observar não cabem no pé da coluna
-       e descem juntos, abrindo uma página. O piso de 10 pt é decisão do
-       projeto e não é furado aqui — mas o professor merece saber que
-       existe uma saída, e decidir. */
-    if(escolha.pgs > 1){
-      const apertado = CORPOS_APERTO
-        .map(fs => ({fs, pgs: medir(fs)}))
-        .find(m => m.pgs < escolha.pgs);
-      if(apertado) doc.dicaCorpo = {fs: apertado.fs, pgs: apertado.pgs,
-                                    de: escolha.pgs};
-    }
   }
+  const corpo0 = escolha.fs;
+
+  /* ── nivelar por BAIXO ────────────────────────────────────────────
+     Levar todo mundo para o pior caso e tapar a diferença com uma folha
+     de rascunho é honesto e burro. Se a prova de um estudante coube em
+     duas páginas, a diferença para o colega que precisou de três é de
+     EMPACOTAMENTO, não de conteúdo: o texto é o mesmo, muda só a ordem.
+     Acrescentar folha em branco a quem já cabia não corrige nada.
+
+     Então, antes de nivelar, o app desce a escada da letra procurando o
+     degrau em que a turma INTEIRA passa a caber onde o melhor caso já
+     cabia. Desce só se economizar folha de verdade, e para no primeiro
+     degrau que resolve — a letra continua a maior possível para aquele
+     número de páginas.
+
+     Isso fura o piso de 10 pt da prova comum, e furar é a decisão certa
+     aqui: uma folha a menos por estudante, em toda a turma, vale mais
+     que meio ponto de corpo. A tela conta o que foi feito. */
+  const escada = cfg.simulado ? CORPOS_SAEPE : CORPOS.concat(CORPOS_APERTO);
+  const extremos = fs => paginasDaTurma(molde, cfg, alunos, fs, topoPrimeira, fundo);
+  let atual = extremos(escolha.fs);
+  for(let volta = 0; volta < escada.length && atual.pior > atual.melhor; volta++){
+    const alvo = atual.melhor;
+    let achou = null;
+    for(const fs of escada){
+      if(fs >= escolha.fs) continue;                 // só degraus abaixo
+      const e = extremos(fs);
+      if(e.pior <= alvo){ achou = {fs, e}; break; }  // o primeiro é o maior
+    }
+    if(!achou) break;
+    doc.baixouCorpo = {de: escolha.fs, para: achou.fs,
+                       dePaginas: escolha.pgs, paraPaginas: achou.e.pior};
+    escolha = {fs: achou.fs, pgs: achou.e.pior};
+    atual = achou.e;
+  }
+
   const corpo = escolha.fs;
   doc.corpoUsado = corpo;
   doc.paginasPorAluno = escolha.pgs;
+  doc.corpoPreferido = corpo0;
   if(escolha.pgs > teto) doc.avisoPaginas = escolha.pgs;
 
   /* PRE_FLIGHT_CHECK: com o corpo já escolhido, confere a diagramação
@@ -1533,5 +1569,5 @@ if(typeof module !== "undefined") module.exports =
   {desenharCartao, gerarProvas, gabaritoIndividual, montarPayload, encurtarNome, nomeCurtoQR, soAscii,
    pedacosDeNivel, remarcar, semMarcas, temMarcas, medidasQuestao, desenharQuestaoCol, prepararFontes, medirFigura,
    segmentarEnunciado, classificarCorpo, pareceFormula, unidadesQuestao, melhorCorte,
-   grupoColado, empacotar, distribuirPagina, unidadesNaOrdem, preFlightCheck, alternativasNaFigura, indicesFixos, ordemDaProva, paresDeOrdem, chavesDaTurma, charsDeNivel, cabecalho, larguraComNiveis,
+   grupoColado, empacotar, distribuirPagina, unidadesNaOrdem, paginasDaTurma, paginasNoPior, preFlightCheck, alternativasNaFigura, indicesFixos, ordemDaProva, paresDeOrdem, chavesDaTurma, charsDeNivel, cabecalho, larguraComNiveis,
    AR_QUESTAO};

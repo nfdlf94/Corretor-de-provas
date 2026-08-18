@@ -2126,3 +2126,67 @@ avaliação e no simulado, a varredura de oito tamanhos, a garantia de que
 o alvo é o pior caso e nunca menor, o total do PDF, a confirmação de que
 o corpo da letra não muda por causa disso, e `unidadesNaOrdem` (soma
 preservada, ordem trocada, cola posicional).
+
+---
+
+## v50 — nivelar por BAIXO, não por cima
+
+A v49 garantiu que todo estudante recebe o mesmo número de folhas, mas
+pelo caminho errado: levava todo mundo para o pior caso e dava uma folha
+de rascunho em branco a quem já cabia. Corrigia o sintoma e era
+artificial.
+
+O raciocínio que faltava: **se a prova de um estudante coube em duas
+páginas, a diferença para o colega que precisou de três é de
+EMPACOTAMENTO, não de conteúdo.** O texto é idêntico; muda só a ordem.
+Acrescentar folha a quem já cabia não corrige nada — só esconde.
+
+### O que passou a acontecer
+
+`paginasDaTurma` devolve o pior E o melhor caso. Quando os dois diferem,
+o app desce a escada da letra procurando o degrau em que o PIOR caso cai
+até onde o MELHOR já estava:
+
+```
+para cada degrau abaixo do atual:
+    se pior(degrau) <= melhor(atual): adota e para
+```
+
+Para no primeiro que resolve, então a letra continua a maior possível
+para aquele número de páginas. Só desce se economizar folha de verdade —
+nunca por estética, nunca por pouco.
+
+Isso **fura o piso de 10 pt** da prova comum (`CORPOS`), e furar é a
+decisão certa aqui: uma folha a menos por estudante, na turma inteira,
+vale mais que meio ponto de corpo. A escada da prova comum passou a ser
+`CORPOS.concat(CORPOS_APERTO)` = 10,5 / 10 / 9,5 / 9. A tela conta o que
+foi feito: "Letra reduzida de 10,5 para 9,5 pt: assim a turma inteira
+cabe em 2 páginas em vez de 3, sem folha de rascunho sobrando."
+
+A folha de rascunho continua existindo, como **último recurso**, para
+quando nem o menor degrau iguala a turma. Aí a tela diz isso com todas as
+letras.
+
+### O que foi medido
+
+Turma de 24, avaliação de 10 questões com alturas bem diferentes e duas
+questões cujas alternativas são gráficos, em oito tamanhos de prova:
+
+| | v49 | v50 |
+|---|---|---|
+| tiragem pareja | 8 de 8 | 8 de 8 |
+| no menor nº de páginas | — | 8 de 8 |
+| folhas de rascunho artificiais | 4 casos | **0** |
+
+Nos quatro casos que a v49 fechava em 3 páginas com rascunho, a v50
+fecha em 2 descendo de 10,5 para 9,5 pt.
+
+### Cuidado ao mexer aqui
+
+`doc.corpoPreferido` guarda o corpo que a escada teria escolhido só pelo
+teto de páginas, e `doc.baixouCorpo` registra a troca. São os dois
+números que a tela usa para explicar; não são decorativos.
+
+O laço de descida é limitado pelo tamanho da escada e só roda enquanto
+`pior > melhor` — sem isso, uma prova em que os dois nunca se igualam
+faria o corpo despencar até o último degrau à toa.

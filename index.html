@@ -3888,16 +3888,18 @@ function gerarPDF(p,t,modo){
         const cru=doc.paginasSemNivelar;
         const menor=Math.min.apply(null,cru), maior=Math.max.apply(null,cru);
         if(menor!==maior)
-          extra+=`<br>A ordem das questões faria a turma receber de ${menor} a
-            ${maior} páginas. Todos saíram com ${doc.paginasPorAluno} — a folha
-            que sobra vira rascunho.`;
+          extra+=`<br>Mesmo na menor letra permitida, a ordem das questões faria
+            a turma receber de ${menor} a ${maior} páginas. Os cadernos mais
+            curtos ganharam uma folha de rascunho para a tiragem sair pareja —
+            foi o último recurso.`;
       }
-      /* uma letra menor economizaria folha? É decisão do professor. */
-      if(doc.dicaCorpo)
-        extra+=`<br>Saiu com ${doc.dicaCorpo.de} páginas por estudante. Em
-          ${String(doc.dicaCorpo.fs).replace(".",",")} pt caberia em
-          ${doc.dicaCorpo.pgs} — o app não desce sozinho de 10 pt para não
-          comprometer a leitura.`;
+      /* desceu a letra para a turma inteira caber em menos folha */
+      if(doc.baixouCorpo)
+        extra+=`<br>Letra reduzida de ${String(doc.baixouCorpo.de).replace(".",",")}
+          para ${String(doc.baixouCorpo.para).replace(".",",")} pt: assim a turma
+          inteira cabe em ${doc.baixouCorpo.paraPaginas}
+          página${doc.baixouCorpo.paraPaginas===1?"":"s"} em vez de
+          ${doc.baixouCorpo.dePaginas}, sem folha de rascunho sobrando.`;
       /* PRE_FLIGHT_CHECK: o que a conferência automática viu na
          diagramação. Lista vazia não aparece na tela. */
       if(doc.preFlight&&doc.preFlight.length){

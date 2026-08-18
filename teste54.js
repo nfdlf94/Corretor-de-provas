@@ -1,24 +1,26 @@
-/* teste54.js — todo estudante recebe o MESMO número de folhas.
+/* teste54.js — todo estudante recebe o mesmo número de folhas, e o
+   MENOR número possível.
 
    As questões saem em ordem diferente para cada estudante (é o que
-   impede a cola) e o encaixe nas colunas muda junto. Sem nivelamento,
-   um recebe duas páginas e o vizinho três — ruim para grampear, para
-   conferir na entrega, e o estudante percebe que a folha do colega é
-   outra.
+   impede a cola) e o encaixe nas colunas muda junto. Um recebia duas
+   páginas e o vizinho três.
 
-   Até a v48 o nivelamento existia só no SIMULADO (`alvoPag =
-   cfg.simulado ? escolha.pgs : 0`). A avaliação comum saía desigual — e
-   foi ela que apareceu com duas e três páginas na mesma turma.
+   A v49 nivelou por CIMA: todo mundo ia para o pior caso e quem já
+   cabia ganhava uma folha de rascunho em branco. Corrigia o sintoma e
+   era artificial — se a prova de um estudante coube em duas páginas, a
+   diferença é de EMPACOTAMENTO, não de conteúdo: o texto é o mesmo,
+   muda só a ordem. Acrescentar folha a quem já cabia não corrige nada.
 
-   Duas correções aqui:
+   A v50 nivela por BAIXO: antes de acrescentar folha, desce a escada da
+   letra procurando o degrau em que a turma INTEIRA cabe onde o melhor
+   caso já cabia. Só desce se economizar folha de verdade, e para no
+   primeiro degrau que resolve. A folha de rascunho vira o último
+   recurso, para quando nem a menor letra resolve.
 
-   1. o nivelamento vale para as duas, e o alvo é conferido EM SECO antes
-      de desenhar, em vez de confiado à previsão;
-
-   2. `alturasCanonicas` media as alternativas na ordem CANÔNICA, mas
-      cada estudante as recebe embaralhadas. A soma não muda; a ordem
-      sim — e é ela que decide onde a cola cai. `unidadesNaOrdem` remonta
-      cada questão na ordem que aquele estudante recebeu. */
+   Cobre também o defeito de medição achado no caminho: `alturasCanonicas`
+   media as alternativas na ordem CANÔNICA, mas cada estudante as recebe
+   embaralhadas. A soma não muda; a ordem sim — e é ela que decide onde a
+   cola cai. `unidadesNaOrdem` remonta cada questão na ordem real. */
 "use strict";
 const H = require("./harness");
 
@@ -61,6 +63,7 @@ const gerar = simulado => J(`(function(){
   var d=gerarProvas(cfg,t.alunos,window.jspdf.jsPDF);
   return {corpo:d.corpoUsado, deCada:d.paginasDeCada,
     semNivelar:d.paginasSemNivelar, pareja:d.tiragemPareja,
+    baixou:d.baixouCorpo||null, preferido:d.corpoPreferido,
     total:d.getNumberOfPages()};
 })()`);
 
@@ -75,22 +78,27 @@ setTimeout(() => {
   montar(48);
   const g = gerar(false);
   ok(g.semNivelar.length === 24, "24 estudantes medidos");
-  ok(!uniforme(g.semNivelar),
-     "sem nivelar, a turma receberia tiragens DIFERENTES (" +
-     faixa(g.semNivelar) + " páginas) — é o defeito relatado");
   ok(uniforme(g.deCada),
-     "com o nivelamento, todos recebem o mesmo (" + faixa(g.deCada) + ")");
+     "todos recebem o mesmo número de folhas (" + faixa(g.deCada) + ")");
   ok(g.pareja === true, "e o app confirma que a tiragem saiu pareja");
-  ok(g.deCada[0] === Math.max.apply(null, g.semNivelar),
-     "o alvo é o PIOR caso, não o melhor — ninguém perde questão para " +
-     "caber em menos folha");
+  ok(g.deCada[0] === 2,
+     "e são DUAS páginas, não três: a turma inteira coube onde o melhor " +
+     "caso já cabia");
+  ok(uniforme(g.semNivelar) && g.semNivelar[0] === g.deCada[0],
+     "nenhuma folha de rascunho foi acrescentada — a tiragem já saiu " +
+     "pareja sozinha (" + faixa(g.semNivelar) + ")");
   ok(g.total === g.deCada[0] * 24,
      "o PDF tem exatamente páginas × estudantes (" + g.total + ")");
-
-  /* a prova de que o nivelamento é por páginas em branco, e não por
-     encolher a letra escondido */
-  const semNiv = gerar(false);
-  ok(semNiv.corpo === g.corpo, "o corpo da letra não muda por causa disso");
+  ok(!!g.baixou, "o app registra que desceu a letra para conseguir isso");
+  ok(g.baixou && g.baixou.para < g.baixou.de,
+     "de " + (g.baixou ? g.baixou.de : "-") + " para " +
+     (g.baixou ? g.baixou.para : "-") + " pt");
+  ok(g.baixou && g.baixou.paraPaginas < g.baixou.dePaginas,
+     "e só desceu porque isso economizou folha: " +
+     (g.baixou ? g.baixou.dePaginas + " → " + g.baixou.paraPaginas : "-") +
+     " páginas");
+  ok(g.corpo >= 9,
+     "a letra não desce abaixo do último degrau da escada (" + g.corpo + " pt)");
 
   /* ── 2. vale para simulado e avaliação ── */
   const sim = gerar(true);
@@ -98,19 +106,27 @@ setTimeout(() => {
      "no simulado também (" + faixa(sim.deCada) + ") — já valia, e continua");
 
   /* ── 3. varredura ── */
-  let casos = 0, desiguais = 0, nivelados = 0, alvoBaixo = 0;
+  let casos = 0, parelhos = 0, comRascunho = 0, desceu = 0, minimo = 0;
   [0, 12, 24, 36, 44, 48, 52, 56].forEach(pad => {
     montar(pad);
     const r = gerar(false);
     casos++;
-    if(!uniforme(r.semNivelar)) desiguais++;
-    if(uniforme(r.deCada)) nivelados++;
-    if(r.deCada[0] < Math.max.apply(null, r.semNivelar)) alvoBaixo++;
+    if(uniforme(r.deCada)) parelhos++;
+    /* folha de rascunho extra = alguém recebeu mais do que precisava */
+    if(r.deCada.some((p, i) => p > r.semNivelar[i])) comRascunho++;
+    if(r.baixou) desceu++;
+    /* ninguém poderia ter recebido menos, no corpo escolhido */
+    if(Math.min.apply(null, r.semNivelar) === r.deCada[0]) minimo++;
   });
   ok(casos === 8, "oito tamanhos de prova varridos");
-  ok(desiguais > 0, desiguais + " deles sairiam desiguais sem o nivelamento");
-  ok(nivelados === casos, "e TODOS saem parelhos com ele");
-  ok(alvoBaixo === 0, "nenhum estudante recebeu menos folhas que o pior caso");
+  ok(parelhos === casos, "TODOS saem com a tiragem pareja");
+  ok(minimo === casos,
+     "e todos no menor número de páginas possível — ninguém recebeu " +
+     "folha a mais do que a prova exigia");
+  ok(comRascunho === 0,
+     "nenhuma folha de rascunho artificial foi acrescentada (" +
+     comRascunho + " casos)");
+  ok(desceu > 0, desceu + " deles só conseguiram isso descendo a letra");
 
   /* ── 4. unidadesNaOrdem: a medição enxerga a ordem real ── */
   const G = require("./gerador.js");
