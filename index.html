@@ -3883,6 +3883,15 @@ function gerarPDF(p,t,modo){
         extra+=`<br><b>Atenção:</b> saiu com ${doc.avisoPaginas} páginas por estudante,
           acima do limite de 4. A letra já foi reduzida ao mínimo — para caber,
           corte questões ou encurte os enunciados.`;
+      /* tiragem: todo estudante tem de sair com o mesmo número de folhas */
+      if(doc.paginasSemNivelar&&doc.paginasSemNivelar.length){
+        const cru=doc.paginasSemNivelar;
+        const menor=Math.min.apply(null,cru), maior=Math.max.apply(null,cru);
+        if(menor!==maior)
+          extra+=`<br>A ordem das questões faria a turma receber de ${menor} a
+            ${maior} páginas. Todos saíram com ${doc.paginasPorAluno} — a folha
+            que sobra vira rascunho.`;
+      }
       /* uma letra menor economizaria folha? É decisão do professor. */
       if(doc.dicaCorpo)
         extra+=`<br>Saiu com ${doc.dicaCorpo.de} páginas por estudante. Em

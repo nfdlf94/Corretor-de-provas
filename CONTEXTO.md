@@ -2056,3 +2056,73 @@ duas colunas — trabalho de arquitetura no `fluir`.
 entre páginas e nenhuma paginação trava, a questão gráfica em dez
 posições diferentes sem o comando se separar da figura, e a conferência
 de que `empacotar` e o fluxo do desenho contam as mesmas páginas.
+
+---
+
+## v49 — todo estudante recebe o mesmo número de folhas
+
+As questões saem em ordem diferente para cada estudante (é o que impede a
+cola) e o encaixe nas colunas muda junto. Um recebia duas páginas e o
+vizinho três — ruim para grampear, para conferir na entrega, e o
+estudante percebe que a folha do colega é outra.
+
+### 1. O nivelamento valia só para o simulado
+
+```js
+const alvoPag = cfg.simulado ? escolha.pgs : 0;   // até a v48
+```
+
+A avaliação comum saía desigual, e foi ela que apareceu com duas e três
+páginas na mesma turma. Agora vale para as duas.
+
+E o alvo deixou de ser confiado à previsão: `fluir` roda EM SECO para
+todos os estudantes antes de desenhar, e o alvo é o maior entre esse
+resultado e `escolha.pgs`. `paginasNoPior` é uma estimativa muito boa,
+mas a garantia tem de ser exata.
+
+`escolha.pgs` continua entrando no máximo de propósito: ele já carrega o
+pior caso da SÉRIE inteira (v45), então a turma A e a turma B saem com a
+mesma tiragem — não só os colegas de sala.
+
+O alvo é sempre o PIOR caso. Ninguém perde questão para caber em menos
+folha; quem sobra recebe uma folha de rascunho, que numa prova longa é
+útil.
+
+### 2. A medição olhava a ordem errada das alternativas
+
+Defeito encontrado no caminho, e é a razão de a previsão nem sempre bater
+com o impresso: `alturasCanonicas` media as alternativas na ordem
+CANÔNICA, mas cada estudante as recebe embaralhadas. A soma das alturas
+não muda com a ordem — mas a ordem decide **onde a cola cai** (primeira e
+penúltima alternativas andam presas, e o ar entre questões fica pendurado
+na última posição), e com isso muda a paginação.
+
+`unidadesNaOrdem(q, perm, …)` remonta cada questão na ordem que aquele
+estudante recebeu: o enunciado vem pronto de `alturasCanonicas`, e as
+alternativas são reconstruídas de `altsBase` (as alturas CRUAS, sem o ar
+final) na ordem de `oa[p]`. `paginasNoPior` passa a usá-la — e agora
+mede exatamente o que `blocosDaProva` vai desenhar.
+
+### O que foi medido
+
+Turma de 24, avaliação de 10 questões com alturas bem diferentes e duas
+questões cujas alternativas são gráficos (bloco de ~50 mm indivisível):
+
+- sem nivelar: **2 a 3 páginas** na mesma turma;
+- nivelado: **3 para todos**, com `tiragemPareja = true`;
+- PDF com exatamente páginas × estudantes.
+
+Numa varredura de 8 tamanhos de prova, 4 sairiam desiguais; todos os 8
+saem parelhos.
+
+`doc.paginasSemNivelar` guarda quantas cada um teria recebido, e a tela
+conta: "A ordem das questões faria a turma receber de 2 a 3 páginas.
+Todos saíram com 3 — a folha que sobra vira rascunho."
+
+### Suíte nova
+
+`teste54` — o caso que reproduz a desigualdade, o nivelamento na
+avaliação e no simulado, a varredura de oito tamanhos, a garantia de que
+o alvo é o pior caso e nunca menor, o total do PDF, a confirmação de que
+o corpo da letra não muda por causa disso, e `unidadesNaOrdem` (soma
+preservada, ordem trocada, cola posicional).

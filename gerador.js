@@ -1079,8 +1079,30 @@ function alturasCanonicas(doc, cfg, fs){
     const U = unidadesQuestao(doc, idx + 1, {enunciado: base.enunciado,
       imagem: base.imagem, alternativas: base.alternativas || []},
       larg, fs, opcoes, m, null);
-    return {alturas: U.map(u => u.h), colas: U.map(u => u.cola)};
+    /* As alternativas são as ÚLTIMAS unidades, e cada estudante as
+       recebe embaralhadas. A soma não muda, mas a ordem sim — e é a
+       ordem que decide onde a cola cai e, com ela, quantas páginas a
+       prova ocupa. Por isso as alturas das alternativas voltam CRUAS,
+       para `paginasNoPior` remontá-las na ordem de cada estudante. */
+    const nAlt = m.alts.length;
+    const altsBase = m.alts.map(la => la.length * m.passo + AR_ALT());
+    return {alturas: U.map(u => u.h), colas: U.map(u => u.cola), nAlt, altsBase};
   });
+}
+
+/* remonta as unidades de uma questão na ordem de alternativas que ESTE
+   estudante recebeu. `perm[k]` é o índice canônico que aparece na
+   posição k. O ar entre questões (`AR_QUESTAO`) anda pendurado na
+   última posição, seja qual for a alternativa que caiu lá. */
+function unidadesNaOrdem(q, perm, destinoA, destinoC){
+  const cab = q.alturas.length - q.nAlt;
+  for(let k = 0; k < cab; k++){ destinoA.push(q.alturas[k]); destinoC.push(q.colas[k]); }
+  for(let k = 0; k < q.nAlt; k++){
+    const canonico = (perm && perm[k] != null) ? perm[k] : k;
+    const base = q.altsBase[canonico];
+    destinoA.push(base + (k === q.nAlt - 1 ? AR_QUESTAO() : 0));
+    destinoC.push((q.nAlt > 1) && (k === 0 || k === q.nAlt - 2));
+  }
 }
 
 /* Como fica UMA página a partir de `i`: onde termina a coluna esquerda
@@ -1168,14 +1190,13 @@ function paginasNoPior(doc, cfg, alunos, fs, topoPrimeira, fundo){
   const comps = (cfg.comps && cfg.comps.length === nq) ? cfg.comps : null;
   let pior = 1;
   paresDeOrdem(cfg, alunos).forEach(par => {
-    const {oq} = ordemDaProva(nq, no, par.turma, par.chave, comps, cfg.alternarBlocos);
+    const {oq, oa} = ordemDaProva(nq, no, par.turma, par.chave, comps,
+      cfg.alternarBlocos, indicesFixos(cfg.questoes));
     const alturas = [], colas = [];
     oq.forEach((idx, p) => {
       const abre = comps && (p === 0 || comps[oq[p - 1]] !== comps[idx]);
       if(abre){ alturas.push(ALT_CABECALHO); colas.push(true); }
-      h[idx].alturas.forEach((a, k) => {
-        alturas.push(a); colas.push(h[idx].colas[k]);
-      });
+      unidadesNaOrdem(h[idx], oa[p], alturas, colas);
     });
     pior = Math.max(pior, empacotar(alturas, topoPrimeira, fundo, colas));
   });
@@ -1463,14 +1484,28 @@ function gerarProvas(cfg, alunos, jsPDFctor){
   try{ doc.preFlight = preFlightCheck(cfg, molde, corpo); }
   catch(e){ doc.preFlight = ["a conferência automática falhou: " + e.message]; }
 
-  /* guarda quantas páginas cada estudante recebeu de fato: o encaixe
-     nas colunas muda com a ordem, e o professor precisa saber se a
-     tiragem sai pareja antes de grampear */
-  /* No simulado todos os cadernos saem com o MESMO número de folhas: a
-     ordem das questões muda o encaixe e faria um estudante receber três
-     páginas e o vizinho quatro — ruim para grampear, conferir e aplicar.
+  /* ── tiragem pareja ──────────────────────────────────────────────
+     TODO estudante recebe o mesmo número de folhas. A ordem das questões
+     muda de estudante para estudante (é ela que impede a cola) e o
+     encaixe nas colunas muda junto — sem isto, um recebe duas páginas e
+     o vizinho três. Prova de tamanhos diferentes é ruim para grampear,
+     para conferir na hora de entregar e para o estudante, que percebe
+     que a folha do colega é outra.
+
+     Até a v48 isto valia só para o simulado. Vale para a avaliação
+     comum também: foi ela que apareceu com dois e três páginas na mesma
+     turma.
+
+     O alvo é conferido em seco ANTES de desenhar, e não confiado à
+     previsão: `paginasNoPior` é uma estimativa muito boa, mas a garantia
+     tem de ser exata. E entra `escolha.pgs` no máximo porque ele já
+     carrega o pior caso da SÉRIE inteira (v45) — assim a turma A e a
+     turma B saem com a mesma tiragem, não só os colegas de sala.
+
      A folha que sobra vira rascunho, que numa prova longa é útil. */
-  const alvoPag = cfg.simulado ? escolha.pgs : 0;
+  const previsto = alunos.map(aluno => fluir(doc, cfg, aluno, corpo, true));
+  doc.paginasSemNivelar = previsto;      // quantas cada um teria sem o nivelamento
+  const alvoPag = Math.max.apply(null, [escolha.pgs].concat(previsto));
   doc.paginasDeCada = alunos.map((aluno, idx) => {
     if(idx) doc.addPage();
     let pgs = fluir(doc, cfg, aluno, corpo, false);
@@ -1485,6 +1520,9 @@ function gerarProvas(cfg, alunos, jsPDFctor){
     const pior = Math.max.apply(null, doc.paginasDeCada);
     doc.paginasPorAluno = pior;
     doc.paginasMinimas = Math.min.apply(null, doc.paginasDeCada);
+    /* se isto disparar, a tiragem saiu desigual e o professor precisa
+       saber ANTES de imprimir */
+    doc.tiragemPareja = (doc.paginasMinimas === pior);
     doc.avisoPaginas = pior > teto ? pior : 0;
   }
   DENSO = false;               // não vaza para a próxima geração
@@ -1495,5 +1533,5 @@ if(typeof module !== "undefined") module.exports =
   {desenharCartao, gerarProvas, gabaritoIndividual, montarPayload, encurtarNome, nomeCurtoQR, soAscii,
    pedacosDeNivel, remarcar, semMarcas, temMarcas, medidasQuestao, desenharQuestaoCol, prepararFontes, medirFigura,
    segmentarEnunciado, classificarCorpo, pareceFormula, unidadesQuestao, melhorCorte,
-   grupoColado, empacotar, distribuirPagina, preFlightCheck, alternativasNaFigura, indicesFixos, ordemDaProva, paresDeOrdem, chavesDaTurma, charsDeNivel, cabecalho, larguraComNiveis,
+   grupoColado, empacotar, distribuirPagina, unidadesNaOrdem, preFlightCheck, alternativasNaFigura, indicesFixos, ordemDaProva, paresDeOrdem, chavesDaTurma, charsDeNivel, cabecalho, larguraComNiveis,
    AR_QUESTAO};
