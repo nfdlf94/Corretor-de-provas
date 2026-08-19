@@ -140,6 +140,19 @@ function indicesFixos(questoes){
   return out;
 }
 
+/* Versão da REGRA que transforma o gabarito canônico no gabarito de cada
+   estudante. Sobe sempre que essa transformação mudar — e ela já mudou
+   uma vez, na v47/v51, quando as questões cujas alternativas estão
+   dentro da figura deixaram de embaralhar.
+
+   Existe porque o gabarito individual é impresso no QR, gravado em cada
+   resultado corrigido e exportado na planilha. Quando a regra muda, tudo
+   isso que ficou por aí passa a discordar do app — e o professor não tem
+   como saber, porque os dois números parecem igualmente oficiais. Com o
+   carimbo, o app reconhece o que foi calculado com regra velha e se
+   oferece para refazer as contas. */
+const REGRA_GABARITO = 2;
+
 function ordemDaProva(nq, no, turma, numero, comps, alternar, fixas){
   const r = (comps && comps.length === nq)
     ? embaralharEmBlocos(nq, no, turma, numero, comps, alternar)
@@ -1581,4 +1594,4 @@ if(typeof module !== "undefined") module.exports =
    pedacosDeNivel, remarcar, semMarcas, temMarcas, medidasQuestao, desenharQuestaoCol, prepararFontes, medirFigura,
    segmentarEnunciado, classificarCorpo, pareceFormula, unidadesQuestao, melhorCorte,
    grupoColado, empacotar, distribuirPagina, unidadesNaOrdem, paginasDaTurma, paginasNoPior, preFlightCheck, alternativasNaFigura, indicesFixos, ordemDaProva, paresDeOrdem, chavesDaTurma, charsDeNivel, cabecalho, larguraComNiveis,
-   AR_QUESTAO};
+   AR_QUESTAO, REGRA_GABARITO};

@@ -278,6 +278,7 @@ textarea{min-height:132px;resize:vertical;font-family:var(--mono);font-size:12.5
   <p class="sub" id="resSub"></p>
   <div id="resSel"></div>
   <div id="resLista"></div>
+  <div id="resRegra" hidden></div>
   <div class="linha" style="margin-top:18px" id="resAcoes" hidden>
     <button class="btn sec" id="bCsv">Baixar CSV</button>
     <button class="btn gho" id="bZerar">Apagar notas</button></div>
@@ -1731,6 +1732,35 @@ const ordemDe=(p,turma,numero)=>{
     alternaBlocos(p), fixas);
 };
 
+/* ── de onde vem o gabarito na hora de corrigir ──────────────────
+   Há DUAS fontes, e elas podem discordar:
+
+   - o QR impresso no caderno, que foi calculado quando a prova foi
+     GERADA;
+   - o cálculo de agora, a partir do gabarito canônico guardado no app.
+
+   Enquanto a regra não muda, dão o mesmo resultado, e o QR é o que
+   permite corrigir um caderno de outro aparelho ou de uma prova que não
+   está cadastrada aqui. Mas a regra MUDOU (v47/v51: as questões cujas
+   alternativas estão dentro da figura pararam de embaralhar). Um caderno
+   impresso antes disso carrega no QR um gabarito que não vale mais — e a
+   tela de conferência confiava nele, enquanto a planilha usava o cálculo
+   novo. Daí a mesma prova ter dois gabaritos igualmente oficiais.
+
+   Quando o app SABE a prova, o cálculo de agora é a autoridade: o
+   gabarito canônico é o que o professor conferiu, e a regra atual é a
+   correta. O QR fica como o que sempre foi — a saída para quando não há
+   prova cadastrada. E a divergência é dita em voz alta, porque significa
+   que o papel na mão foi impresso com uma versão anterior. */
+function gabaritoVigente(nomeTurma,numero,gabQR){
+  const calc=gabaritoDe(nomeTurma,numero);
+  if(!calc) return {gab:gabQR||"", origem:"qr", divergem:[]};
+  if(!gabQR) return {gab:calc, origem:"app", divergem:[]};
+  const divergem=[];
+  for(let i=0;i<calc.length;i++) if(calc[i]!==gabQR[i]) divergem.push(i+1);
+  return {gab:calc, origem:divergem.length?"app-diverge":"app", divergem};
+}
+
 function gabaritoDe(nomeTurma,numero){
   const p=provaAtiva(); if(!p||!p.gabC) return null;
   const {oq,oa}=ordemDe(p,nomeTurma,numero);
@@ -1752,6 +1782,14 @@ function canonizar(R,nomeTurma,numero){
   }
   return out;
 }
+
+/* Resultados calculados com uma REGRA de gabarito anterior. O gabarito
+   individual sai do canônico por uma transformação que já mudou uma vez
+   (v47/v51, as questões com as alternativas dentro da figura). Quando
+   muda, tudo o que ficou gravado antes discorda do app — e discorda em
+   silêncio, porque os dois números parecem igualmente oficiais. */
+const resultadosComRegraVelha=pr=>
+  E.res.filter(r=>r.prova===pr.id && (r.regra||1)!==REGRA_GABARITO).length;
 
 /* Refaz as contas de todos os registros de uma prova a partir das
    respostas já lidas. Serve para quando o gabarito estava errado: as
@@ -1781,7 +1819,7 @@ function recalcular(pr){
     r.gab=gab; r.Rc=Rc; r.acertos=acertos; r.erros=pr.nq-acertos;
     r.certas=certas; r.erradas=erradas;
     r.notaDisc=Math.max(0,Math.min(pontosDisc(pr),r.notaDisc||0));
-    r.nota=notaFinal(pr,r); n++; if(mudou) mudaram++;
+    r.nota=notaFinal(pr,r); r.regra=REGRA_GABARITO; n++; if(mudou) mudaram++;
   });
   recalcular.mudaram=mudaram;
   return n;
@@ -1791,7 +1829,9 @@ function recalcular(pr){
 function registrar(d){
   const p=provaAtiva(); if(!p) return null;
   const t=turmaDe(p.turma);
-  const gab=d.gab||gabaritoDe(t.nome,d.numero);
+  /* o cálculo de agora manda; o QR é a rede de segurança */
+  const v=gabaritoVigente(t.nome,d.numero,d.gab);
+  const gab=v.gab;
   if(!gab) return null;
   let acertos=0; const certas=[],erradas=[];
   for(let i=0;i<p.nq;i++){
@@ -1801,7 +1841,7 @@ function registrar(d){
     R:d.R.slice(),Rc:canonizar(d.R,t.nome,d.numero),gab,
     acertos,erros:p.nq-acertos,certas,erradas,
     notaDisc:Math.max(0,Math.min(pontosDisc(p),d.notaDisc||0)),
-    origem:d.origem,t:Date.now()};
+    origem:d.origem,t:Date.now(),regra:REGRA_GABARITO};
   reg.nota=notaFinal(p,reg);
   const k=chave(reg), i=E.res.findIndex(x=>chave(x)===k);
   if(i>=0) E.res[i]=reg; else E.res.push(reg);
@@ -5903,6 +5943,7 @@ function abasGabaritoPorEstudante(pr, t){
   linhas.push(["—","GABARITO CANÔNICO (ordem do documento — não vale para nenhum cartão)"]
     .concat(String(pr.gabC||"").split("")));
 
+
   /* que componente cai em cada posição, para cada estudante, muda junto */
   alunosDaProva(t,pr).forEach(a=>{
     const g=gabaritoDe(t.nome,a.numero)||"";
@@ -5916,11 +5957,28 @@ function abasGabaritoPorEstudante(pr, t){
       oq.map(q=>(pr.comps||[])[q]||"")));
   });
 
+  /* De quando é esta planilha, em ABA PRÓPRIA. O gabarito individual sai
+     do canônico por uma transformação que pode mudar de uma versão do app
+     para outra — uma planilha baixada antes de uma correção continua
+     parecendo oficial e não é mais, e nada nela dizia isso.
+
+     Vai numa aba separada de propósito: a primeira aba tem um contrato de
+     forma (cabeçalho, canônico, uma linha por estudante) de que outras
+     telas e as suítes dependem. Carimbo não pode custar uma linha lá. */
+  const sobre=[["Sobre esta planilha"],
+    ["Gerada em", new Date().toLocaleString("pt-BR")],
+    ["Versão do app", (typeof VERSAO_APP!=="undefined"?VERSAO_APP:"—")],
+    ["Regra de gabarito", String(REGRA_GABARITO)],
+    ["Atenção","O gabarito de cada estudante é calculado a partir do "+
+      "gabarito da prova. Se o app for atualizado e a regra de gabarito "+
+      "mudar, esta planilha deixa de valer — baixe-a de novo antes de usar."]];
+
   return [
     {nome:"Gabarito por estudante", linhas,
      larguras:[6,30].concat(Array.from({length:pr.nq},()=>4))},
     {nome:"Componente por posição", linhas:comps,
-     larguras:[6,30].concat(Array.from({length:pr.nq},()=>6))}
+     larguras:[6,30].concat(Array.from({length:pr.nq},()=>6))},
+    {nome:"Sobre esta planilha", linhas:sobre, larguras:[22,60]}
   ];
 }
 
@@ -6779,7 +6837,11 @@ function atualizarNotaTopo(){
     nf.toFixed(1).replace(".",",")+(pontosDisc(p)?" de "+max.toFixed(1).replace(".",","):"");
 }
 function montarPainel(){
-  const gab=alunoQR.gab, p=provaAtiva();
+  const p=provaAtiva(), t=turmaDe(p.turma);
+  /* a mesma fonte que o registro vai usar — a tela não pode mostrar um
+     gabarito e o salvar gravar outro */
+  const vig=gabaritoVigente(t?t.nome:alunoQR.turma,alunoQR.numero,alunoQR.gab);
+  const gab=vig.gab;
   const n=atual.R.reduce((s,r,i)=>s+(r&&r===gab[i]?1:0),0);
   atualizarNotaTopo();
   const rep=E.res.find(a=>a.prova===p.id&&a.numero===alunoQR.numero);
@@ -6795,8 +6857,15 @@ function montarPainel(){
       parseFloat($("#ndAuto").value)||0)); atualizarNotaTopo(); };
   }
   const amb=atual.mark.map((m,i)=>m!=="OK"?i+1:0).filter(Boolean);
-  $("#avAmb").hidden=!amb.length;
-  if(amb.length) $("#avAmb").textContent=`Questão ${amb.join(", ")}: sem marcação clara. Confira no papel.`;
+  const recados=[];
+  if(amb.length) recados.push(`Questão ${amb.join(", ")}: sem marcação clara. Confira no papel.`);
+  if(vig.divergem.length)
+    recados.push(`O gabarito impresso no QR deste caderno é de uma versão `+
+      `anterior do app e diverge na${vig.divergem.length===1?"":"s"} `+
+      `questã${vig.divergem.length===1?"o":"es"} ${vig.divergem.join(", ")}. `+
+      `Estou usando o gabarito atual, que é o mesmo da planilha.`);
+  $("#avAmb").hidden=!recados.length;
+  $("#avAmb").textContent=recados.join(" ");
   $("#conf").innerHTML=atual.R.map((r,i)=>{
     const cls=r===null?"vz":(r===gab[i]?"ok":"no");
     return `<button class="qc ${cls}" data-i="${i}"><div class="n">${String(i+1).padStart(2,"0")}</div>
@@ -7194,6 +7263,31 @@ function pintarResultados(){
   const feitos=notas.length, total=matriculados.length;
   $("#pill").hidden=!feitos; $("#pill").textContent=feitos;
   $("#resAcoes").hidden=!feitos;
+
+  /* Notas conferidas com uma regra de gabarito anterior. Não é preciso
+     reescanear nada: as marcações do papel continuam válidas, só a
+     conferência muda. */
+  const cx=$("#resRegra");
+  if(cx){
+    const velhas=p?resultadosComRegraVelha(p):0;
+    cx.hidden=!velhas;
+    if(velhas){
+      cx.innerHTML=`<div class="aviso" style="margin-top:14px">
+        <b>${velhas} nota${velhas===1?"":"s"} conferida${velhas===1?"":"s"} com uma
+        versão anterior do app.</b><br>A regra que transforma o gabarito da prova
+        no gabarito de cada estudante mudou desde então, então essas notas podem
+        estar erradas — e a planilha baixada antes da atualização também.
+        As marcações do papel continuam válidas: não precisa reescanear.
+        <div class="linha" style="margin-top:10px">
+          <button class="btn sec" id="bRegra">Refazer as contas</button></div></div>`;
+      $("#bRegra").onclick=()=>{
+        const n=recalcular(p); salvar(); pintarResultados(); pintarDesempenho();
+        alert(n+" nota"+(n===1?"":"s")+" reconferida"+(n===1?"":"s")+
+          (recalcular.mudaram?" — "+recalcular.mudaram+" mudaram."
+                             :" — nenhuma mudou."));
+      };
+    }
+  }
   $("#resSub").textContent = total
     ? `${feitos} de ${total} corrigidos · ${p.codigo} · ${t.nome} · ${nomeDisc(t,p.disciplina)}`
     : (feitos?`${feitos} corrigidos · ${p.codigo} · ${t.nome}`

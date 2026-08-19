@@ -2252,3 +2252,130 @@ respostas certas e confere que sai 10 de 10 e que `canonizar` devolve o
 gabarito canônico. E refaz a conta com a regra ANTIGA para provar que o
 teste exercita o defeito: 11 questões sairiam erradas mesmo respondidas
 certo.
+
+---
+
+## v52 — a planilha de ontem discorda do app de hoje
+
+Relato: a planilha "Gabarito por estudante", baixada do próprio app,
+dizia que o gabarito da estudante nº 01 era `A A B D A A E D A C`. A tela
+de conferência, no mesmo app, dizia `A A A D A B E D A C`. As duas
+discordam exatamente nas questões 3 e 6 — as duas cujas alternativas são
+gráficos dentro de uma imagem.
+
+### Não era bug de conta
+
+As duas saem da **mesma função** `gabaritoDe`. Dentro de uma versão elas
+não têm como divergir. A planilha foi baixada ANTES da v51, quando essas
+questões ainda embaralhavam; a tela é DEPOIS, quando pararam.
+
+O problema real é que nada no app dizia qual dos dois números era o
+velho. Os dois pareciam igualmente oficiais, e o professor respondeu o
+cartão seguindo a planilha desatualizada — por isso a nota saiu 8 e não
+10.
+
+### O que passou a existir
+
+`REGRA_GABARITO` (hoje **2**) marca a versão da transformação
+canônico → individual. Sobe sempre que essa transformação mudar; já mudou
+uma vez, na v47/v51.
+
+Ela existe porque o gabarito individual **sai do app e vira papel**: é
+impresso no QR, gravado em cada resultado corrigido e exportado na
+planilha. Quando a regra muda, tudo isso que ficou por aí passa a
+discordar em silêncio.
+
+- cada resultado corrigido guarda `regra`. Registro sem o campo conta
+  como regra 1 — é o que estava gravado antes deste carimbo existir;
+- `resultadosComRegraVelha(pr)` conta quantos vieram de regra anterior;
+- a tela de Resultados mostra o aviso e o botão **Refazer as contas**.
+  Não precisa reescanear: as marcações do papel continuam válidas, só a
+  conferência muda. `recalcular()` refaz e recarimba;
+- a planilha ganhou a aba **"Sobre esta planilha"** com data, versão do
+  app, regra de gabarito e o recado de baixar de novo depois de atualizar.
+
+### Detalhe de forma que quase custou caro
+
+O carimbo foi parar numa aba própria, e não numa linha da primeira. A
+primeira aba tem contrato de forma — cabeçalho, gabarito canônico na 2ª
+linha, uma linha por estudante — e o `teste32` depende dele. Acrescentar
+uma linha ali quebrou quatro asserções de uma vez. Informação nova sobre
+a planilha vai em aba nova.
+
+O `teste32` foi ajustado num ponto: exigia `abas.length === 2` e agora
+exige que as duas abas de DADOS continuem sendo a 1ª e a 2ª, com os
+mesmos nomes. É afrouxamento consciente da contagem, não da estrutura.
+
+### Suíte nova
+
+`teste56` — a divergência entre as duas regras para o mesmo estudante e
+o fato de que ela cai só nas questões gráficas; um resultado gravado sem
+carimbo sendo reconhecido como regra 1; o recálculo que corrige a nota
+sem tocar nas marcações do papel (`R` intacto, `gab` novo, `regra`
+carimbada); refazer duas vezes não mexendo em nada; registro novo já
+nascendo carimbado; e a aba de identificação da planilha.
+
+---
+
+## v53 — o QR do caderno impresso contra o cálculo de agora
+
+O professor disse que **o gabarito da planilha é que estava certo**, e
+isso inverteu o diagnóstico da v52. Investigando de novo, achei o que
+faltava: a tela de conferência e a planilha **não liam do mesmo lugar**.
+
+```js
+function montarPainel(){
+  const gab = alunoQR.gab, p = provaAtiva();   // ← do QR impresso
+```
+
+- **`alunoQR.gab`** é o gabarito que foi calculado quando a prova foi
+  GERADA e ficou impresso dentro do QR;
+- **`gabaritoDe()`**, que a planilha usa, calcula na hora, a partir do
+  gabarito canônico guardado no app.
+
+Enquanto a regra não muda, os dois dão o mesmo resultado. Mas a regra
+mudou (v47/v51: as questões cujas alternativas estão dentro da figura
+pararam de embaralhar), e um caderno impresso ANTES disso carrega no QR
+um gabarito que não vale mais.
+
+A sequência que produziu o conflito relatado: cadernos impressos numa
+versão anterior → app atualizado → planilha baixada (correta) → cartão
+respondido seguindo a planilha → leitura do cartão conferida contra o QR
+velho → duas questões dadas como erradas.
+
+`registrar()` tinha a mesma preferência (`d.gab || gabaritoDe(...)`), então
+a nota gravada também saía do QR.
+
+### A regra agora
+
+`gabaritoVigente(turma, numero, gabQR)`:
+
+- **o app conhece a prova** → o cálculo de agora é a autoridade. O
+  gabarito canônico é o que o professor conferiu e a regra atual é a
+  correta;
+- **o app não conhece a prova** → o QR continua sendo a saída, como
+  sempre foi (caderno de outro aparelho, prova não cadastrada);
+- **os dois discordam** → o app diz em voz alta quais questões, porque
+  isso significa que o papel na mão foi impresso por uma versão
+  anterior.
+
+A tela de conferência e o `registrar()` passaram a usar a mesma função —
+antes uma mostrava um gabarito e o outro gravava outro, o que por si só
+já era um defeito esperando acontecer.
+
+### Por que a v52 não bastou
+
+A v52 carimbou os resultados e a planilha, e isso continua valendo: quem
+já foi corrigido antes precisa de "Refazer as contas". Mas o carimbo não
+alcança o QR — ele está no papel, e o papel não se atualiza. Só a
+prioridade do cálculo resolve.
+
+### Suíte nova
+
+`teste57` — o QR antigo divergindo do cálculo de hoje; `gabaritoVigente`
+devolvendo o atual e apontando as questões divergentes; o caso sem
+divergência, o sem QR e o sem prova cadastrada (em que o QR segue sendo
+a autoridade); quem respondeu seguindo a planilha tirando 10 de 10 com o
+QR velho no papel; quem seguiu o QR velho errando exatamente as
+divergentes; e a coerência entre o que a tela mostra e o que o salvar
+grava.

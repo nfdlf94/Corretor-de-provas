@@ -129,7 +129,15 @@ setTimeout(() => {
 
   /* ── 6. a planilha de gabaritos por estudante ── */
   const abas = JSON.parse(ev('JSON.stringify(abasGabaritoPorEstudante(provaDe("psim1"),turmaDe("t1")))'));
-  ok(abas.length === 2, "a planilha tem as duas abas");
+  /* as duas abas de DADOS vêm primeiro e nessa ordem; a v52 acrescentou
+     uma terceira, "Sobre esta planilha", com o carimbo de versão e da
+     regra de gabarito — informativa, e de propósito fora da primeira
+     aba, que tem contrato de forma (cabeçalho, canônico, um estudante
+     por linha) */
+  ok(abas.length >= 2, "a planilha tem as abas de dados");
+  ok(abas[0].nome === "Gabarito por estudante" &&
+     abas[1].nome === "Componente por posição",
+     "e elas continuam sendo a 1ª e a 2ª");
   const L = abas[0].linhas;
   ok(L[0][0] === "nº" && L[0].length === 2 + 16, "cabeçalho com as 16 questões");
   ok(/CANÔNICO/.test(L[1][1]), "a 2ª linha é o gabarito canônico, marcado como tal");
