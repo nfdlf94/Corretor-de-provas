@@ -1759,7 +1759,7 @@ function canonizar(R,nomeTurma,numero){
 function recalcular(pr){
   const t=turmaDe(pr.turma); if(!t) return 0;
   const letras=["A","B","C","D","E"].slice(0,pr.no);
-  let n=0;
+  let n=0, mudaram=0;
   E.res.filter(r=>r.prova===pr.id).forEach(r=>{
     const {oq,oa}=ordemDe(pr,t.nome,r.numero);
     let gab="";
@@ -1777,11 +1777,13 @@ function recalcular(pr){
     for(let i=0;i<pr.nq;i++){
       if(r.R[i]&&r.R[i]===gab[i]){acertos++;certas.push(i+1);} else erradas.push(i+1);
     }
+    const mudou=(r.gab!==gab)||(r.acertos!==acertos);
     r.gab=gab; r.Rc=Rc; r.acertos=acertos; r.erros=pr.nq-acertos;
     r.certas=certas; r.erradas=erradas;
     r.notaDisc=Math.max(0,Math.min(pontosDisc(pr),r.notaDisc||0));
-    r.nota=notaFinal(pr,r); n++;
+    r.nota=notaFinal(pr,r); n++; if(mudou) mudaram++;
   });
+  recalcular.mudaram=mudaram;
   return n;
 }
 
@@ -3097,7 +3099,13 @@ function telaEditar(box){
     aplicarLayout(p.nq,p.no); salvar(); refletirBarra();
     pintarResultados(); pintarDesempenho(); montarManual();
     let msg="Prova atualizada.";
-    if(gab!==gabAntigo && refeitas) msg="Gabarito corrigido — "+refeitas+" notas recalculadas.";
+    /* Uma correção no app pode mudar como a prova é lida — foi o caso da
+       trava das questões cujas alternativas estão na figura. Salvar a
+       prova refaz as contas com as marcações já lidas, sem reescanear
+       nada, e o professor precisa saber que notas mudaram. */
+    if(recalcular.mudaram) msg="Prova atualizada — "+recalcular.mudaram+
+      " nota"+(recalcular.mudaram===1?"":"s")+" mudaram ao refazer as contas.";
+    else if(gab!==gabAntigo && refeitas) msg="Gabarito corrigido — "+refeitas+" notas recalculadas.";
     else if(mudouEstrutura) msg="Estrutura alterada. Gere os cartões novamente antes de aplicar.";
     alert(msg);
     casaNivel="prova"; montarCasa(); };

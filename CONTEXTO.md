@@ -2190,3 +2190,65 @@ números que a tela usa para explicar; não são decorativos.
 O laço de descida é limitado pelo tamanho da escada e só roda enquanto
 `pior > melhor` — sem isso, uma prova em que os dois nunca se igualam
 faria o corpo despencar até o último degrau à toa.
+
+---
+
+## v51 — a trava não pegava o caso mais comum
+
+Relato: numa avaliação com DUAS questões de "assinale a alternativa cujo
+gráfico representa essa função", o professor respondeu tudo certo e o app
+marcou essas duas como erradas — dizia que a certa era B quando o
+gabarito oficial e o caderno impresso diziam A.
+
+### Onde estava
+
+A v47 já tinha travado o embaralhamento dessas questões. O detector é que
+estava estreito:
+
+```js
+const alts = q.alternativas || [];
+if(!alts.length) return false;        // ← aqui
+return alts.every(a => !semMarcas(...).trim());
+```
+
+Há **duas** formas de a mesma coisa chegar ao app:
+
+1. o arquivo traz "A)" a "E)" sem texto ao lado → cinco alternativas em
+   branco. Era o único reconhecido;
+2. o arquivo **não traz alternativa nenhuma**, porque as letras estão
+   desenhadas dentro da imagem → lista vazia. É o caso normal, e o
+   `if(!alts.length) return false` mandava a questão de volta para o
+   embaralhamento.
+
+Sem a trava, `oa[p]` permuta as letras e o gabarito individual aponta para
+outra bolha — mas a imagem é a mesma para todos e não gira junto. O
+estudante marca a letra que o papel mostra e o app confere contra outra.
+
+A correção é tirar a guarda: lista vazia satisfaz `every`, que é
+exatamente o que se quer. O caminho da v47 (a figura depois do comando,
+as letras vazias não impressas, o pre-flight) já funcionava para os dois
+casos; só a trava do embaralhamento dependia do detector.
+
+O pre-flight também parou de acusar "0 alternativas, eram para ser 5"
+nessas questões — não é erro, é o formato.
+
+### Como consertar as provas já corrigidas
+
+**Não precisa reescanear nada.** As marcações do papel continuam válidas;
+só a conferência muda. Abrir a prova, salvar, e `recalcular()` refaz as
+contas de todos os registros com a trava aplicada. A mensagem agora diz
+quantas notas mudaram — antes só avisava quando o gabarito canônico
+tinha sido editado, e uma correção do app que muda a leitura passava
+calada.
+
+### Suíte nova
+
+`teste55` — vai do gerador até a correção. Reconhece as três formas de a
+questão gráfica chegar (cinco em branco, lista vazia, campo ausente) e as
+duas que NÃO são o caso (gráfico de apoio com texto, questão sem imagem);
+monta a prova do relato com as questões 6 e 9 gráficas e sem alternativa
+nenhuma; para cada estudante descobre o que ele VÊ no papel, marca as
+respostas certas e confere que sai 10 de 10 e que `canonizar` devolve o
+gabarito canônico. E refaz a conta com a regra ANTIGA para provar que o
+teste exercita o defeito: 11 questões sairiam erradas mesmo respondidas
+certo.

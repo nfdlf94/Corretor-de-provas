@@ -120,7 +120,18 @@ const NOME_COMP = {LP: "LÍNGUA PORTUGUESA", MAT: "MATEMÁTICA"};
 function alternativasNaFigura(q){
   if(!q || !q.imagem || !q.imagem.dados) return false;
   const alts = q.alternativas || [];
-  if(!alts.length) return false;
+  /* Duas formas de a MESMA coisa chegar aqui, e a segunda passava batido:
+
+     1. o arquivo trazia "A)" a "E)" sem texto ao lado → cinco
+        alternativas em branco;
+     2. o arquivo não trazia alternativa NENHUMA, porque as letras estão
+        desenhadas dentro da imagem → lista vazia.
+
+     O caso 2 é o mais comum, e era o que escapava: `if(!alts.length)
+     return false` mandava a questão de volta para o embaralhamento. A
+     imagem não gira junto, então o gabarito individual apontava para
+     outra bolha e a questão saía marcada como errada mesmo respondida
+     certo. Lista vazia satisfaz `every` — é exatamente o que se quer. */
   return alts.every(a => !semMarcas(String(a == null ? "" : a)).trim());
 }
 function indicesFixos(questoes){
@@ -1332,7 +1343,7 @@ function preFlightCheck(cfg, doc, fs){
     const naFigura = alternativasNaFigura(item);
     if(!semMarcas(q.enunciado).trim())
       avisos.push("questão " + n + ": enunciado vazio");
-    if(alts.length !== no)
+    if(alts.length !== no && !naFigura)
       avisos.push("questão " + n + ": " + alts.length + " alternativas, " +
                   "eram para ser " + no);
     if(naFigura)
