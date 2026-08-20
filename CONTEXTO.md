@@ -2379,3 +2379,71 @@ a autoridade); quem respondeu seguindo a planilha tirando 10 de 10 com o
 QR velho no papel; quem seguiu o QR velho errando exatamente as
 divergentes; e a coerência entre o que a tela mostra e o que o salvar
 grava.
+
+---
+
+## v54 — participação com uma nota por componente
+
+A nota de participação era UMA só, do caderno inteiro. Agora são duas —
+uma de Português e uma de Matemática.
+
+### A regra
+
+**O valor do simulado vale INTEIRO para cada componente, não é repartido
+entre eles.** Simulado de 1,5 → até 1,5 de Português E até 1,5 de
+Matemática, 3,0 no total.
+
+Dentro de cada componente o valor se divide pelo número de questões
+**daquele** componente:
+
+| | questões | por questão |
+|---|---|---|
+| Português | 9 | 1,5 ÷ 9 = 0,1667 |
+| Matemática | 11 | 1,5 ÷ 11 = 0,1364 |
+
+O divisor nunca é o total do caderno. Duas questões de componentes
+diferentes valem coisas diferentes, e é assim que tem de ser: cada
+componente é uma nota independente.
+
+A conta já existia em `participacaoDe().porComp` desde antes — estava
+calculada e não aparecia em lugar nenhum. O que entrou foi a
+apresentação, o lançamento manual por componente e o fechamento.
+
+### Lançamento manual
+
+`sm.partAluno[numero]` passou a aceitar dois formatos:
+
+- **número solto** — o formato antigo, de quando havia uma nota só. Vale
+  como nota do caderno inteiro. Não é repartido entre os componentes:
+  seria inventar dado que o professor não digitou;
+- **objeto `{LP, MAT}`** — o de hoje. Ao lançar por componente, o número
+  solto é descartado, porque ao lado dos novos ele significaria outra
+  coisa.
+
+Os dois componentes são independentes: lançar Português à mão deixa
+Matemática calculada.
+
+### Fechamento em PDF
+
+`participacaoAcumulada(tid)` soma TODOS os simulados da turma que já têm
+cartão corrigido, e `pdfParticipacao(tid)` põe numa folha: número, nome e
+as duas notas, cada uma sobre o seu máximo.
+
+Duas decisões que o PDF documenta na própria folha:
+
+- **quem não fez um simulado leva zero nele**, e não uma lacuna. A nota
+  de participação é do período inteiro e faltar é parte do que ela mede;
+- **o simulado sem nenhum cartão corrigido fica de fora** do máximo — ele
+  ainda não aconteceu, e contá-lo faria todo mundo parecer devendo.
+
+O rodapé traz a data e a regra de gabarito (v52), porque este é o
+documento que vai para o conselho de classe e precisa ser datável.
+
+### Suíte nova
+
+`teste58` — o valor por questão em cada componente (incluindo o exemplo
+do professor, 1,25 em nove questões de Português); a prova de que o
+divisor não é o caderno inteiro; quem acerta tudo levando o teto nos
+dois; o lançamento manual por componente, o teto e o apagar; o
+fechamento com dois simulados de valores diferentes, o máximo somado, o
+zero de quem faltou; e a geração do PDF.

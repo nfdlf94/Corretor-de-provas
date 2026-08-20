@@ -1605,21 +1605,59 @@ function distribuirParticipacao(tid){
   return v;
 }
 
+/* O valor do simulado vale INTEIRO para cada componente, não é repartido
+   entre eles: se o simulado vale 1,5, são até 1,5 de Português E até 1,5
+   de Matemática. Dentro de cada componente o valor se divide pelo número
+   de questões DAQUELE componente — 1,25 em nove questões de Português dá
+   0,1389 por questão. Por isso a conta é sempre `valor × acertos ÷ total
+   do componente`, e nunca sobre o caderno inteiro. */
 function notaParticipacao(sm,acertos,total){
   if(!total||acertos==null) return null;
   return arred2(valorParticipacao(sm)*(acertos/total));
 }
-/* nota lançada à mão pelo professor, se houver — sempre dentro do teto */
-function participacaoManual(sm,numero){
+/* quanto vale CADA questão de um componente, neste simulado */
+function valorPorQuestao(sm,pr,comp){
+  const n=itensDe(pr,comp).length;
+  return n?valorParticipacao(sm)/n:0;
+}
+/* Nota lançada à mão, sempre dentro do teto. `comp` pede a nota de um
+   componente; sem ele, a do caderno inteiro.
+
+   Dois formatos convivem em `partAluno[numero]`:
+   - número solto — o formato antigo, de quando havia uma nota só. Vale
+     como nota do caderno inteiro; repartí-lo entre os componentes seria
+     inventar dado que o professor não digitou;
+   - objeto {LP, MAT} — o formato de hoje, uma nota por componente. */
+function participacaoManual(sm,numero,comp){
   const m=(sm&&sm.partAluno)||{};
   const v=m[String(numero)];
-  if(v==null||isNaN(v)) return null;
-  return Math.max(0,Math.min(valorParticipacao(sm),Number(v)));
+  if(v==null) return null;
+  const teto=x=>Math.max(0,Math.min(valorParticipacao(sm),Number(x)));
+  if(typeof v==="object"){
+    if(!comp) return null;                 // por componente não soma um total
+    const x=v[comp];
+    return (x==null||x===""||isNaN(x))?null:teto(x);
+  }
+  if(isNaN(v)) return null;
+  return comp?null:teto(v);                // formato antigo: só o total
 }
-function gravarParticipacao(sm,numero,valor){
+function gravarParticipacao(sm,numero,valor,comp){
   sm.partAluno=sm.partAluno||{};
-  if(valor==null||valor===""||isNaN(valor)) delete sm.partAluno[String(numero)];
-  else sm.partAluno[String(numero)]=Math.max(0,Math.min(valorParticipacao(sm),Number(valor)));
+  const k=String(numero);
+  const vazio=(valor==null||valor===""||isNaN(valor));
+  if(!comp){
+    if(vazio) delete sm.partAluno[k];
+    else sm.partAluno[k]=Math.max(0,Math.min(valorParticipacao(sm),Number(valor)));
+    salvar(); return;
+  }
+  /* passando a lançar por componente, o número solto do formato antigo
+     não pode ficar: ele significaria outra coisa ao lado dos novos */
+  let atual=sm.partAluno[k];
+  if(typeof atual!=="object"||atual===null) atual={};
+  if(vazio) delete atual[comp];
+  else atual[comp]=Math.max(0,Math.min(valorParticipacao(sm),Number(valor)));
+  if(!Object.keys(atual).length) delete sm.partAluno[k];
+  else sm.partAluno[k]=atual;
   salvar();
 }
 /* uma linha por estudante, com o total e a quebra por componente */
@@ -1636,14 +1674,69 @@ function participacaoDe(sm){
     const porComp={};
     COMPONENTES.forEach(c=>{
       const n=itensDe(pr,c.id).length;
+      const calc=L.res?notaParticipacao(sm,acertosComp(pr,L.res,c.id),n):null;
+      const man=participacaoManual(sm,L.aluno.numero,c.id);
       porComp[c.id]={total:n, acertos:L.res?acertosComp(pr,L.res,c.id):null,
-        nota:L.res?notaParticipacao(sm,acertosComp(pr,L.res,c.id),n):null};
+        calculada:calc, manual:man, nota:(man!=null?man:calc),
+        porQuestao:valorPorQuestao(sm,pr,c.id)};
     });
     const calculada=L.res?notaParticipacao(sm,L.res.acertos,pr.nq):null;
     const manual=participacaoManual(sm,L.aluno.numero);
     return Object.assign(L,{total:pr.nq, acertos:L.res?L.res.acertos:null,
       calculada, manual, nota:(manual!=null?manual:calculada), porComp});
   }).sort((x,y)=>ordNum(x.aluno.numero,y.aluno.numero));
+}
+
+/* ── participação acumulada da turma ───────────────────────────────
+   O fechamento: somadas as notas de TODOS os simulados da turma, quanto
+   cada estudante tem de Português e quanto tem de Matemática. Cada
+   componente tem o seu total — não se misturam nunca.
+
+   Quem não fez um simulado leva zero NELE, e não uma lacuna: a nota de
+   participação é do período inteiro, e faltar é parte do que ela mede.
+   O simulado sem nenhum cartão corrigido, esse sim fica de fora — ainda
+   não aconteceu. */
+function participacaoAcumulada(tid){
+  const sims=simuladosDa(tid).filter(sm=>{
+    const pr=provaDoSim(sm);
+    return pr && E.res.some(r=>r.prova===pr.id);
+  });
+  const t=turmaDe(tid);
+  if(!t) return {sims:[], linhas:[], maximo:{}};
+  const maximo={};
+  COMPONENTES.forEach(c=>{ maximo[c.id]=arred2(sims.reduce((n,sm)=>{
+    const pr=provaDoSim(sm);
+    return n+(pr && itensDe(pr,c.id).length ? valorParticipacao(sm) : 0);
+  },0)); });
+
+  const porAluno={};
+  const guardar=a=>{
+    const k=String(a.numero);
+    if(!porAluno[k]) porAluno[k]={aluno:a, comp:{}, det:[]};
+    COMPONENTES.forEach(c=>{ if(porAluno[k].comp[c.id]==null) porAluno[k].comp[c.id]=0; });
+    return porAluno[k];
+  };
+  (t.alunos||[]).forEach(guardar);
+
+  sims.forEach(sm=>{
+    const pr=provaDoSim(sm);
+    participacaoDe(sm).forEach(L=>{
+      const reg=guardar(L.aluno);
+      const linha={simulado:sm, valor:valorParticipacao(sm), fez:!!L.res, comp:{}};
+      COMPONENTES.forEach(c=>{
+        const pc=L.porComp[c.id];
+        if(!pc || !pc.total) return;
+        const nota=(pc.nota==null?0:pc.nota);
+        reg.comp[c.id]=arred2(reg.comp[c.id]+nota);
+        linha.comp[c.id]={nota, acertos:pc.acertos, total:pc.total};
+      });
+      reg.det.push(linha);
+    });
+  });
+
+  const linhas=Object.keys(porAluno).map(k=>porAluno[k])
+    .sort((x,y)=>ordNum(x.aluno.numero,y.aluno.numero));
+  return {sims, linhas, maximo, turma:t};
 }
 
 /* banco de descritores: código → texto, reaproveitado entre simulados */
@@ -3967,6 +4060,101 @@ function gerarPDF(p,t,modo){
   },50);
 }
 
+/* ── PDF de fechamento da participação ─────────────────────────────
+   Uma folha por turma com todos os estudantes e as duas notas: Português
+   e Matemática. É o documento que o professor leva para o conselho de
+   classe, então precisa se explicar sozinho — quais simulados entraram,
+   quanto cada um valia e qual o máximo de cada componente. */
+function pdfParticipacao(tid){
+  const vg=x=>Number(x||0).toFixed(2).replace(".",",");
+  const dados=participacaoAcumulada(tid);
+  const t=dados.turma;
+  if(!t) return null;
+  const doc=new window.jspdf.jsPDF({unit:"mm",format:"a4",compress:true});
+  prepararFontes(doc);
+  const W=210, M=14;
+  const comps=COMPONENTES.filter(c=>dados.maximo[c.id]>0);
+  const e=escolaDe(t.escola)||{nome:""};
+
+  let y=0, pagina=0;
+  const cabecalho=()=>{
+    pagina++;
+    if(pagina>1) doc.addPage();
+    doc.setFillColor(15,32,63); doc.rect(0,0,W,17,"F");
+    doc.setTextColor(255,255,255); doc.setFont(FONTE_TEXTO,"bold"); doc.setFontSize(7);
+    doc.text(String(e.nome||"").toUpperCase(),M,6);
+    doc.setFontSize(12);
+    doc.text("PARTICIPAÇÃO NOS SIMULADOS",M,13.4);
+    doc.setDrawColor(240,120,40); doc.setLineWidth(0.8);
+    doc.line(M,14.8,M+doc.getTextWidth("PARTICIPAÇÃO NOS SIMULADOS"),14.8);
+    doc.setFont(FONTE_TEXTO,"normal"); doc.setFontSize(7.5);
+    doc.text(t.nome+"  ·  "+dados.sims.length+" simulado"+
+      (dados.sims.length===1?"":"s"),W-M,13.4,{align:"right"});
+    y=25;
+    /* cabeçalho da tabela, repetido em toda folha: a lista de uma turma
+       grande passa de uma página e ninguém vai lembrar a ordem das
+       colunas na segunda */
+    doc.setTextColor(90,98,110); doc.setFont(FONTE_TEXTO,"bold"); doc.setFontSize(7.5);
+    doc.text("Nº",M,y); doc.text("ESTUDANTE",M+10,y);
+    comps.forEach((c,i)=>doc.text(c.nome.toUpperCase(),
+      W-M-(comps.length-1-i)*30,y,{align:"right"}));
+    doc.setDrawColor(210,215,222); doc.setLineWidth(0.3);
+    doc.line(M,y+1.6,W-M,y+1.6);
+    y+=6.5;
+  };
+  cabecalho();
+
+  dados.linhas.forEach((L,i)=>{
+    if(y>272){ cabecalho(); }
+    if(i%2===1){ doc.setFillColor(246,248,251); doc.rect(M-2,y-3.6,W-2*M+4,6,"F"); }
+    doc.setTextColor(120,128,140); doc.setFont(FONTE_TEXTO,"normal"); doc.setFontSize(8);
+    doc.text(String(L.aluno.numero),M,y);
+    doc.setTextColor(25,28,34);
+    doc.text(encurtarNome(L.aluno.nome,34),M+10,y);
+    doc.setFont(FONTE_TEXTO,"bold");
+    comps.forEach((c,k)=>{
+      const v=L.comp[c.id]||0, max=dados.maximo[c.id];
+      const cor=v>=max*0.6?[22,120,80]:v>=max*0.4?[170,110,20]:[180,60,55];
+      doc.setTextColor(cor[0],cor[1],cor[2]);
+      doc.text(vg(v)+" / "+vg(max),
+        W-M-(comps.length-1-k)*30,y,{align:"right"});
+    });
+    y+=6;
+  });
+
+  /* de onde saiu cada número */
+  if(y>250){ cabecalho(); }
+  y+=4;
+  doc.setDrawColor(210,215,222); doc.setLineWidth(0.3); doc.line(M,y,W-M,y); y+=5;
+  doc.setTextColor(90,98,110); doc.setFont(FONTE_TEXTO,"bold"); doc.setFontSize(7.5);
+  doc.text("COMO A NOTA FOI CALCULADA",M,y); y+=5;
+  doc.setFont(FONTE_TEXTO,"normal"); doc.setFontSize(7);
+  const explica=["Cada simulado vale o mesmo valor para cada componente — "+
+    "não é repartido entre eles.",
+    "Dentro do componente, o valor se divide pelo número de questões "+
+    "daquele componente, e a nota é proporcional aos acertos.",
+    "Quem não fez um simulado leva zero nele."];
+  explica.forEach(txt=>{
+    doc.splitTextToSize(txt,W-2*M-4).forEach(ln=>{ doc.text(ln,M+4,y); y+=3.6; });
+  });
+  y+=2;
+  dados.sims.forEach(sm=>{
+    const pr=provaDoSim(sm);
+    const partes=comps.filter(c=>itensDe(pr,c.id).length).map(c=>{
+      const n=itensDe(pr,c.id).length;
+      return c.nome+": "+n+" quest"+(n===1?"ão":"ões")+" · "+
+        vg(arred2(valorPorQuestao(sm,pr,c.id)*1000)/1000)+" cada";
+    });
+    doc.text("• "+(sm.titulo||sm.codigo||"Simulado")+" — vale "+
+      vg(valorParticipacao(sm))+" por componente. "+partes.join("; "),M+4,y);
+    y+=3.8;
+  });
+  doc.setTextColor(150,156,166);
+  doc.text("Gerado em "+new Date().toLocaleDateString("pt-BR")+
+    " · regra de gabarito "+REGRA_GABARITO,M,288);
+  return doc;
+}
+
 /* várias etiquetas por folha, para quem imprime a prova à parte */
 function gerarFolhasDeCartoes(cfg,alunos){
   const doc=new window.jspdf.jsPDF({unit:"mm",format:"a4",compress:true});
@@ -6148,30 +6336,48 @@ function telaRelSaepe(box){
   if(!feitosP.length){
     h+=`<p class="hint">Nenhum cartão corrigido ainda.</p>`;
   }else{
-    h+=part.map(L=>`<div class="aluno" style="cursor:default">
+    /* uma nota POR COMPONENTE: o valor do simulado vale inteiro para
+       cada um, não é repartido entre os dois */
+    const comps=COMPONENTES.filter(c=>part.some(L=>L.porComp[c.id].total));
+    const cor=v=>v==null?"var(--mute)"
+      :(v>=valor*0.6?"var(--mint)":v>=valor*0.4?"var(--amber)":"var(--coral)");
+    h+=part.map(L=>`<div class="aluno" style="cursor:default;align-items:flex-start">
       <div style="flex:1;min-width:0">
         <div class="nm"><span style="color:var(--mute);font-family:var(--mono);font-size:12px">${esc(L.aluno.numero)} </span>${esc(L.aluno.nome)}</div>
         <div class="rs">${L.res
-          ? L.acertos+" de "+L.total+" · "+COMPONENTES.filter(c=>L.porComp[c.id].total)
-              .map(c=>esc(c.curto)+" "+L.porComp[c.id].acertos+"/"+L.porComp[c.id].total).join(" · ")
-          : "não fez o simulado"}${L.manual!=null?" · lançada à mão":""}</div></div>
-      <input data-part="${esc(L.aluno.numero)}" type="number" inputmode="decimal"
-        step="0.25" min="0" max="${valor}" placeholder="${L.calculada==null?"—":vg(L.calculada)}"
-        value="${L.manual==null?"":L.manual}"
-        style="flex:0 0 74px;text-align:center;margin:0;font-family:var(--mono);
-          color:${L.nota==null?"var(--mute)"
-          :(L.nota>=valor*0.6?"var(--mint)":L.nota>=valor*0.4?"var(--amber)":"var(--coral)")}">
+          ? comps.map(c=>esc(c.curto)+" "+L.porComp[c.id].acertos+"/"+L.porComp[c.id].total).join(" · ")
+          : "não fez o simulado"}</div></div>
+      ${comps.map(c=>`<div style="flex:0 0 78px;text-align:center">
+        <div style="font-size:10px;color:var(--mute);margin-bottom:2px">${esc(c.curto)}</div>
+        <input data-part="${esc(L.aluno.numero)}" data-comp="${c.id}" type="number"
+          inputmode="decimal" step="0.25" min="0" max="${valor}"
+          placeholder="${L.porComp[c.id].calculada==null?"—":vg(L.porComp[c.id].calculada)}"
+          value="${L.porComp[c.id].manual==null?"":L.porComp[c.id].manual}"
+          style="text-align:center;margin:0;font-family:var(--mono);
+            color:${cor(L.porComp[c.id].nota)}"></div>`).join("")}
       </div>`).join("");
-    h+=`<p class="hint">O número em cinza é o que sai dos acertos. Escreva por cima para
-      lançar outro valor — apague para voltar ao calculado. O máximo é ${vg(valor)}.</p>`;
-    const somaP=feitosP.reduce((x,L)=>x+L.nota,0);
-    h+=`<div class="kpi" style="margin-top:12px">
-      <div><div class="v">${vg(somaP/feitosP.length)}</div><div class="l">Média da turma</div></div>
-      <div><div class="v">${feitosP.length}<span style="font-size:13px;color:var(--mute)">/${part.length}</span></div>
-        <div class="l">Fizeram</div></div>
-      <div><div class="v">${feitosP.filter(L=>L.nota>=valor*0.6).length}</div>
-        <div class="l">≥ ${vg(valor*0.6)}</div></div></div>
-    <button class="btn sec" id="partCsv" style="margin-top:12px">Baixar notas de participação</button>`;
+    h+=`<p class="hint">Uma nota para cada componente, cada uma valendo até
+      ${vg(valor)} — o valor do simulado NÃO é repartido entre os dois. Dentro do
+      componente ele se divide pelo número de questões dele:
+      ${comps.map(c=>{const n=itensDe(pr,c.id).length;
+        return esc(c.nome)+" tem "+n+" quest"+(n===1?"ão":"ões")+", "+
+          vg(Math.round(valorPorQuestao(sm,pr,c.id)*1000)/1000)+" cada";}).join("; ")}.
+      O número em cinza é o que sai dos acertos; escreva por cima para lançar
+      outro valor e apague para voltar ao calculado.</p>`;
+    h+=`<div class="kpi" style="margin-top:12px">`+
+      comps.map(c=>{
+        const feitos=part.filter(L=>L.res && L.porComp[c.id].nota!=null);
+        const soma=feitos.reduce((x,L)=>x+L.porComp[c.id].nota,0);
+        return `<div><div class="v">${feitos.length?vg(soma/feitos.length):"—"}</div>
+          <div class="l">Média ${esc(c.curto)}</div></div>`;
+      }).join("")+
+      `<div><div class="v">${feitosP.length}<span style="font-size:13px;color:var(--mute)">/${part.length}</span></div>
+        <div class="l">Fizeram</div></div></div>
+    <button class="btn sec" id="partCsv" style="margin-top:12px">Baixar notas de participação</button>
+    <button class="btn" id="partPdf" style="margin-top:9px">Fechamento da turma em PDF</button>
+    <p class="hint">O fechamento soma TODOS os simulados desta turma e sai com uma
+      nota de Português e uma de Matemática por estudante — é o documento do
+      conselho de classe.</p>`;
   }
 
   h+=`<div class="rot">Exportar</div>
@@ -6198,8 +6404,14 @@ function telaRelSaepe(box){
     salvar(); montarCasa(); };
   box.querySelectorAll("[data-part]").forEach(el=>el.onchange=()=>{
     const bruto=String(el.value).replace(",",".").trim();
-    gravarParticipacao(sm, el.dataset.part, bruto===""?null:parseFloat(bruto));
+    gravarParticipacao(sm, el.dataset.part, bruto===""?null:parseFloat(bruto),
+      el.dataset.comp||null);
     montarCasa(); });
+  if($("#partPdf")) $("#partPdf").onclick=()=>{
+    const doc=pdfParticipacao(sm.turma);
+    if(!doc) return alert("Nenhum simulado desta turma tem cartão corrigido ainda.");
+    doc.save("participacao-"+(t.nome||"turma").replace(/[^\w-]+/g,"-")+".pdf");
+  };
   if($("#partPlano")) $("#partPlano").onclick=()=>{
     casaTurma=sm.turma; casaNivel="partPlano"; montarCasa(); };
   if($("#partCsv")) $("#partCsv").onclick=()=>{
