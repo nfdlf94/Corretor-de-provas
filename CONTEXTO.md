@@ -2714,3 +2714,89 @@ o comportamento antigo e comparar.
 100 mm põem CINCO na esquerda (que fecha exatamente no fundo) e uma na
 direita — e não três e três. E o caso em que a esquerda para antes por
 causa de um grupo colado que não caberia inteiro.
+
+---
+
+## v60 — reorganizar antes de acrescentar rascunho
+
+Relato, com a mensagem do app em anexo: a avaliação saiu com 3 páginas
+por estudante e folha de rascunho nos cadernos que cabiam em 2. E o aviso
+dizia *"mesmo na menor letra permitida"* enquanto o corpo impresso era
+**10,5 pt** — mentira, e foi ela que denunciou o buraco.
+
+### O que estava faltando
+
+A v50 prometeu nivelar por baixo, mas com **uma alavanca só**: a letra.
+Descia um degrau até o pior caso alcançar o melhor; se nenhum degrau
+resolvia, desistia e nivelava com rascunho.
+
+E a letra às vezes não basta. A diferença de página quase sempre vem de
+um bloco que **não se divide** — uma figura de 50 mm que não cabe no pé
+de uma coluna e abre uma página inteira. Se ela cai num lugar ruim para o
+estudante 07 e num lugar bom para o 01, os dois recebem cadernos de
+tamanhos diferentes, e reduzir o corpo não muda isso: a figura continua
+com a mesma altura.
+
+Era exatamente o caso do relato — as questões 2 e 5 daquela prova têm as
+alternativas dentro da figura.
+
+### O tempero
+
+O que muda a situação é a ORDEM. `comTempero(chave, n)` soma um número
+pequeno à chave de embaralhamento: trocá-lo reembaralha todos os cadernos
+de uma vez, **sem mexer numa vírgula do conteúdo** — mesmas questões,
+mesmo gabarito canônico, mesma letra.
+
+O app agora experimenta até `TEMPEROS` (24) reorganizações procurando uma
+em que a turma inteira caiba no melhor número de páginas. A ordem dos
+recursos ficou:
+
+1. a letra (v50);
+2. **a reorganização** (nova);
+3. a folha de rascunho — último recurso, e o `teste61` confere essa
+   ordem lendo o próprio arquivo.
+
+O tempero entra pela CHAVE e não pela função `semente`, de propósito:
+`embaralho.js` é espelho de `embaralho.py` e continua valendo palavra por
+palavra. Com tempero 0 — o padrão — nada muda.
+
+### O risco, que é sério
+
+**O tempero define qual reorganização foi impressa.** Se a correção não
+usar o mesmo, ela reconstrói outra ordem e lê todas as respostas
+trocadas. Medido no `teste61`: 96 respostas lidas erradas numa turma de
+12 se `ordemDe` ignorasse o tempero.
+
+Por isso ele fica **gravado em `pr.tempero`**, e todos os pontos que
+reconstroem a ordem passam por `comTempero`:
+
+- `blocosDaProva` (o que é impresso);
+- `desenharCartao` → `gabaritoIndividual` (o gabarito no QR);
+- `gerarFolhasDeCartoes` (o cartão avulso, que também carrega o QR);
+- `ordemDe`, no `index.html` (a correção);
+- `paginasDaTurma` (a medição, que tem de prever o que vai ser impresso).
+
+E a busca **só acontece enquanto nenhum cartão daquela prova foi
+corrigido** (`permitirTempero: !temResultados(pr)`). Trocar a ordem depois
+de imprimir invalidaria o caderno que está na mão do estudante.
+
+### A mensagem que mentia
+
+O aviso de tiragem desigual dizia "mesmo na menor letra permitida" sem
+conferir se a letra tinha de fato descido. Agora ele diz o que aconteceu:
+qual corpo foi usado, se houve redução, e que foram tentadas 24
+reorganizações antes de recorrer ao rascunho. E existe um aviso novo para
+o caso bom — quando o reembaralhamento resolve, o professor fica sabendo
+que a ordem mudou e por quê.
+
+### O que NÃO consegui
+
+Não consegui reproduzir sinteticamente uma turma com tiragem desigual
+depois da descida de letra — varri altura de figura, número de figuras e
+tamanho de texto e todas saíram parelhas. A prova de que o caso existe é
+a captura de tela do professor, não uma medição minha.
+
+Ou seja: o `teste61` cobre o MECANISMO (o tempero reembaralha, a correção
+acompanha, a trava funciona, a ordem dos recursos está certa), mas não
+existe teste que demonstre a busca resolvendo um caso real. Se aparecer
+um conjunto de dados que reproduza, vale virar suíte.

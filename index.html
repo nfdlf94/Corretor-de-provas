@@ -1814,13 +1814,28 @@ const tiposDe=p=>{
   const sm=p&&p.simulado?simuladoDe(p.simulado):null;
   return sm?(sm.tipos||0):0;
 };
+/* Uma prova com cartão corrigido não pode ter a ordem trocada: o caderno
+   impresso deixaria de bater com a correção. */
+const temResultados=pr=>!!(pr&&E.res.some(r=>r.prova===pr.id));
+
+/* Grava a reorganização que o gerador escolheu. Sem isto, a próxima
+   geração e a correção reconstruiriam outra ordem. */
+function fixarTempero(pr,doc){
+  if(!pr||!doc||doc.temperoUsado==null) return false;
+  if((pr.tempero||0)===doc.temperoUsado) return false;
+  pr.tempero=doc.temperoUsado; salvar();
+  return true;
+}
+
 const ordemDe=(p,turma,numero)=>{
   const chave=chaveDeOrdem(numero,tiposDe(p));   // com tipos, o tipo é a semente
   /* as questões cujas alternativas estão dentro da figura não embaralham —
      tem de ser a MESMA trava que o gerador usou, senão a correção lê a
      bolha certa contra o gabarito errado */
   const fixas=indicesFixos(p&&p.questoes);
-  return ordemDaProva(p.nq,p.no,turma,chave,
+  /* o tempero gravado na prova: é ele que define QUAL reorganização foi
+     impressa. Sem ele aqui, a correção reconstrói outra ordem. */
+  return ordemDaProva(p.nq,p.no,turma,comTempero(chave,p&&p.tempero),
     (p && p.comps && p.comps.length===p.nq)?p.comps:null,
     alternaBlocos(p), fixas);
 };
@@ -4011,10 +4026,12 @@ function gerarPDF(p,t,modo){
         alternarBlocos:ehCaderno(p)&&alternaBlocos(p),
         tipos:ehCaderno(p)?((simuladoDe(p.simulado)||{}).tipos||0):0,
         simulado:ehCaderno(p), maxPaginas:ehCaderno(p)?MAX_PAG_SIMULADO:undefined,
+        tempero:p.tempero||0, permitirTempero:!temResultados(p),
         rotulosComp:COMPONENTES.reduce((m,c)=>{m[c.id]=c.nome;return m;},{})};
       const doc = (modo==="cartoes")
         ? gerarFolhasDeCartoes(cfg,t.alunos)
         : gerarProvas(cfg,t.alunos,window.jspdf.jsPDF);
+      fixarTempero(p,doc);
       const nome=(modo==="cartoes"?"cartoes_":"provas_")+t.nome+"_"+p.codigo+".pdf";
       doc.save(nome);
       let extra="";
@@ -4024,15 +4041,27 @@ function gerarPDF(p,t,modo){
         extra+=`<br><b>Atenção:</b> saiu com ${doc.avisoPaginas} páginas por estudante,
           acima do limite de 4. A letra já foi reduzida ao mínimo — para caber,
           corte questões ou encurte os enunciados.`;
+      /* reembaralhou para todo mundo caber no mesmo número de folhas */
+      if(doc.reembaralhou)
+        extra+=`<br>A ordem das questões foi reorganizada: com o sorteio
+          anterior, parte da turma precisaria de ${doc.reembaralhou.de} páginas
+          e o resto de ${doc.reembaralhou.para}. Mesmas questões, mesmo
+          gabarito, mesma letra — só a ordem mudou, e agora todos cabem em
+          ${doc.reembaralhou.para}.`;
       /* tiragem: todo estudante tem de sair com o mesmo número de folhas */
       if(doc.paginasSemNivelar&&doc.paginasSemNivelar.length){
         const cru=doc.paginasSemNivelar;
         const menor=Math.min.apply(null,cru), maior=Math.max.apply(null,cru);
-        if(menor!==maior)
-          extra+=`<br>Mesmo na menor letra permitida, a ordem das questões faria
+        if(menor!==maior){
+          const letra=doc.baixouCorpo
+            ? `mesmo reduzindo a letra para ${String(doc.corpoUsado).replace(".",",")} pt`
+            : `mesmo em ${String(doc.corpoUsado).replace(".",",")} pt`;
+          extra+=`<br>Não consegui: ${letra} e depois de tentar
+            ${TEMPEROS} reorganizações, a ordem das questões ainda faria
             a turma receber de ${menor} a ${maior} páginas. Os cadernos mais
             curtos ganharam uma folha de rascunho para a tiragem sair pareja —
-            foi o último recurso.`;
+            foi o último recurso, e não o primeiro.`;
+        }
       }
       /* desceu a letra para a turma inteira caber em menos folha */
       if(doc.baixouCorpo)
@@ -4174,7 +4203,10 @@ function gerarFolhasDeCartoes(cfg,alunos){
     desenharCartao(doc,{x:margem,y:margem+linha*passo,codigo:cfg.codigo,
       gabaritoCanonico:cfg.gabaritoCanonico,no:cfg.no,turma:cfg.turma,
       comps:cfg.comps||null, alternar:cfg.alternarBlocos,
-      chave:chaveDeOrdem(a.numero,cfg.tipos||0),
+      /* o cartão avulso tem de nascer com a MESMA reorganização do
+         caderno impresso — o gabarito vai dentro do QR dele */
+      chave:comTempero(chaveDeOrdem(a.numero,cfg.tipos||0),cfg.tempero),
+      fixas:indicesFixos(cfg.questoes),
       numero:a.numero,nome:a.nome});
     doc.setFont("helvetica","normal"); doc.setFontSize(7.5); doc.setTextColor(120,128,140);
     doc.text(a.numero+" · "+a.nome, margem, margem+linha*passo+alt+1.5);
@@ -5076,6 +5108,7 @@ function cfgDoCaderno(sm,pr,t){
     comps:pr.comps||null, alternarBlocos:alternaBlocos(pr), tipos:sm.tipos||0,
     simulado:true, maxPaginas:MAX_PAG_SIMULADO, serie:turmasDoCaderno(sm),
     desc:(pr.desc||[]).slice(),
+    tempero:pr.tempero||0, permitirTempero:!temResultados(pr),
     rotulosComp:COMPONENTES.reduce((m,c)=>{m[c.id]=c.nome;return m;},{})};
 }
 

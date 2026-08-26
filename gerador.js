@@ -153,6 +153,30 @@ function indicesFixos(questoes){
    oferece para refazer as contas. */
 const REGRA_GABARITO = 2;
 
+/* ── tempero: mudar a REORGANIZAÇÃO sem mudar o conteúdo ─────────
+   A ordem das questões sai de uma semente formada por turma + número.
+   Isso é uma única ordem possível para cada estudante — e quando ela
+   cai mal (uma figura de 50 mm parando no pé de uma coluna), aquele
+   estudante precisa de uma página a mais que o colega.
+
+   O tempero é um número pequeno somado à chave. Trocar de tempero
+   reembaralha TODOS os cadernos de uma vez, sem mudar uma vírgula do
+   conteúdo: mesmas questões, mesmo gabarito canônico, mesma letra. O app
+   experimenta temperos até achar um em que a turma INTEIRA cabe no menor
+   número de páginas — que é o "pensar na reorganização" no lugar de
+   tapar a diferença com folha de rascunho.
+
+   Ele entra pela CHAVE, e não pela função `semente`, de propósito:
+   `embaralho.js` é espelho de `embaralho.py` e continua valendo palavra
+   por palavra. Com tempero 0 — o padrão — nada muda.
+
+   CUIDADO: o tempero fica gravado na prova. Trocá-lo depois de imprimir
+   invalidaria os cadernos que já estão na mão do estudante, então a
+   busca só acontece enquanto nenhum cartão foi corrigido. */
+function comTempero(chave, tempero){
+  return tempero ? String(chave) + "~" + tempero : chave;
+}
+
 function ordemDaProva(nq, no, turma, numero, comps, alternar, fixas){
   const r = (comps && comps.length === nq)
     ? embaralharEmBlocos(nq, no, turma, numero, comps, alternar)
@@ -1074,6 +1098,10 @@ function desenharQuestaoCol(doc, x, y, n, item, larg, fs, opcoes, m){
    O rodapé come 7 mm de altura útil. `fundoUtil()` é a única fonte desse
    número — `fluir` e `gerarProvas` têm de medir a MESMA mancha, senão a
    escolha do corpo mira uma página que não é a que sai impressa. */
+/* quantas reorganizações o app experimenta antes de desistir e nivelar
+   com folha de rascunho. Cada tentativa custa uma medição da turma
+   inteira; 24 leva menos de um segundo e resolve na prática sempre. */
+const TEMPEROS = 24;
 const RODAPE = 7;
 /* a faixa do cabeçalho é sangrada de borda a borda; a moldura começa
    logo abaixo dela */
@@ -1139,8 +1167,8 @@ function blocosDaProva(doc, cfg, aluno, fs){
   const opcoes = ["A", "B", "C", "D", "E"].slice(0, no);
   const comps = (cfg.comps && cfg.comps.length === nq) ? cfg.comps : null;
   const chave = chaveDeOrdem(aluno.numero, cfg.tipos);
-  const {oq, oa} = ordemDaProva(nq, no, cfg.turma, chave, comps, cfg.alternarBlocos,
-                                indicesFixos(cfg.questoes));
+  const {oq, oa} = ordemDaProva(nq, no, cfg.turma, comTempero(chave, cfg.tempero),
+                                comps, cfg.alternarBlocos, indicesFixos(cfg.questoes));
   /* A prova não é mais uma fila de blocos indivisíveis: cada questão
      entra como uma sequência de unidades, e a faixa de bloco
      (LÍNGUA PORTUGUESA, MATEMÁTICA) é a primeira unidade da questão que
@@ -1365,8 +1393,8 @@ function paginasDaTurma(doc, cfg, alunos, fs, topoPrimeira, fundo){
   const fixas = indicesFixos(cfg.questoes);
   let pior = 1, melhor = Infinity;
   paresDeOrdem(cfg, alunos).forEach(par => {
-    const {oq, oa} = ordemDaProva(nq, no, par.turma, par.chave, comps,
-      cfg.alternarBlocos, fixas);
+    const {oq, oa} = ordemDaProva(nq, no, par.turma,
+      comTempero(par.chave, cfg.tempero), comps, cfg.alternarBlocos, fixas);
     const alturas = [], colas = [];
     oq.forEach((idx, p) => {
       const abre = comps && (p === 0 || comps[oq[p - 1]] !== comps[idx]);
@@ -1399,7 +1427,8 @@ function fluir(doc, cfg, aluno, fs, dry, totalPag){
     desenharCartao(doc, {x: MARG + 2, y: y + L.quiet_zone,
       codigo: cfg.codigo, gabaritoCanonico: gabC, no,
       comps: (cfg.comps && cfg.comps.length === nq) ? cfg.comps : null,
-      alternar: cfg.alternarBlocos, chave: chaveDeOrdem(aluno.numero, cfg.tipos),
+      alternar: cfg.alternarBlocos,
+      chave: comTempero(chaveDeOrdem(aluno.numero, cfg.tipos), cfg.tempero),
       fixas: indicesFixos(cfg.questoes),
       turma: cfg.turma, numero: aluno.numero, nome: aluno.nome});
   }
@@ -1599,7 +1628,8 @@ function preFlightCheck(cfg, doc, fs){
   }
   return avisos;
 }
-function gerarProvas(cfg, alunos, jsPDFctor){
+function gerarProvas(cfgEntrada, alunos, jsPDFctor){
+  let cfg = cfgEntrada;
   const Ctor = jsPDFctor || (window.jspdf && window.jspdf.jsPDF);
   const doc = new Ctor({unit: "mm", format: "a4", compress: true});
   prepararFontes(doc);
@@ -1673,14 +1703,18 @@ function gerarProvas(cfg, alunos, jsPDFctor){
      aqui: uma folha a menos por estudante, em toda a turma, vale mais
      que meio ponto de corpo. A tela conta o que foi feito. */
   const escada = cfg.simulado ? CORPOS_SAEPE : CORPOS.concat(CORPOS_APERTO);
-  const extremos = fs => paginasDaTurma(molde, cfg, alunos, fs, topoPrimeira, fundo);
-  let atual = extremos(escolha.fs);
+  let tempero = cfg.tempero || 0;
+  const extremos = (fs, temp) => paginasDaTurma(molde,
+    (temp === tempero ? cfg : Object.assign({}, cfg, {tempero: temp})),
+    alunos, fs, topoPrimeira, fundo);
+  let atual = extremos(escolha.fs, tempero);
+
   for(let volta = 0; volta < escada.length && atual.pior > atual.melhor; volta++){
     const alvo = atual.melhor;
     let achou = null;
     for(const fs of escada){
       if(fs >= escolha.fs) continue;                 // só degraus abaixo
-      const e = extremos(fs);
+      const e = extremos(fs, tempero);
       if(e.pior <= alvo){ achou = {fs, e}; break; }  // o primeiro é o maior
     }
     if(!achou) break;
@@ -1689,6 +1723,37 @@ function gerarProvas(cfg, alunos, jsPDFctor){
     escolha = {fs: achou.fs, pgs: achou.e.pior};
     atual = achou.e;
   }
+
+  /* ── a reorganização, quando a letra não basta ────────────────
+     Se ainda há estudante precisando de uma página a mais que o colega, o
+     problema não é de tamanho de letra: é de ORDEM. Uma figura de 50 mm
+     que não cabe no pé de uma coluna abre uma página inteira, e se ela
+     cai num lugar ruim para o estudante 07 e num lugar bom para o 01, os
+     dois recebem cadernos de tamanhos diferentes.
+
+     Então o app REEMBARALHA — o mesmo caderno, as mesmas questões, a
+     mesma letra, outra ordem — até achar um tempero em que a turma
+     inteira cabe no melhor número de páginas. É o último recurso ANTES da
+     folha de rascunho, e não depois.
+
+     Só acontece com `cfg.permitirTempero`, que o app liga apenas
+     enquanto nenhum cartão daquela prova foi corrigido: trocar a ordem
+     depois de imprimir invalidaria o caderno que está na mão do
+     estudante. */
+  if(cfg.permitirTempero && atual.pior > atual.melhor){
+    const alvo = atual.melhor;
+    for(let t = tempero + 1; t <= tempero + TEMPEROS; t++){
+      const e = extremos(escolha.fs, t);
+      if(e.pior <= alvo){
+        doc.reembaralhou = {tempero: t, de: atual.pior, para: e.pior};
+        tempero = t; escolha = {fs: escolha.fs, pgs: e.pior}; atual = e;
+        break;
+      }
+    }
+  }
+  doc.temperoUsado = tempero;
+  cfg = (tempero === (cfg.tempero || 0)) ? cfg
+      : Object.assign({}, cfg, {tempero: tempero});
 
   const corpo = escolha.fs;
   doc.corpoUsado = corpo;
@@ -1755,4 +1820,4 @@ if(typeof module !== "undefined") module.exports =
    pedacosDeNivel, remarcar, semMarcas, temMarcas, medidasQuestao, desenharQuestaoCol, prepararFontes, medirFigura,
    segmentarEnunciado, classificarCorpo, pareceFormula, unidadesQuestao, melhorCorte,
    grupoColado, empacotar, distribuirPagina, encherColuna, molduraDaPagina, fundoUtil, RODAPE, unidadesNaOrdem, paginasDaTurma, paginasNoPior, preFlightCheck, alternativasNaFigura, indicesFixos, ordemDaProva, paresDeOrdem, chavesDaTurma, charsDeNivel, cabecalho, larguraComNiveis,
-   AR_QUESTAO, REGRA_GABARITO, alturaFaixaCabecalho};
+   AR_QUESTAO, REGRA_GABARITO, alturaFaixaCabecalho, comTempero, TEMPEROS};
