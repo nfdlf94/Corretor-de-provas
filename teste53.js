@@ -27,6 +27,37 @@ setTimeout(() => {
 
   const G = require("./gerador.js");
 
+  /* ── 0. a coluna esquerda enche primeiro ── */
+  /* A regra da leitura: só se passa para a direita depois que a esquerda
+     está cheia. Até a v58 o app EQUILIBRAVA — dividia a página em duas
+     metades de altura parecida —, e qualquer página que fechasse antes
+     do fim saía com as duas colunas paradas no meio. */
+  {
+    const A = [20, 20, 20, 20, 20, 20];
+    const C = [false, false, false, false, false, false];
+    const d = G.distribuirPagina(A, C, 0, A.length, 100);
+    ok(d.corte === 5,
+       "com 6 unidades de 20 mm numa coluna de 100, a esquerda leva CINCO " +
+       "(" + d.corte + ") — enche até o limite");
+    ok(d.leva === 6, "e a sexta abre a coluna da direita");
+    const esq = A.slice(0, d.corte).reduce((a,b)=>a+b,0);
+    ok(esq === 100, "a esquerda fecha exatamente no fundo (" + esq + " mm)");
+    ok(A.slice(d.corte, d.leva).reduce((a,b)=>a+b,0) === 20,
+       "e a direita fica com o resto, curta — que é o certo: o texto " +
+       "acabou, não a coluna");
+  }
+  {
+    /* nada obriga a esquerda a estourar para caber mais: o grupo colado
+       que não cabe desce inteiro */
+    const A = [40, 40, 40];
+    const C = [false, true, false];      // 2ª e 3ª coladas
+    const d = G.distribuirPagina(A, C, 0, A.length, 100);
+    ok(d.corte === 1,
+       "a esquerda para na 1ª unidade porque o grupo colado seguinte " +
+       "(80 mm) não caberia inteiro nos 60 mm que sobravam");
+    ok(d.leva === 3, "e o grupo inteiro vai para a direita, sem partir");
+  }
+
   /* ── 1. o caso mínimo ── */
   /* três unidades de 40 mm; as duas primeiras coladas. Numa coluna de
      100 mm, cabem duas por coluna. O fim da página não pode cair entre

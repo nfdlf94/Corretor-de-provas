@@ -72,30 +72,36 @@ setTimeout(() => {
      "e é o mesmo conjunto partindo da 3B — não depende de quem clicou");
 
   /* ── 2. o pior caso é o da série, não o da turma ── */
-  /* Questões de alturas BEM diferentes — é isso que faz a ordem importar.
-     Com questões todas do mesmo tamanho, qualquer embaralhamento empacota
-     igual e o defeito não aparece; num simulado de verdade convivem
-     poemas curtos, textos longos e questões com gráfico. Este conjunto
-     reproduz a divergência relatada: sem `cfg.serie`, a 3C precisa
-     descer um degrau de letra que a 3A e a 3B não precisam. */
+  /* O que faz a ORDEM pesar na paginação são blocos grandes e
+     indivisíveis. Desde a v43 o texto corrido se divide entre as
+     colunas, e por isso um caderno só de texto pagina praticamente igual
+     em qualquer ordem — foi por isso que o conjunto de dados antigo, de
+     parágrafos de tamanhos variados, deixou de exercitar o defeito
+     quando a mancha mudou de altura na v57.
+
+     Figuras não se dividem. Cinco questões com gráfico alto, num caderno
+     de vinte, e a ordem passa a decidir quantas páginas a prova ocupa. */
   win.eval(`(function(){
-    var frase="A leitura silenciosa firmou-se tarde na historia e mudou o modo como as pessoas se relacionam com o texto escrito. ";
-    var alturas=[1,7,2,9,3,1,8,2,10,1,6,3,9,1,7,2,8,4,1,9];
     E.provas.forEach(function(pr){
       pr.questoes.forEach(function(q,i){
-        q.enunciado = "Leia o texto abaixo.\\n" +
-          frase.repeat(alturas[i%alturas.length]) + "x".repeat(34) +
-          "\\nASSIS, Machado de. Contos. Sao Paulo: Atica, 1998. Acesso em: 6 fev. 2012.\\n" +
-          "De acordo com o texto " + (i+1) + ", a leitura silenciosa:";
+        if(i % 2 === 0){
+          q.enunciado="Observe o grafico abaixo.\\nQual e a lei de formacao?";
+          q.alternativas=["a","b","c","d","e"];
+          q.imagem={dados:"d", w:900, h:500};
+        }else{
+          q.enunciado="Questao "+(i+1)+" de texto curto. Qual e a resposta correta para o problema proposto acima?";
+          q.alternativas=["primeira","segunda","terceira","quarta","quinta"];
+          q.imagem=null;
+        }
       });
     });
   })()`);
 
   const gerar = i => J(`(function(){
-    var sm=E.simulados[${i}], pr=provaDoSim(sm), t=turmaDe(sm.turma);
+    var sm=E.simulados[${"${i}"}], pr=provaDoSim(sm), t=turmaDe(sm.turma);
     var d=gerarProvas(cfgDoCaderno(sm,pr,t), t.alunos, window.jspdf.jsPDF);
     return {turma:t.nome, corpo:d.corpoUsado, pgs:d.paginasPorAluno, nq:pr.nq};
-  })()`);
+  })()`.replace("${i}", i));
 
   const g = [gerar(0), gerar(1), gerar(2)];
   g.forEach(x => console.log("         " + x.turma + ": " + x.nq +
@@ -107,30 +113,45 @@ setTimeout(() => {
   ok(new Set(g.map(x => x.nq)).size === 1,
      "com o mesmo número de questões (" + g[0].nq + ")");
 
-  /* sem cfg.serie o pior caso volta a ser só o da turma — é a prova de
-     que era isso mesmo que divergia */
-  const soDaTurma = J(`(function(){
-    var out=[];
+  /* A comparação do defeito é feita num corpo FIXO, e não pelo resultado
+     de `gerarProvas`: a escada da letra colapsa diferenças (duas turmas
+     que precisam de 4 e 5 páginas em 10,5 pt podem acabar as duas em
+     9 pt e 4 páginas). A grandeza que `cfg.serie` de fato conserta é o
+     PIOR CASO por turma num dado corpo. */
+  const porTurma = J(`(function(){
+    var J2=window.jspdf.jsPDF, saida=[];
     [0,1,2].forEach(function(i){
       var sm=E.simulados[i], pr=provaDoSim(sm), t=turmaDe(sm.turma);
-      var cfg=cfgDoCaderno(sm,pr,t); delete cfg.serie;
-      var d=gerarProvas(cfg, t.alunos, window.jspdf.jsPDF);
-      out.push({turma:t.nome, corpo:d.corpoUsado, pgs:d.paginasPorAluno});
+      var cfg=cfgDoCaderno(sm,pr,t);
+      var molde=new J2({unit:"mm",format:"a4"}); prepararFontes(molde);
+      var Lc=montarLayout(pr.nq,pr.no);
+      var topo=cabecalho(molde,cfg,t.alunos[0],true)+Lc.box_h+2*Lc.quiet_zone+8;
+      var fundo=fundoUtil(molde);
+      var so=Object.assign({},cfg); delete so.serie;
+      var linha={turma:t.nome, so:[], serie:[]};
+      [10.5,10,9.5,9].forEach(function(fs){
+        linha.so.push(paginasNoPior(molde,so,t.alunos,fs,topo,fundo));
+        linha.serie.push(paginasNoPior(molde,cfg,t.alunos,fs,topo,fundo));
+      });
+      saida.push(linha);
     });
-    return out;
+    return saida;
   })()`);
-  soDaTurma.forEach(x => console.log("         (sem serie) " + x.turma +
-    ": corpo " + x.corpo + " pt · " + x.pgs + " páginas"));
-  /* Esta é a asserção que dá sentido a todas as outras: se as turmas NÃO
-     divergissem medindo cada uma por si, o conjunto de dados não estaria
-     exercitando o defeito e o teste passaria por acidente. */
-  ok(new Set(soDaTurma.map(x => x.corpo + "/" + x.pgs)).size > 1,
-     "medindo cada turma por si, elas DIVERGEM — é o defeito relatado: " +
-     soDaTurma.map(x => x.turma + " " + x.corpo + "pt/" + x.pgs + "p").join(", "));
-  ok(soDaTurma.every(x => x.corpo >= g[0].corpo),
-     "e nenhuma turma sozinha vê letra menor que a decidida pela série");
-  ok(g[0].corpo === Math.min.apply(null, soDaTurma.map(x => x.corpo)),
-     "a série adota exatamente o pior caso das turmas (" + g[0].corpo + " pt)");
+  porTurma.forEach(x => console.log("         " + x.turma +
+    "  sozinha: " + x.so.join(", ") + "   com a série: " + x.serie.join(", ")));
+
+  ok([0,1,2,3].some(k => new Set(porTurma.map(x => x.so[k])).size > 1),
+     "medindo cada turma por si, o pior caso DIVERGE entre elas em pelo " +
+     "menos um corpo — é o defeito relatado, e sem isto o resto do teste " +
+     "passaria por acidente");
+  ok([0,1,2,3].every(k => new Set(porTurma.map(x => x.serie[k])).size === 1),
+     "com cfg.serie, as três chegam ao MESMO pior caso em todos os corpos");
+  ok([0,1,2,3].every(k => {
+       const alvo = Math.max.apply(null, porTurma.map(x => x.so[k]));
+       return porTurma.every(x => x.serie[k] === alvo);
+     }),
+     "e esse valor é exatamente o pior caso entre as turmas — nem mais, " +
+     "nem menos");
 
   /* ── 3. paresDeOrdem ── */
   const G = require("./gerador.js");

@@ -306,7 +306,7 @@ function cabecalho(doc, cfg, aluno, dry){
      caber com peso tipográfico de verdade. É a única diferença de altura
      entre os dois cabeçalhos. */
   const saepe = !!cfg.simulado;
-  const alturaFaixa = saepe ? 15 : 13;
+  const alturaFaixa = alturaFaixaCabecalho(cfg);
   if(!dry){
     doc.setFillColor(...COR.navy);
     doc.rect(0, 0, W, alturaFaixa, "F");
@@ -681,7 +681,18 @@ function textoComNiveis(doc, txt, x, y, fs){
     }else{
       const menor = fs * 0.68;
       doc.setFontSize(menor);
-      const sobe = p.nivel > 0 ? fs * 0.32 : -fs * 0.12;
+      /* CUIDADO COM AS UNIDADES. `fs` está em PONTOS e `y` em MILÍMETROS.
+         A conta antiga era `fs * 0.32` — 3,4 mm para um corpo de 10,5 pt,
+         numa entrelinha de 4,4 mm. O expoente subia 76% de uma linha e
+         ia colidir com o texto de cima: no PDF, o ᵗ de `2 · 3ᵗ` aparecia
+         encavalado na linha anterior, e a linha dele ficava com um buraco.
+         Só apareceu quando o PDF foi rasterizado e olhado.
+
+         A referência certa é a ENTRELINHA, que já está em milímetros: o
+         expoente sobe menos de um terço dela e nunca sai da própria
+         linha. */
+      const entre = fs * ENTRELINHA();
+      const sobe = p.nivel > 0 ? entre * 0.30 : -entre * 0.14;
       doc.text(p.t, x + dx, y - sobe);
       dx += doc.getTextWidth(p.t);
       doc.setFontSize(fs);
@@ -711,25 +722,51 @@ function centralizarVersos(doc, partes, larg){
       });
       j++;
     }
-    const dx = Math.max(0, (larg - maior) / 2);
+    /* centraliza na largura ÚTIL: dentro da moldura o verso mais largo
+       é medido contra a largura já descontada do fio, não contra a coluna
+       inteira — senão a estrofe sai empurrada para a direita */
+    const util = (partes[i].larg != null) ? partes[i].larg : larg;
+    const dx = Math.max(0, (util - maior) / 2);
     for(let k = i; k < j; k++) partes[k].dxBloco = dx;
     i = j;
   }
 }
+
+/* ── moldura do texto de apoio ──────────────────────────────────────
+   O caderno oficial do SAEPE cerca o texto de apoio com um fio fino: o
+   estudante vê de relance onde começa e onde termina o que ele tem de
+   ler, e o comando fica visivelmente do lado de fora. É a marca visual
+   mais reconhecível da prova, e o app não tinha.
+
+   Entra quando a questão traz "Leia o texto abaixo." ou um título — que
+   é a assinatura de um texto de apoio de verdade. Sem os dois, o
+   enunciado é o próprio problema (o caso da maioria das questões de
+   Matemática) e cercá-lo com um fio não diria nada.
+
+   Ficam DENTRO: título e texto. Ficam FORA: a instrução, a referência
+   bibliográfica (que no oficial vem logo abaixo do fio, alinhada à
+   direita), o comando e as alternativas. */
+const PAD_MOLDURA = 2.6;
+const DENTRO_DA_MOLDURA = {titulo: 1, corpo: 1, verso: 1, formula: 1};
 
 function medidasQuestao(doc, item, larg, fs, opcoes){
   doc.setFont(FONTE_TEXTO, "normal"); doc.setFontSize(fs);
   const passo = fs * ENTRELINHA();
   const seg = segmentarEnunciado(item.enunciado);
   const partes = [];
+  const moldura = !!(seg.instrucao || seg.titulo) && (seg.corpo || []).length > 0;
   const medir = (txt, tipo, tamanho, estilo, recuo) => {
     doc.setFont(FONTE_TEXTO, estilo); doc.setFontSize(tamanho);
     const bruto = String(txt);
-    const linhas = quebrarComRecuo(doc, semMarcas(bruto), larg, recuo || 0);
+    /* dentro do fio o texto respira: mede-se na largura já descontada,
+       senão a linha encosta na borda */
+    const dentro = moldura && !!DENTRO_DA_MOLDURA[tipo];
+    const util = dentro ? larg - 2 * PAD_MOLDURA : larg;
+    const linhas = quebrarComRecuo(doc, semMarcas(bruto), util, recuo || 0);
     const remarcadas = remarcar(linhas.map(o => o.t), bruto);
     linhas.forEach((o, k) => { o.t = remarcadas[k]; });
-    partes.push({tipo, linhas, fs: tamanho, estilo,
-                 passo: tamanho * ENTRELINHA()});
+    partes.push({tipo, linhas, fs: tamanho, estilo, moldura: dentro,
+                 larg: util, passo: tamanho * ENTRELINHA()});
   };
   const RECUO = DENSO ? 4.4 : 5.2;      // entrada de parágrafo, bem visível
   if(seg.instrucao) medir(seg.instrucao, "instrucao", fs - 1.4, "normal");
@@ -762,10 +799,17 @@ function medidasQuestao(doc, item, larg, fs, opcoes){
   if(seg.comando)   medir(seg.comando,   "comando",   fs,       "bold");
   centralizarVersos(doc, partes, larg);
 
+  /* onde o fio abre e onde fecha; -1 quando a questão não leva moldura */
+  const abreMold = partes.findIndex(pt => pt.moldura);
+  let fechaMold = -1;
+  partes.forEach((pt, i) => { if(pt.moldura) fechaMold = i; });
+
   let h = AR_ROTULO();
   partes.forEach((pt, i) => {
     h += pt.linhas.length * pt.passo + espacoDepois(pt.tipo, partes[i + 1]);
   });
+  /* o respiro entre o fio e o texto, em cima e embaixo */
+  if(abreMold >= 0) h += 2 * PAD_MOLDURA;
   h += AR_ENUN();
   /* 1,5 mm acima + 1,5 mm abaixo: é exatamente o que desenharFig gasta.
      Media-se 2,5 e desenhava-se 3 — meio milímetro de dívida por figura,
@@ -779,7 +823,7 @@ function medidasQuestao(doc, item, larg, fs, opcoes){
     return remarcar(doc.splitTextToSize(semMarcas(bruto), larg - 7), bruto);
   });
   alts.forEach(la => { h += la.length * passo + AR_ALT(); });
-  return {h, partes, alts, fig, posFig, passo, naFigura};
+  return {h, partes, alts, fig, posFig, passo, naFigura, abreMold, fechaMold};
 }
 
 /* o ar entre as partes: pouco dentro do texto, mais antes do comando */
@@ -806,7 +850,11 @@ function espacoDepois(tipo, proxima){
 /* Desenha as linhas [de, ate) de uma parte do enunciado. Cada tipo tem o
    seu alinhamento — e nenhum herda o do anterior, que era como o endereço
    do site acabava justificado no meio do parágrafo. */
-function desenharLinhasParte(doc, pt, x, y, larg, de, ate){
+function desenharLinhasParte(doc, pt, x, y, largCol, de, ate){
+  /* dentro da moldura o texto anda para dentro e é medido mais estreito;
+     fora dela, `pt.larg` é a própria largura da coluna */
+  const larg = (pt.larg != null) ? pt.larg : largCol;
+  if(pt.moldura) x += PAD_MOLDURA;
   doc.setFont(FONTE_TEXTO, pt.estilo); doc.setFontSize(pt.fs);
   if(pt.tipo === "instrucao" || pt.tipo === "fonte") doc.setTextColor(...COR.grey);
   else if(pt.tipo === "titulo") doc.setTextColor(...COR.navy);
@@ -902,27 +950,69 @@ function unidadesQuestao(doc, n, item, larg, fs, opcoes, m, rotuloBloco){
      separaria das alternativas que ele manda escolher. */
   const GRUDA = {instrucao: 1, titulo: 1, fonte: 1, comando: 1};
 
+  /* O fio da moldura é desenhado POR UNIDADE: as duas verticais em toda
+     unidade cercada, a horizontal de cima só na primeira e a de baixo só
+     na última. Assim, se o texto se dividir entre as colunas, cada metade
+     sai com um fio aberto do lado do corte — que é como uma tabela
+     partida se comporta, e lê-se naturalmente como continuação. Desenhar
+     a moldura inteira de uma vez exigiria saber, na hora do desenho, onde
+     a coluna vai quebrar; a unidade não sabe, e não precisa saber. */
+  const cercar = (fn, abre, fecha, altura) => (x, y) => {
+    const r = fn(x, y + (abre ? PAD_MOLDURA : 0));
+    const y1 = y + altura;
+    doc.setDrawColor(...COR.grey); doc.setLineWidth(0.25);
+    doc.line(x, y, x, y1);
+    doc.line(x + larg, y, x + larg, y1);
+    if(abre)  doc.line(x, y, x + larg, y);
+    if(fecha) doc.line(x, y1, x + larg, y1);
+    return r;
+  };
+
   m.partes.forEach((pt, i) => {
     if(i === m.posFig && m.fig) push(figH, true, desenharFig);
     const ultima = (i === m.partes.length - 1);
     const cola = !!GRUDA[pt.tipo] || ultima;
     const depois = espacoDepois(pt.tipo, m.partes[i + 1]);
     const L = pt.linhas.length;
+    const abreAqui  = pt.moldura && i === m.abreMold;
+    const fechaAqui = pt.moldura && i === m.fechaMold;
     /* prosa e verso longos podem começar numa coluna e terminar na
        outra; título, fonte e comando são curtos e ficam inteiros */
     const divisivel = (pt.tipo === "corpo" || pt.tipo === "verso") && L >= 4;
     if(!divisivel){
-      push(L * pt.passo + depois, cola,
-        (x, y) => desenharLinhasParte(doc, pt, x, y, larg, 0, L) + depois);
+      const alturaTexto = L * pt.passo + (abreAqui ? PAD_MOLDURA : 0) +
+                          (fechaAqui ? PAD_MOLDURA : 0);
+      /* o `depois` da última parte cercada é o ar entre o fio e a fonte:
+         fica FORA do fio; entre parágrafos internos, fica dentro */
+      const dentroDoFio = pt.moldura ? alturaTexto + (fechaAqui ? 0 : depois)
+                                     : 0;
+      /* o respiro de CIMA já entra pelo deslocamento que `cercar` faz no y;
+         somar aqui de novo cobraria dois respiros e a soma das unidades
+         deixaria de bater com a altura desenhada */
+      let fn = (x, y) => desenharLinhasParte(doc, pt, x, y, larg, 0, L) + depois +
+        (fechaAqui ? PAD_MOLDURA : 0);
+      if(pt.moldura) fn = cercar(fn, abreAqui, fechaAqui, dentroDoFio);
+      push(L * pt.passo + depois + (abreAqui ? PAD_MOLDURA : 0) +
+           (fechaAqui ? PAD_MOLDURA : 0), cola, fn);
       return;
     }
     for(let k = 0; k < L; k++){
       const fim = (k === L - 1);
+      const abreL  = abreAqui  && k === 0;
+      const fechaL = fechaAqui && fim;
       /* corte legal só entre a 2ª linha e a antepenúltima: nunca deixa
          uma linha só de um lado */
       const podeCortar = (k >= 1 && k <= L - 3);
-      push(pt.passo + (fim ? depois : 0), fim ? cola : !podeCortar,
-        (x, y) => desenharLinhasParte(doc, pt, x, y, larg, k, k + 1) + (fim ? depois : 0));
+      const extra = (abreL ? PAD_MOLDURA : 0) + (fechaL ? PAD_MOLDURA : 0);
+      const alt = pt.passo + (fim ? depois : 0) + extra;
+      const dentroDoFio = pt.moldura ? pt.passo + extra + (fechaL ? 0 : (fim ? depois : 0))
+                                     : 0;
+      let fn = ((kk, fe, fi) => (x, y) =>
+        desenharLinhasParte(doc, pt, x, y, larg, kk, kk + 1) + (fi ? depois : 0) +
+        (fe ? PAD_MOLDURA : 0)
+      )(k, fechaL, fim);
+      if(pt.moldura) fn = cercar(fn, abreL, fechaL, dentroDoFio);
+      push(alt, fim ? cola : !podeCortar, fn);
     }
   });
 
@@ -973,9 +1063,61 @@ function desenharQuestaoCol(doc, x, y, n, item, larg, fs, opcoes, m){
 }
 
 /* folha inteira de rascunho, para igualar a tiragem do simulado */
+/* ── moldura da página e rodapé ───────────────────────────────
+   Um fio fechando a mancha e o nome do estudante no pé de CADA folha.
+
+   O nome no rodapé não é enfeite. As folhas se soltam do grampo e caem no
+   chão, e um caderno cujas questões estão em ordem diferente para cada
+   estudante NÃO pode ser remontado por dedução: sem o nome em toda folha,
+   uma página solta é uma página perdida.
+
+   O rodapé come 7 mm de altura útil. `fundoUtil()` é a única fonte desse
+   número — `fluir` e `gerarProvas` têm de medir a MESMA mancha, senão a
+   escolha do corpo mira uma página que não é a que sai impressa. */
+const RODAPE = 7;
+/* a faixa do cabeçalho é sangrada de borda a borda; a moldura começa
+   logo abaixo dela */
+const alturaFaixaCabecalho = cfg => (cfg && cfg.simulado) ? 15 : 13;
+const fundoUtil = doc => doc.internal.pageSize.getHeight() - MARGEM_INF - RODAPE;
+
+function molduraDaPagina(doc, cfg, aluno, pagina, total, topoMancha, topoQuadro){
+  const W = doc.internal.pageSize.getWidth();
+  const base = fundoUtil(doc);
+  const x0 = MARG - 3, x1 = W - MARG + 3;
+  /* O fio cerca a PROVA INTEIRA, e não só a área das questões: na
+     primeira página ele passa por fora da identificação do estudante e do
+     cartão-resposta também. Começa logo abaixo da faixa do cabeçalho, que
+     é sangrada de borda a borda e já fecha o topo da folha sozinha.
+
+     Ele passa a 5 mm do cartão, que é desenhado em MARG+2 — longe o
+     bastante para não se confundir com a borda tracejada de recorte nem
+     chegar perto dos quatro marcadores pretos que a câmera procura. */
+  const y0 = (topoQuadro != null ? topoQuadro : topoMancha - 4);
+  const y1 = base + 4;
+
+  doc.setDrawColor(...COR.grey); doc.setLineWidth(0.4);
+  if(doc.setLineDashPattern) doc.setLineDashPattern([], 0);
+  doc.rect(x0, y0, x1 - x0, y1 - y0, "S");
+
+  /* O fio entre as colunas começa onde as colunas começam — na primeira
+     página, abaixo do cartão. Subir até o topo cortaria a identificação
+     do estudante ao meio. */
+  doc.setLineWidth(0.2);
+  const meio = MARG + (W - 2 * MARG - GUT) / 2 + GUT / 2;
+  doc.line(meio, Math.max(y0 + 3, topoMancha - 3), meio, y1 - 3);
+
+  doc.setFont(FONTE_TEXTO, "normal"); doc.setFontSize(6.5);
+  doc.setTextColor(...COR.grey);
+  const quem = [encurtarNome(String(aluno && aluno.nome || ""), 46),
+                cfg.turma, aluno && aluno.numero ? "nº " + aluno.numero : ""]
+    .filter(Boolean).join("  ·  ");
+  doc.text(quem, MARG, y1 + 4);
+  doc.text(total ? "pág. " + pagina + " de " + total : "pág. " + pagina,
+           W - MARG, y1 + 4, {align: "right"});
+}
+
 function paginaDeRascunho(doc){
-  const H = doc.internal.pageSize.getHeight();
-  desenharRascunho(doc, TOPO, H - TOPO - MARGEM_INF);
+  desenharRascunho(doc, TOPO, fundoUtil(doc) - TOPO);
 }
 
 /* ── rascunho ───────────────────────────────────────────────────── */
@@ -1129,40 +1271,44 @@ function unidadesNaOrdem(q, perm, destinoA, destinoC){
   }
 }
 
+/* Até onde uma coluna chega a partir de `i`, sem partir grupo colado.
+   Devolve o índice EXCLUSIVO do primeiro bloco que ficou de fora.
+   Quando nem o primeiro grupo cabe, devolve o grupo inteiro assim mesmo:
+   a página precisa andar, e transbordar é melhor que travar. */
+function encherColuna(alturas, colas, i, fim, cap){
+  if(i >= fim) return i;
+  let soma = 0, ultimo = -1;
+  for(let k = i; k < fim; k++){
+    soma += alturas[k];
+    const legal = (k === fim - 1) || !colas[k];
+    if(legal){
+      if(soma <= cap) ultimo = k + 1; else break;
+    }else if(soma > cap && ultimo >= 0) break;
+  }
+  return ultimo >= 0 ? ultimo : Math.min(fim, i + grupoColado(colas, i, fim));
+}
+
 /* Como fica UMA página a partir de `i`: onde termina a coluna esquerda
    (`corte`) e onde termina a página (`leva`), ambos contados a partir
    de `i`.
 
-   O laço cresce `n` enquanto existir uma divisão em que as DUAS colunas
-   cabem — e isso já é o máximo de conteúdo possível na página. Medi a
-   alternativa (encher a esquerda até o limite e só então a direita) em
-   230 combinações de prova com gráfico: nunca economizou uma página e
-   gastou uma a mais em 6 casos. Encher é localmente ganancioso e
-   globalmente pior, porque uma esquerda cheia demais deixa a direita
-   sem espaço para o grupo colado seguinte.
+   A REGRA é a da leitura: só se passa para a coluna da direita depois
+   que a da esquerda está cheia. É assim que o estudante lê, e uma
+   página em que as duas colunas param no meio faz parecer que a prova
+   acabou ali.
 
-   O que faltava era outra coisa: `leva` podia cair NO MEIO de um grupo
-   colado. A cola era respeitada entre as duas colunas (por `melhorCorte`)
-   mas não no fim da página — e era daí que saía "Assinale a alternativa
-   cujo gráfico representa essa função." no pé de uma página com os cinco
-   gráficos na seguinte, e a questão 10 com a alternativa A) numa página
-   e B) a E) na outra. */
+   Até a v58 o app EQUILIBRAVA: dividia o conteúdo da página em duas
+   metades de altura parecida. Numa página cheia dava quase no mesmo,
+   mas na última — e em qualquer uma que fechasse antes do fim — as
+   duas colunas paravam na metade, com um rasgo de branco atravessando o
+   pé da folha.
+
+   Os dois limites caem sempre num corte legal, então nem a divisão entre
+   as colunas nem o fim da página partem um grupo colado. */
 function distribuirPagina(alturas, colas, i, fim, cap){
-  const legal = n => (i + n >= fim) || !colas[i + n - 1];
-  let leva = 0, corte = 1;
-  for(let n = 1; i + n <= fim; n++){
-    const k = melhorCorte(alturas.slice(i, i + n), cap, colas.slice(i, i + n));
-    if(k < 0) break;
-    if(!legal(n)) continue;          // fim de página não parte grupo colado
-    leva = n; corte = k;
-  }
-  if(leva === 0){
-    /* nem o primeiro grupo colado cabe (uma figura maior que a coluna):
-       transborda inteiro, sem partir a cola */
-    leva = Math.min(grupoColado(colas, i, fim), fim - i);
-    corte = leva;
-  }
-  return {corte, leva};
+  const corte = encherColuna(alturas, colas, i, fim, cap) - i;
+  const leva = encherColuna(alturas, colas, i + corte, fim, cap) - i;
+  return {corte, leva: Math.max(leva, corte)};
 }
 
 function empacotar(alturas, topoPrimeira, fundo, colas){
@@ -1238,9 +1384,9 @@ function paginasNoPior(doc, cfg, alunos, fs, topoPrimeira, fundo){
   return paginasDaTurma(doc, cfg, alunos, fs, topoPrimeira, fundo).pior;
 }
 
-function fluir(doc, cfg, aluno, fs, dry){
+function fluir(doc, cfg, aluno, fs, dry, totalPag){
   const alturaPag = doc.internal.pageSize.getHeight();
-  const fundo = alturaPag - MARGEM_INF;
+  const fundo = fundoUtil(doc);
   const gabC = String(cfg.gabaritoCanonico).toUpperCase();
   const nq = gabC.length, no = cfg.no || 5;
 
@@ -1258,6 +1404,17 @@ function fluir(doc, cfg, aluno, fs, dry){
       turma: cfg.turma, numero: aluno.numero, nome: aluno.nome});
   }
   const topoPrimeira = y + altCartao + 8;   // folga para não colidir com a moldura
+
+  /* A moldura da página 1 começa ABAIXO do cartão-resposta, e não no alto
+     da folha: o cartão já tem a sua própria borda tracejada de recorte, e
+     um segundo retângulo em volta dela confundiria o professor na hora de
+     cortar — e passaria perto demais dos quatro marcadores pretos que a
+     câmera procura. O cartão é componente protegido; a moldura não chega
+     nele. */
+  const moldurar = (pg, topoMancha, topoQuadro) => {
+    if(!dry) molduraDaPagina(doc, cfg, aluno, pg, totalPag, topoMancha, topoQuadro);
+  };
+  moldurar(1, topoPrimeira, alturaFaixaCabecalho(cfg) + 3);
 
   const blocos = blocosDaProva(doc, cfg, aluno, fs);
   const alturas = blocos.map(b => b.h);
@@ -1292,6 +1449,7 @@ function fluir(doc, cfg, aluno, fs, dry){
       paginas++;
       if(!dry) doc.addPage();
       topo = TOPO;
+      moldurar(paginas, topo, topo - 4);
     }
   }
 
@@ -1466,7 +1624,7 @@ function gerarProvas(cfg, alunos, jsPDFctor){
   const teto = cfg.maxPaginas || MAX_PAGINAS;
   /* ponto de partida da primeira página: cabeçalho + cartão-resposta */
   const alturaPag = molde.internal.pageSize.getHeight();
-  const fundo = alturaPag - MARGEM_INF;
+  const fundo = fundoUtil(molde);      // a MESMA mancha que `fluir` desenha
   const Lcartao = montarLayout(String(cfg.gabaritoCanonico).length, cfg.no || 5);
   const topoPrimeira = cabecalho(molde, cfg, referencia, true)
     + Lcartao.box_h + 2 * Lcartao.quiet_zone + 8;
@@ -1568,11 +1726,14 @@ function gerarProvas(cfg, alunos, jsPDFctor){
   const alvoPag = Math.max.apply(null, [escolha.pgs].concat(previsto));
   doc.paginasDeCada = alunos.map((aluno, idx) => {
     if(idx) doc.addPage();
-    let pgs = fluir(doc, cfg, aluno, corpo, false);
+    let pgs = fluir(doc, cfg, aluno, corpo, false, alvoPag);
     while(pgs < alvoPag){
       doc.addPage();
-      paginaDeRascunho(doc);
       pgs++;
+      /* a folha de rascunho também leva moldura e nome: solta do grampo,
+         ela precisa se identificar como as outras */
+      molduraDaPagina(doc, cfg, aluno, pgs, alvoPag, TOPO, TOPO - 4);
+      paginaDeRascunho(doc);
     }
     return pgs;
   });
@@ -1593,5 +1754,5 @@ if(typeof module !== "undefined") module.exports =
   {desenharCartao, gerarProvas, gabaritoIndividual, montarPayload, encurtarNome, nomeCurtoQR, soAscii,
    pedacosDeNivel, remarcar, semMarcas, temMarcas, medidasQuestao, desenharQuestaoCol, prepararFontes, medirFigura,
    segmentarEnunciado, classificarCorpo, pareceFormula, unidadesQuestao, melhorCorte,
-   grupoColado, empacotar, distribuirPagina, unidadesNaOrdem, paginasDaTurma, paginasNoPior, preFlightCheck, alternativasNaFigura, indicesFixos, ordemDaProva, paresDeOrdem, chavesDaTurma, charsDeNivel, cabecalho, larguraComNiveis,
-   AR_QUESTAO, REGRA_GABARITO};
+   grupoColado, empacotar, distribuirPagina, encherColuna, molduraDaPagina, fundoUtil, RODAPE, unidadesNaOrdem, paginasDaTurma, paginasNoPior, preFlightCheck, alternativasNaFigura, indicesFixos, ordemDaProva, paresDeOrdem, chavesDaTurma, charsDeNivel, cabecalho, larguraComNiveis,
+   AR_QUESTAO, REGRA_GABARITO, alturaFaixaCabecalho};

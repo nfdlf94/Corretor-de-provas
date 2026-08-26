@@ -2447,3 +2447,270 @@ divisor não é o caderno inteiro; quem acerta tudo levando o teto nos
 dois; o lançamento manual por componente, o teto e o apagar; o
 fechamento com dois simulados de valores diferentes, o máximo somado, o
 zero de quem faltou; e a geração do PDF.
+
+---
+
+## v55 — a moldura do texto de apoio
+
+O caderno oficial do SAEPE cerca o texto de apoio com um fio fino. O
+estudante vê de relance onde começa e onde termina o que ele tem de ler,
+e o comando fica visivelmente do lado de fora. É a marca visual mais
+reconhecível da prova, e o app não tinha.
+
+### Quando o fio entra
+
+Quando a questão traz **"Leia o texto abaixo."** ou um **título** — a
+assinatura de um texto de apoio de verdade.
+
+Sem os dois, o enunciado É o problema (o caso da maioria das questões de
+Matemática: "Um encanador cobra R$ 60,00…") e cercá-lo com um fio não
+diria nada — só encheria a prova de caixas.
+
+### O que fica dentro e o que fica fora
+
+| Dentro | Fora |
+|---|---|
+| título do texto | a instrução ("Leia o texto abaixo.") |
+| parágrafos, versos, fórmulas | a referência bibliográfica |
+| | o comando |
+| | as alternativas |
+
+No caderno oficial a referência vem logo **abaixo** do fio, alinhada à
+direita — que é onde ela já estava desde a v43.
+
+### Duas coisas que não são óbvias
+
+**O texto é medido na largura já descontada.** `PAD_MOLDURA` = 2,6 mm de
+cada lado; a parte cercada guarda o seu próprio `pt.larg` e é quebrada
+nele. Medir na largura cheia e desenhar deslocado faria a linha atravessar
+o fio.
+
+**O fio é desenhado POR UNIDADE**, e não de uma vez: as duas verticais em
+toda unidade cercada, a horizontal de cima só na primeira e a de baixo só
+na última. Se o texto se dividir entre as colunas, cada metade sai com o
+fio aberto do lado do corte — como uma tabela partida, que se lê
+naturalmente como continuação. Desenhar a moldura inteira exigiria saber,
+na hora do desenho, onde a coluna vai quebrar; a unidade não sabe, e com
+esta construção não precisa saber.
+
+Cuidado que custou uma depuração: o respiro de cima entra pelo
+deslocamento que `cercar()` faz no `y`. Somá-lo também no retorno cobrava
+dois respiros e a soma das unidades deixava de bater com `m.h` — o
+invariante que segura a paginação inteira desde a v43.
+
+### Duas suítes precisaram de ajuste
+
+- **`teste49`** (estrofe centralizada): o poema tem título, então agora
+  vai dentro do fio. `centralizarVersos` passou a centralizar na largura
+  ÚTIL (`pt.larg`) e não na coluna inteira — senão a estrofe saía
+  empurrada para a direita. O teste deixou de comparar contra um x
+  absoluto e passou a exigir folga igual dos dois lados, que é a
+  propriedade que interessa.
+- **`teste50`** (mesma tiragem em toda a série): o conjunto de dados era
+  calibrado para divergir num ponto específico, e a moldura mudou as
+  alturas. Ajustado o enchimento de 34 para 8 caracteres, com o defeito
+  voltando a ser exercitado — a asserção que garante isso continua lá.
+
+### Suíte nova
+
+`teste59` — quem leva fio e quem não leva (a questão de Matemática, a
+questão só com título); o que fica dentro e fora; a medição na largura
+descontada; as alturas fechando; duas horizontais e as verticais nas
+bordas da coluna; o texto sem encostar no fio e o comando de volta à
+margem; e um texto longo cujas unidades do meio saem com o fio aberto.
+
+### O que ainda não fizemos da foto
+
+O caderno oficial imprime o **código do item** ao lado do número da
+questão — `13) (P00075596)` — e um código no rodapé do texto de apoio
+(`P00075595_SUP`). São os identificadores da rede, úteis para casar a
+questão com o banco oficial. O app não tem campo para isso; seria um
+`q.codigoItem` levado da importação até o desenho. Não foi feito.
+
+---
+
+## v56 — o expoente subia milímetros de um número em pontos
+
+Achado ao rasterizar um PDF de amostra e olhar. Nenhuma suíte pegava.
+
+```js
+const sobe = p.nivel > 0 ? fs * 0.32 : -fs * 0.12;   // até a v55
+doc.text(p.t, x + dx, y - sobe);
+```
+
+**`fs` está em PONTOS e `y` em MILÍMETROS.** Para um corpo de 10,5 pt a
+conta dava 3,4 mm de subida numa entrelinha de 4,4 mm: o expoente subia
+76% de uma linha inteira e ia colidir com o texto de cima. No papel, o
+`ᵗ` de `2 · 3ᵗ` aparecia encavalado na linha anterior e a linha dele
+ficava com um buraco no lugar do expoente.
+
+A referência certa é a ENTRELINHA, que já está em milímetros:
+
+```js
+const entre = fs * ENTRELINHA();
+const sobe = p.nivel > 0 ? entre * 0.30 : -entre * 0.14;
+```
+
+Agora sobe 1,26 mm numa entrelinha de 4,20 — menos de um terço, sempre
+dentro da própria linha.
+
+Só afetava os expoentes desenhados como MARCA, isto é, os caracteres que
+não existem em Unicode sobrescrito (`ᵗ`, `ⁿ`, letras em geral). `x²` e
+`1,01²⁰` usam `²` e `⁰` de verdade, saem no fluxo normal do texto e
+nunca tiveram o problema — por isso passou tanto tempo despercebido.
+
+### Por que a suíte não pegou
+
+`teste49` conferia `base.y − elevado.y < 5`. Com 3,4 mm de subida, passava
+folgado. A folga era grande demais para significar alguma coisa.
+
+O limite passou a ser relativo e apertado: **menos de meia entrelinha**,
+que é a propriedade que realmente importa — o expoente não pode sair da
+própria linha. Com o valor antigo, o teste agora falha.
+
+Lição: um número de layout só é testável contra outro número de layout.
+`< 5 mm` não era um limite, era um chute.
+
+---
+
+## v57–v58 — moldura da página e nome no rodapé
+
+Duas coisas pedidas, e uma consequência que não é óbvia.
+
+### O rodapé come altura útil
+
+O rodapé reserva 7 mm, e altura útil é o que decide a paginação. Se
+`fluir` desenhar numa mancha e `gerarProvas` medir noutra, a escolha do
+corpo mira uma página que não é a que sai impressa.
+
+`fundoUtil(doc)` passou a ser a **única fonte** desse número. Havia dois
+`alturaPag - MARGEM_INF` soltos, um em cada função; agora não há nenhum, e
+o `teste60` confere isso lendo o próprio arquivo.
+
+### A moldura
+
+Um fio a 3 mm por fora da mancha, mais um fio vertical separando as
+colunas.
+
+Na primeira versão eu abri o fio ABAIXO do cartão-resposta, com medo de
+que ele se confundisse com a borda tracejada de recorte ou atrapalhasse
+os quatro marcadores pretos. Estava errado e o professor corrigiu: o fio
+cerca a **prova inteira**, e na primeira página passa por fora da
+identificação do estudante e do cartão também. Ele começa logo abaixo da
+faixa do cabeçalho, que é sangrada de borda a borda e já fecha o topo da
+folha sozinha.
+
+O medo era infundado: o cartão é desenhado em `MARG + 2` e o fio em
+`MARG − 3`, ou seja, **5 mm de distância**. Longe o bastante para não se
+confundir com o tracejado e para não chegar perto dos marcadores. O
+`teste60` fixa essa folga, para que ninguém a reduza sem perceber.
+
+O fio ENTRE as colunas, esse sim, começa onde as colunas começam — subir
+até o topo cortaria a caixa de identificação do estudante ao meio.
+
+`alturaFaixaCabecalho(cfg)` virou a fonte única da altura da faixa, usada
+pelo cabeçalho e pela moldura.
+
+### O nome no rodapé
+
+`nome · turma · nº` à esquerda, `pág. N de T` à direita, em toda folha —
+inclusive nas folhas de rascunho do nivelamento.
+
+Não é enfeite. As folhas se soltam do grampo e caem no chão, e um caderno
+cujas questões estão em ordem diferente para cada estudante **não pode
+ser remontado por dedução**: sem o nome em toda folha, uma página solta é
+uma página perdida. O nome passa por `encurtarNome`, o mesmo tratamento
+do cartão.
+
+### Duas suítes recalibradas, e por quê
+
+`teste50` e `teste54` dependiam de conjuntos de dados afinados para cair
+num ponto específico da paginação. Sete milímetros a menos de mancha
+tiraram os dois do ponto.
+
+**`teste54`** só precisou de outro enchimento (48 → 8 caracteres).
+
+**`teste50`** precisou de mais: com o dataset antigo, de parágrafos de
+tamanhos variados, as três turmas passaram a paginar igual em QUALQUER
+corpo, e a asserção que garante que o defeito está sendo exercitado
+falhava. A causa é boa notícia: **desde a v43 o texto corrido se divide
+entre as colunas**, e um caderno só de texto pagina praticamente igual em
+qualquer ordem. O que ainda faz a ordem pesar são blocos que não se
+dividem — figuras. O teste passou a usar dez questões com gráfico alto, e
+a divergência voltou a aparecer.
+
+De quebra, a comparação deixou de ser pelo resultado de `gerarProvas` e
+passou a ser o **pior caso por turma num corpo fixo**. A escada da letra
+colapsa diferenças — duas turmas que precisam de 4 e 5 páginas em 10,5 pt
+podem acabar as duas em 9 pt e 4 páginas —, e era isso que fazia o teste
+pedir recalibragem a cada mexida na mancha. A grandeza que `cfg.serie` de
+fato conserta é o pior caso por turma, e é ela que o teste mede agora.
+
+### Suíte nova
+
+`teste60` — a mancha descontada nos dois lugares e a ausência de qualquer
+cálculo solto; a moldura por fora do texto, com margens iguais e sem
+invadir o rodapé; o fio entre as colunas no meio da folha; o rodapé com
+nome, turma, número e paginação, o nome comprido abreviado, e o caso sem
+total de páginas; e o caderno completo com páginas × estudantes.
+
+---
+
+## v59 — a coluna esquerda enche primeiro
+
+A regra é a da leitura: **só se passa para a coluna da direita depois que
+a da esquerda está cheia.**
+
+### O que o app fazia
+
+`melhorCorte` **equilibrava**: dividia o conteúdo da página em duas
+metades de altura parecida. Numa página cheia dava quase no mesmo, mas em
+qualquer página que fechasse antes do fim — a última, sempre — as duas
+colunas paravam no meio, com um rasgo de branco atravessando o pé da
+folha. Para o estudante, parece que a prova acabou ali.
+
+`distribuirPagina` passou a encher a esquerda até o último corte legal e
+só então abrir a direita. Os dois limites continuam caindo em corte
+legal, então nem a divisão entre colunas nem o fim da página partem um
+grupo colado.
+
+### O custo, medido
+
+Varredura de 231 cadernos (8 a 14 questões, uma delas com gráfico, textos
+de três tamanhos):
+
+| | equilíbrio | enchimento |
+|---|---|---|
+| páginas a mais | — | **0** |
+| páginas a menos | — | 0 |
+| branco na coluna esquerda | 38 417 mm | **24 254 mm** |
+
+**Nenhuma página a mais em 231 casos, e 37% menos branco na esquerda.**
+
+### Eu já tinha tentado isto na v48, e desisti errado
+
+Na v48 medi "encher a coluna" contra o equilíbrio e achei 6 casos em 230
+que gastavam uma página a mais. Revertí e escrevi no CONTEXTO que encher
+era "localmente ganancioso e globalmente pior".
+
+Estava errado, e o erro era da implementação de então, não da ideia:
+aquela versão tinha um atalho ("se tudo o que resta cabe na página,
+equilibra") que mudava a última página e estragava a conta. O enchimento
+puro, sem atalho, não custa nada — como a varredura acima mostra.
+
+Fica a lição: quando uma medição condena uma ideia, vale conferir se ela
+condenou a ideia ou a implementação.
+
+### `melhorCorte` continua existindo
+
+Ninguém mais o chama no fluxo normal, mas ele segue exportado e coberto
+pelo `teste47`, que verifica a legalidade dos cortes com cola. É a
+referência do que é um corte legal, e o `teste53` o usa para reconstruir
+o comportamento antigo e comparar.
+
+### Suíte
+
+`teste53` ganhou o caso direto: seis unidades de 20 mm numa coluna de
+100 mm põem CINCO na esquerda (que fecha exatamente no fundo) e uma na
+direita — e não três e três. E o caso em que a esquerda para antes por
+causa de um grupo colado que não caberia inteiro.

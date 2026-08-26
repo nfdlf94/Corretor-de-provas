@@ -126,9 +126,17 @@ setTimeout(() => {
   const antesDoT = doc.ev.filter(e => /dada por N\(t\) = 2 · 3$/.test(e.t));
   ok(antesDoT.length === 1, "o trecho que termina no 3 foi desenhado");
   const base = antesDoT[0], elevado = pedacoT[0];
-  ok(base && elevado && elevado.y < base.y && base.y - elevado.y < 5,
-     "e o \"t\" sai LEVANTADO da linha de base do 3, não numa linha à parte (" +
-     (base ? (base.y - elevado.y).toFixed(1) : "-") + " mm acima)");
+  /* O limite tem de ser a ENTRELINHA, e apertado: com a folga antiga (5 mm)
+     este teste passava enquanto o expoente subia 3,4 mm numa entrelinha de
+     4,4 e ia colidir com a linha de cima. Menos de metade da entrelinha é
+     a garantia de que ele não sai da própria linha. */
+  const entrelinha = m.passo;
+  const subiu = base && elevado ? base.y - elevado.y : 99;
+  ok(base && elevado && elevado.y < base.y,
+     "o \"t\" sai LEVANTADO da linha de base do 3");
+  ok(subiu < entrelinha * 0.5,
+     "e sobe menos de meia entrelinha (" + subiu.toFixed(2) + " mm de " +
+     entrelinha.toFixed(2) + ") — não invade a linha de cima");
   ok(base && elevado && elevado.x > base.x,
      "e à direita dele, logo depois do 3");
 
@@ -170,16 +178,21 @@ setTimeout(() => {
   ok(ev.every(e => !e.opt || e.opt.align !== "center"),
      "nenhum verso é centralizado individualmente");
 
-  /* o bloco está de fato no meio da coluna */
+  /* o bloco está de fato no meio da área útil. Desde a v55 o poema com
+     título vai dentro da moldura do texto de apoio, e a área útil é a
+     largura já descontada do fio — centralizar contra a coluna inteira
+     empurraria a estrofe para a direita. */
   const larguras = versos.map(v => v.length * 1.8);
   const maior = Math.max.apply(null, larguras);
-  const esperado = 10 + (LARG - maior) / 2;
-  ok(Math.abs(ev[0].x - esperado) < 0.01,
-     "e a estrofe está centralizada pelo verso mais largo (x = " +
-     ev[0].x.toFixed(1) + ", esperado " + esperado.toFixed(1) + ")");
+  const util = pv[0].larg;
+  ok(util <= LARG, "a estrofe é medida na largura útil (" + util.toFixed(1) + ")");
+  const margem = ev[0].x - 10;                 // do canto da coluna ao verso
   const folgaDir = (10 + LARG) - (ev[0].x + maior);
-  ok(Math.abs((ev[0].x - 10) - folgaDir) < 0.01,
-     "folga igual dos dois lados (" + (ev[0].x - 10).toFixed(1) + " mm)");
+  ok(Math.abs(margem - folgaDir) < 0.01,
+     "folga igual dos dois lados (" + margem.toFixed(1) + " mm de cada) — a " +
+     "estrofe está centralizada pelo verso mais largo");
+  ok(Math.abs(pv[0].dxBloco - (util - maior) / 2) < 0.01,
+     "e o deslocamento é o do verso mais largo dentro da área útil");
 
   /* o título do poema continua centralizado, e a prosa não se mexeu */
   const evTitulo = doc.ev.find(e => e.t === "O Peixe");

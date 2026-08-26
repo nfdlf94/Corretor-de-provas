@@ -75,7 +75,7 @@ setTimeout(() => {
   ok(win.__jsdomErros.length === 0, "app sobe sem erro de script");
 
   /* ── 1. o caso que reproduz o defeito ── */
-  montar(48);
+  montar(8);
   const g = gerar(false);
   ok(g.semNivelar.length === 24, "24 estudantes medidos");
   ok(uniforme(g.deCada),
