@@ -1179,14 +1179,16 @@ function paginaDeRascunho(doc){
 }
 
 /* ── rascunho ───────────────────────────────────────────────────── */
-function desenharRascunho(doc, y, altura){
-  const W = doc.internal.pageSize.getWidth(), util = W - 2 * MARG;
+function desenharRascunho(doc, y, altura, x, larg){
+  const W = doc.internal.pageSize.getWidth();
+  const x0 = (x == null) ? MARG : x;
+  const w = (larg == null) ? W - 2 * MARG : larg;
   doc.setDrawColor(...COR.grey); doc.setLineWidth(0.3);
   if(doc.setLineDashPattern) doc.setLineDashPattern([2, 2], 0);
-  doc.rect(MARG, y, util, altura, "S");
+  doc.rect(x0, y, w, altura, "S");
   if(doc.setLineDashPattern) doc.setLineDashPattern([], 0);
   doc.setTextColor(...COR.grey); doc.setFont(FONTE_TEXTO, "normal"); doc.setFontSize(6.5);
-  doc.text("RASCUNHO — esta área não será corrigida", MARG + 3, y + 4.5);
+  doc.text("RASCUNHO — esta área não será corrigida", x0 + 3, y + 4.5);
 }
 
 /* ── fluxo: monta blocos e os distribui equilibrando as colunas ──── */
@@ -1495,6 +1497,8 @@ function fluir(doc, cfg, aluno, fs, dry, totalPag){
   const colas = blocos.map(b => !!b.cola);
 
   let i = 0, topo = topoPrimeira, ultimoUso = topo;
+  /* onde cada coluna parou na ÚLTIMA página: é lá que o rascunho cabe */
+  let fimEsq = topo, fimDir = topo;
   while(i < blocos.length){
     /* a MESMA conta que `empacotar` faz ao contar as páginas: se as duas
        divergirem, a escolha do corpo mira um layout que não é o que sai
@@ -1510,16 +1514,20 @@ function fluir(doc, cfg, aluno, fs, dry, totalPag){
         else { yd = b.desenhar(xColuna(doc, 1), yd); }
       }
       ultimoUso = Math.max(ye, yd);
+      fimEsq = ye; fimDir = yd;
     } else {
       const somaE = alturas.slice(i, i + corte).reduce((a, b) => a + b, 0);
       const somaD = alturas.slice(i + corte, i + leva).reduce((a, b) => a + b, 0);
       ultimoUso = topo + Math.max(somaE, somaD);
+      fimEsq = topo + somaE; fimDir = topo + somaD;
     }
     i += leva;
     if(i < blocos.length){
-      // sobrou espaço embaixo desta página? vira rascunho, não vazio
-      const folga = fundo - ultimoUso;
-      if(!dry && !cfg.simulado && folga >= 30) desenharRascunho(doc, ultimoUso + 3, folga - 3);
+      /* NADA de rascunho no meio da prova. Uma tarja "RASCUNHO" no pé da
+         página 1 de 2 faz o estudante achar que a prova acabou ali, e o
+         professor achar que o app desistiu de diagramar. O espaço que
+         sobra numa página intermediária é consequência de um bloco que
+         não coube — a moldura já fecha a página e diz que ela terminou. */
       paginas++;
       if(!dry) doc.addPage();
       topo = TOPO;
@@ -1527,10 +1535,22 @@ function fluir(doc, cfg, aluno, fs, dry, totalPag){
     }
   }
 
-  // o rascunho é um bônus: só entra no espaço que sobrou, nunca
-  // pede uma página nova — papel a mais não vale por área de rabisco
-  const sobra = fundo - ultimoUso;
-  if(!dry && !cfg.simulado && sobra >= 26) desenharRascunho(doc, ultimoUso + 3, sobra - 3);
+  /* O rascunho é um bônus da ÚLTIMA página: só entra no espaço que
+     sobrou, nunca pede uma página nova — papel a mais não vale por área
+     de rabisco.
+
+     E entra POR COLUNA. Antes ele começava abaixo do ponto mais baixo
+     das duas, então numa página com a coluna esquerda cheia e a direita
+     pela metade ele não cabia em lugar nenhum: sobrava o buraco da
+     direita e nenhum rascunho. Agora cada coluna aproveita o que tem. */
+  if(!dry && !cfg.simulado){
+    const larg = larguraColuna(doc);
+    [[0, fimEsq], [1, fimDir]].forEach(([col, fim]) => {
+      const sobra = fundo - fim;
+      if(sobra >= 26)
+        desenharRascunho(doc, fim + 3, sobra - 3, xColuna(doc, col), larg);
+    });
+  }
   return paginas;
 }
 

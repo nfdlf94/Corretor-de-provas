@@ -3011,3 +3011,61 @@ conjunto de dados passou a sair parelho sozinho — não há o que ajustar.
 O teste passou a exigir a CONSEQUÊNCIA e não o meio: ou houve ajuste e
 ele economizou folha, ou não houve e a tiragem já saiu pareja. O que o
 app nunca pode fazer é acrescentar folha sem ter tentado antes.
+
+---
+
+## v64 — rascunho só na última página, e por coluna
+
+Nas fotos: uma tarja **RASCUNHO** atravessando o pé da **página 1 de 2**,
+com espaço vazio sobrando na coluna da direita logo acima dela.
+
+Dois defeitos numa linha só:
+
+```js
+if(!dry && !cfg.simulado && folga >= 30) desenharRascunho(doc, ultimoUso + 3, folga - 3);
+```
+
+### 1. Rascunho no meio da prova
+
+Essa linha estava DENTRO do laço de páginas, então toda página que
+fechasse antes do fim ganhava uma área de rascunho. Uma tarja
+"RASCUNHO — esta área não será corrigida" no pé da página 1 de 2 faz o
+estudante achar que a prova acabou ali, e o professor achar que o app
+desistiu de diagramar.
+
+Foi removida. O espaço que sobra numa página intermediária é consequência
+de um bloco que não coube; a moldura da página já fecha a folha e diz que
+ela terminou.
+
+### 2. O rascunho da última página não achava o buraco
+
+`ultimoUso` é o ponto mais baixo das DUAS colunas. Numa página com a
+esquerda cheia e a direita pela metade — que é o normal desde a v59, em
+que a esquerda enche primeiro — `fundo − ultimoUso` é quase zero: o
+rascunho não cabia em lugar nenhum, e o buraco da direita ficava lá,
+vazio e sem explicação.
+
+Agora cada coluna guarda onde parou (`fimEsq`, `fimDir`) e o rascunho
+entra **por coluna**, na largura de uma coluna, onde houver 26 mm ou
+mais. Na prática é quase sempre a da direita.
+
+### Sobre o espaço que continua sobrando
+
+Ele não vai desaparecer. Uma questão com figura é um bloco de uns 78 mm
+que não se divide (v43, v62, v63), e quando ele não cabe no que resta da
+coluna, desce inteiro. O que reduz o total de páginas é a busca da v61 —
+letra, ordem e espaçamento —, não o preenchimento do buraco.
+
+A troca está aceita conscientemente: **questão inteira vale mais que
+folha cheia.** Se em algum caderno o vão ficar grande demais, os botões
+são `MIN_TRECHO` (v62) e o limiar de `divideAlts` (v63).
+
+### Suíte
+
+`teste60` ganhou a conferência: o rascunho é desenhado (senão o resto do
+bloco não provaria nada), só na última página do caderno, com coluna e
+largura próprias, na largura de UMA coluna, e nunca numa caixa minúscula.
+
+Detalhe de método: remendar `addPage` no protótipo do jsPDF **não**
+intercepta o objeto real. A página é perguntada ao próprio doc, com
+`doc.internal.getCurrentPageInfo()`. Já perdi tempo com isso duas vezes.

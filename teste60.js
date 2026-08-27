@@ -18,6 +18,7 @@ const ok = (cond, msg) => { console.log((cond ? "  ok   " : "  FALHA") + "  " + 
 
 const { win } = H.abrirApp({
   estado: H.comSimulado(H.estadoBase(4), {nLP:6, nMAT:6}) });
+const J = expr => JSON.parse(win.eval("JSON.stringify(" + expr + ")"));
 
 function docFalso(){
   return {
@@ -151,7 +152,7 @@ setTimeout(() => {
     var sm=E.simulados[0], pr=provaDoSim(sm), t=turmaDe(sm.turma);
     pr.questoes.forEach(function(q,i){
       q.enunciado="Leia o texto abaixo.\\nTexto "+(i+1)+"\\n"+
-        ("A leitura silenciosa firmou-se tarde na história e mudou o modo como as pessoas se relacionam com o texto escrito. ").repeat(3)+
+        ("A leitura silenciosa firmou-se tarde na história e mudou o modo como as pessoas se relacionam com o texto escrito. ").repeat(5)+
         "\\nASSIS, Machado de. Contos. Ática, 1998. Acesso em: 6 fev. 2012.\\n"+
         "De acordo com o texto "+(i+1)+":";
     });
@@ -172,6 +173,63 @@ setTimeout(() => {
      recorte e passaria perto demais dos marcadores */
   ok(/marcadores pretos que a c\u00e2mera procura/.test(fonte),
      "a distância até os marcadores do cartão está justificada no código");
+
+  /* ── 6. rascunho só na ÚLTIMA página, e por coluna ── */
+  /* Uma tarja "RASCUNHO" no pé da página 1 de 2 faz o estudante achar que
+     a prova acabou ali. E, quando entra, tem de entrar na coluna que
+     sobrou: antes ele começava abaixo do ponto mais baixo das DUAS, então
+     numa página com a esquerda cheia e a direita pela metade não cabia em
+     lugar nenhum — sobrava o buraco e nenhum rascunho. */
+  const rasc = J(`(function(){
+    var pr=E.provas[0], t=turmaDe(pr.turma);
+    pr.questoes.forEach(function(q,i){
+      q.enunciado="Questao "+(i+1)+" curta. Qual e a resposta?";
+      q.alternativas=["a","b","c","d","e"]; q.imagem=null;
+    });
+    aplicarLayout(pr.nq,pr.no); E.ativa=pr.id;
+    var orig=window.desenharRascunho, chamadas=[];
+    var J2=window.jspdf.jsPDF;
+    /* a página é perguntada ao PRÓPRIO doc — remendar addPage no
+       protótipo não intercepta o jsPDF de verdade */
+    window.desenharRascunho=function(doc,y,alt,x,larg){
+      var pag=0, total=0;
+      try{ pag=doc.internal.getCurrentPageInfo().pageNumber;
+           total=doc.internal.getNumberOfPages(); }catch(e){}
+      chamadas.push({pag:pag, total:total, y:y, alt:alt,
+                     x:x==null?-1:x, larg:larg==null?-1:larg});
+      return orig.apply(this,arguments);
+    };
+    var cfg={codigo:pr.codigo,titulo:"T",escola:"E",turma:t.nome,disciplina:"M",
+      professor:"N",gabaritoCanonico:pr.gabC,no:pr.no,questoes:pr.questoes,
+      discursivas:[],comps:null,alternarBlocos:false,tipos:0,simulado:false,
+      tempero:0,permitirTempero:true};
+    var d=gerarProvas(cfg,[t.alunos[0]],J2);
+    window.desenharRascunho=orig;
+    return {paginas:d.paginasPorAluno, chamadas:chamadas,
+            larguraColuna:(210-2*12-7)/2};
+  })()`);
+  ok(rasc.paginas >= 2, "a prova de teste tem " + rasc.paginas + " páginas");
+  ok(rasc.chamadas.length > 0,
+     "o rascunho é desenhado (" + rasc.chamadas.length + " caixa[s]) — " +
+     "sem isto o resto deste bloco não provaria nada");
+  ok(rasc.chamadas.every(c => c.pag === c.total),
+     "e SÓ na última página do caderno: " +
+     rasc.chamadas.map(c => "pág " + c.pag + " de " + c.total).join(", "));
+  ok(rasc.chamadas.every(c => c.pag % rasc.paginas === 0),
+     "que é sempre múltipla das " + rasc.paginas + " páginas por estudante");
+  ok(rasc.chamadas.every(c => c.x >= 0 && c.larg > 0),
+     "cada caixa vem com coluna e largura próprias — não é mais uma tarja " +
+     "atravessando a folha inteira");
+  ok(rasc.chamadas.every(c => Math.abs(c.larg - rasc.larguraColuna) < 0.6),
+     "e a largura é a de UMA coluna (" +
+     rasc.chamadas[0].larg.toFixed(1) + " contra " +
+     rasc.larguraColuna.toFixed(1) + ")");
+  const colunas = new Set(rasc.chamadas.map(c => c.x < 105 ? "esq" : "dir"));
+  ok(colunas.size >= 1,
+     "as caixas caem nas colunas que sobraram (" +
+     [...colunas].join(", ") + ")");
+  ok(rasc.chamadas.every(c => c.alt >= 20),
+     "e nenhuma caixa minúscula: só entra onde há espaço de verdade");
 
   console.log(falhas ? "\nteste60: " + falhas + " FALHA(S)" : "\nteste60: tudo certo");
   process.exit(falhas ? 1 : 0);
