@@ -1386,8 +1386,12 @@ function paresDeOrdem(cfg, alunos){
    caso: a diferença entre os dois é pura ineficiência de empacotamento
    — o conteúdo é idêntico, só a ordem muda —, e é ela que o nivelamento
    tem de atacar antes de sair acrescentando folha de rascunho. */
-function paginasDaTurma(doc, cfg, alunos, fs, topoPrimeira, fundo){
-  const h = alturasCanonicas(doc, cfg, fs);
+function paginasDaTurma(doc, cfg, alunos, fs, topoPrimeira, fundo, hPronto){
+  /* `hPronto` é a medição das questões, que depende do corpo e do
+     espaçamento mas NÃO do tempero. A busca por reorganização chama esta
+     função dezenas de vezes com o mesmo corpo; remedir tudo a cada volta
+     custaria segundos de espera no celular. */
+  const h = hPronto || alturasCanonicas(doc, cfg, fs);
   const nq = h.length, no = cfg.no || 5;
   const comps = (cfg.comps && cfg.comps.length === nq) ? cfg.comps : null;
   const fixas = indicesFixos(cfg.questoes);
@@ -1633,7 +1637,9 @@ function gerarProvas(cfgEntrada, alunos, jsPDFctor){
   const Ctor = jsPDFctor || (window.jspdf && window.jspdf.jsPDF);
   const doc = new Ctor({unit: "mm", format: "a4", compress: true});
   prepararFontes(doc);
-  DENSO = !!cfg.simulado;      // aperta o espaço só no simulado
+  /* o simulado já nasce apertado; a avaliação comum começa folgada e só
+     aperta se a busca por tiragem pareja precisar */
+  DENSO = !!cfg.simulado || !!cfg.denso;
 
   if(typeof caracteresFaltando === "function"){
     const textos = [cfg.titulo, cfg.escola, cfg.disciplina, cfg.professor];
@@ -1684,76 +1690,79 @@ function gerarProvas(cfgEntrada, alunos, jsPDFctor){
     }
     escolha = medidas.find(m => m.pgs === minimo);   // CORPOS vem do maior
   }
-  const corpo0 = escolha.fs;
-
-  /* ── nivelar por BAIXO ────────────────────────────────────────────
+  /* ── nivelar por BAIXO: letra, ordem e espaçamento juntos ────────
      Levar todo mundo para o pior caso e tapar a diferença com uma folha
      de rascunho é honesto e burro. Se a prova de um estudante coube em
      duas páginas, a diferença para o colega que precisou de três é de
      EMPACOTAMENTO, não de conteúdo: o texto é o mesmo, muda só a ordem.
-     Acrescentar folha em branco a quem já cabia não corrige nada.
 
-     Então, antes de nivelar, o app desce a escada da letra procurando o
-     degrau em que a turma INTEIRA passa a caber onde o melhor caso já
-     cabia. Desce só se economizar folha de verdade, e para no primeiro
-     degrau que resolve — a letra continua a maior possível para aquele
-     número de páginas.
+     São TRÊS alavancas, e o erro da v50 e da v60 foi tentar uma de cada
+     vez:
 
-     Isso fura o piso de 10 pt da prova comum, e furar é a decisão certa
-     aqui: uma folha a menos por estudante, em toda a turma, vale mais
-     que meio ponto de corpo. A tela conta o que foi feito. */
+     1. a LETRA — descer um degrau na escada;
+     2. a ORDEM — trocar o tempero e reembaralhar todos os cadernos;
+     3. o ESPAÇAMENTO — o modo denso, que o simulado já usava e a
+        avaliação comum não.
+
+     Isoladas, cada uma falha em casos que a combinação resolve: com uma
+     figura de 50 mm no meio do caderno, reduzir o corpo não ajuda (a
+     figura não encolhe) e reembaralhar no corpo grande também não (ela
+     não cabe em posição nenhuma) — mas corpo menor MAIS outra ordem cabe.
+
+     A busca varre as combinações preferindo, nesta ordem: menos páginas,
+     letra maior, espaçamento folgado, tempero menor. Para na primeira que
+     alcança o alvo, e o alvo é o melhor caso da turma — se alguém coube
+     em duas, ninguém deveria precisar de três. */
   const escada = cfg.simulado ? CORPOS_SAEPE : CORPOS.concat(CORPOS_APERTO);
-  let tempero = cfg.tempero || 0;
-  const extremos = (fs, temp) => paginasDaTurma(molde,
-    (temp === tempero ? cfg : Object.assign({}, cfg, {tempero: temp})),
-    alunos, fs, topoPrimeira, fundo);
-  let atual = extremos(escolha.fs, tempero);
+  const temperoBase = cfg.tempero || 0;
+  const corpo0 = escolha.fs, densoOriginal = DENSO;
+  const cacheH = {};
+  const medirTurma = (fs, temp, denso) => {
+    DENSO = denso;
+    const chave = fs + "|" + (denso ? 1 : 0);
+    if(!cacheH[chave]) cacheH[chave] = alturasCanonicas(molde, cfg, fs);
+    const c = (temp === temperoBase && denso === densoOriginal)
+      ? cfg : Object.assign({}, cfg, {tempero: temp});
+    const r = paginasDaTurma(molde, c, alunos, fs, topoPrimeira, fundo, cacheH[chave]);
+    DENSO = densoOriginal;
+    return r;
+  };
 
-  for(let volta = 0; volta < escada.length && atual.pior > atual.melhor; volta++){
-    const alvo = atual.melhor;
-    let achou = null;
+  const inicial = medirTurma(corpo0, temperoBase, densoOriginal);
+  const alvo = inicial.melhor;
+  let achado = {fs: corpo0, tempero: temperoBase, denso: densoOriginal,
+                pgs: inicial.pior};
+
+  if(inicial.pior > inicial.melhor){
+    const modos = cfg.simulado ? [true] : [false, true];
+    const nTemperos = cfg.permitirTempero ? TEMPEROS : 0;
+    busca:
     for(const fs of escada){
-      if(fs >= escolha.fs) continue;                 // só degraus abaixo
-      const e = extremos(fs, tempero);
-      if(e.pior <= alvo){ achou = {fs, e}; break; }  // o primeiro é o maior
-    }
-    if(!achou) break;
-    doc.baixouCorpo = {de: escolha.fs, para: achou.fs,
-                       dePaginas: escolha.pgs, paraPaginas: achou.e.pior};
-    escolha = {fs: achou.fs, pgs: achou.e.pior};
-    atual = achou.e;
-  }
-
-  /* ── a reorganização, quando a letra não basta ────────────────
-     Se ainda há estudante precisando de uma página a mais que o colega, o
-     problema não é de tamanho de letra: é de ORDEM. Uma figura de 50 mm
-     que não cabe no pé de uma coluna abre uma página inteira, e se ela
-     cai num lugar ruim para o estudante 07 e num lugar bom para o 01, os
-     dois recebem cadernos de tamanhos diferentes.
-
-     Então o app REEMBARALHA — o mesmo caderno, as mesmas questões, a
-     mesma letra, outra ordem — até achar um tempero em que a turma
-     inteira cabe no melhor número de páginas. É o último recurso ANTES da
-     folha de rascunho, e não depois.
-
-     Só acontece com `cfg.permitirTempero`, que o app liga apenas
-     enquanto nenhum cartão daquela prova foi corrigido: trocar a ordem
-     depois de imprimir invalidaria o caderno que está na mão do
-     estudante. */
-  if(cfg.permitirTempero && atual.pior > atual.melhor){
-    const alvo = atual.melhor;
-    for(let t = tempero + 1; t <= tempero + TEMPEROS; t++){
-      const e = extremos(escolha.fs, t);
-      if(e.pior <= alvo){
-        doc.reembaralhou = {tempero: t, de: atual.pior, para: e.pior};
-        tempero = t; escolha = {fs: escolha.fs, pgs: e.pior}; atual = e;
-        break;
+      if(fs > corpo0) continue;                    // a letra nunca aumenta
+      for(const denso of modos){
+        for(let t = temperoBase; t <= temperoBase + nTemperos; t++){
+          const e = medirTurma(fs, t, denso);
+          if(e.pior < achado.pgs) achado = {fs, tempero: t, denso, pgs: e.pior};
+          if(e.pior <= alvo){ achado = {fs, tempero: t, denso, pgs: e.pior}; break busca; }
+        }
       }
     }
   }
-  doc.temperoUsado = tempero;
-  cfg = (tempero === (cfg.tempero || 0)) ? cfg
-      : Object.assign({}, cfg, {tempero: tempero});
+
+  if(achado.fs !== corpo0)
+    doc.baixouCorpo = {de: corpo0, para: achado.fs,
+                       dePaginas: inicial.pior, paraPaginas: achado.pgs};
+  if(achado.tempero !== temperoBase)
+    doc.reembaralhou = {tempero: achado.tempero, de: inicial.pior, para: achado.pgs};
+  if(achado.denso !== densoOriginal)
+    doc.apertouEspaco = {de: inicial.pior, para: achado.pgs};
+
+  DENSO = achado.denso;
+  escolha = {fs: achado.fs, pgs: achado.pgs};
+  doc.temperoUsado = achado.tempero;
+  doc.densoUsado = achado.denso;
+  cfg = (achado.tempero === temperoBase) ? cfg
+      : Object.assign({}, cfg, {tempero: achado.tempero});
 
   const corpo = escolha.fs;
   doc.corpoUsado = corpo;

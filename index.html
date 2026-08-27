@@ -4041,26 +4041,32 @@ function gerarPDF(p,t,modo){
         extra+=`<br><b>Atenção:</b> saiu com ${doc.avisoPaginas} páginas por estudante,
           acima do limite de 4. A letra já foi reduzida ao mínimo — para caber,
           corte questões ou encurte os enunciados.`;
-      /* reembaralhou para todo mundo caber no mesmo número de folhas */
-      if(doc.reembaralhou)
-        extra+=`<br>A ordem das questões foi reorganizada: com o sorteio
-          anterior, parte da turma precisaria de ${doc.reembaralhou.de} páginas
-          e o resto de ${doc.reembaralhou.para}. Mesmas questões, mesmo
-          gabarito, mesma letra — só a ordem mudou, e agora todos cabem em
-          ${doc.reembaralhou.para}.`;
+      /* o que foi preciso mexer para a turma inteira caber no mesmo
+         número de folhas — só a apresentação muda, nunca o conteúdo */
+      const ajustes=[];
+      if(doc.baixouCorpo) ajustes.push("a letra desceu de "+
+        String(doc.baixouCorpo.de).replace(".",",")+" para "+
+        String(doc.baixouCorpo.para).replace(".",",")+" pt");
+      if(doc.reembaralhou) ajustes.push("a ordem das questões foi reorganizada");
+      if(doc.apertouEspaco) ajustes.push("o espaçamento foi apertado");
+      if(ajustes.length){
+        const alvo=(doc.baixouCorpo||doc.reembaralhou||doc.apertouEspaco);
+        extra+=`<br>Para a turma inteira caber em ${alvo.para}
+          página${alvo.para===1?"":"s"} — parte dela precisaria de ${alvo.de} —,
+          ${ajustes.join(", ")}. Mesmas questões e mesmo gabarito: só a
+          apresentação mudou.`;
+      }
       /* tiragem: todo estudante tem de sair com o mesmo número de folhas */
       if(doc.paginasSemNivelar&&doc.paginasSemNivelar.length){
         const cru=doc.paginasSemNivelar;
         const menor=Math.min.apply(null,cru), maior=Math.max.apply(null,cru);
         if(menor!==maior){
-          const letra=doc.baixouCorpo
-            ? `mesmo reduzindo a letra para ${String(doc.corpoUsado).replace(".",",")} pt`
-            : `mesmo em ${String(doc.corpoUsado).replace(".",",")} pt`;
-          extra+=`<br>Não consegui: ${letra} e depois de tentar
-            ${TEMPEROS} reorganizações, a ordem das questões ainda faria
-            a turma receber de ${menor} a ${maior} páginas. Os cadernos mais
-            curtos ganharam uma folha de rascunho para a tiragem sair pareja —
-            foi o último recurso, e não o primeiro.`;
+          extra+=`<br>Não consegui: tentei toda combinação de letra
+            (10,5 a 9 pt), espaçamento e ${TEMPEROS} reorganizações, e a ordem
+            das questões ainda faria a turma receber de ${menor} a ${maior}
+            páginas. Os cadernos mais curtos ganharam uma folha de rascunho
+            para a tiragem sair pareja — foi o último recurso, e não o
+            primeiro.`;
         }
       }
       /* desceu a letra para a turma inteira caber em menos folha */

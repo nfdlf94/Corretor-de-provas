@@ -63,7 +63,8 @@ const gerar = simulado => J(`(function(){
   var d=gerarProvas(cfg,t.alunos,window.jspdf.jsPDF);
   return {corpo:d.corpoUsado, deCada:d.paginasDeCada,
     semNivelar:d.paginasSemNivelar, pareja:d.tiragemPareja,
-    baixou:d.baixouCorpo||null, preferido:d.corpoPreferido,
+    baixou:d.baixouCorpo||null, reembaralhou:d.reembaralhou||null,
+    apertou:d.apertouEspaco||null, preferido:d.corpoPreferido,
     total:d.getNumberOfPages()};
 })()`);
 
@@ -89,16 +90,18 @@ setTimeout(() => {
      "pareja sozinha (" + faixa(g.semNivelar) + ")");
   ok(g.total === g.deCada[0] * 24,
      "o PDF tem exatamente páginas × estudantes (" + g.total + ")");
-  ok(!!g.baixou, "o app registra que desceu a letra para conseguir isso");
-  ok(g.baixou && g.baixou.para < g.baixou.de,
-     "de " + (g.baixou ? g.baixou.de : "-") + " para " +
-     (g.baixou ? g.baixou.para : "-") + " pt");
-  ok(g.baixou && g.baixou.paraPaginas < g.baixou.dePaginas,
-     "e só desceu porque isso economizou folha: " +
-     (g.baixou ? g.baixou.dePaginas + " → " + g.baixou.paraPaginas : "-") +
-     " páginas");
+  /* São três alavancas — letra, ordem e espaçamento — e o app usa a mais
+     barata que resolve. Qual delas foi não importa aqui; importa que ELE
+     tenha mexido em alguma coisa em vez de acrescentar folha. */
+  const ajuste = g.baixou || g.reembaralhou || g.apertou;
+  ok(!!ajuste, "o app registra o ajuste que fez para conseguir isso");
+  ok(ajuste && ajuste.para < ajuste.de,
+     "e o ajuste economizou folha de verdade: " +
+     (ajuste ? ajuste.de + " → " + ajuste.para : "-") + " páginas");
   ok(g.corpo >= 9,
-     "a letra não desce abaixo do último degrau da escada (" + g.corpo + " pt)");
+     "a letra nunca desce abaixo do último degrau da escada (" + g.corpo + " pt)");
+  ok(!g.baixou || g.baixou.para <= g.baixou.de,
+     "e nunca AUMENTA");
 
   /* ── 2. vale para simulado e avaliação ── */
   const sim = gerar(true);
@@ -114,7 +117,7 @@ setTimeout(() => {
     if(uniforme(r.deCada)) parelhos++;
     /* folha de rascunho extra = alguém recebeu mais do que precisava */
     if(r.deCada.some((p, i) => p > r.semNivelar[i])) comRascunho++;
-    if(r.baixou) desceu++;
+    if(r.baixou || r.reembaralhou || r.apertou) desceu++;
     /* ninguém poderia ter recebido menos, no corpo escolhido */
     if(Math.min.apply(null, r.semNivelar) === r.deCada[0]) minimo++;
   });
@@ -126,7 +129,8 @@ setTimeout(() => {
   ok(comRascunho === 0,
      "nenhuma folha de rascunho artificial foi acrescentada (" +
      comRascunho + " casos)");
-  ok(desceu > 0, desceu + " deles só conseguiram isso descendo a letra");
+  ok(desceu > 0, desceu + " deles só conseguiram isso mexendo em letra, " +
+     "ordem ou espaçamento");
 
   /* ── 4. unidadesNaOrdem: a medição enxerga a ordem real ── */
   const G = require("./gerador.js");

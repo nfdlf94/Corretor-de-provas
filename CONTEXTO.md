@@ -2800,3 +2800,73 @@ Ou seja: o `teste61` cobre o MECANISMO (o tempero reembaralha, a correção
 acompanha, a trava funciona, a ordem dos recursos está certa), mas não
 existe teste que demonstre a busca resolvendo um caso real. Se aparecer
 um conjunto de dados que reproduza, vale virar suíte.
+
+---
+
+## v61 — as três alavancas, juntas
+
+A v60 acertou o diagnóstico e errou a execução. A mensagem nova provou:
+
+> *"Não consegui: mesmo em 10,5 pt e depois de tentar 24 reorganizações…"*
+
+**Mesmo em 10,5 pt.** A letra não desceu um degrau sequer, e as 24
+reorganizações foram todas tentadas no corpo grande. As alavancas
+estavam sendo usadas **uma de cada vez**, nunca em conjunto — e é
+justamente a combinação que resolve.
+
+### Por que isoladas não bastam
+
+Com uma figura de 50 mm no meio do caderno:
+
+- **só reduzir o corpo** não ajuda: a figura não encolhe junto;
+- **só reembaralhar** no corpo grande também não: a figura não cabe em
+  posição nenhuma;
+- **corpo menor MAIS outra ordem**, cabe.
+
+O código antigo procurava um degrau de letra que sozinho resolvesse; não
+achando, desistia da letra e ia tentar temperos no corpo original.
+
+### A busca combinada
+
+São três alavancas, e a busca varre as combinações:
+
+1. **letra** — a escada, 10,5 a 9 pt;
+2. **ordem** — o tempero (v60);
+3. **espaçamento** — o modo denso, que o simulado já usava desde sempre e
+   a avaliação comum não tinha. `DENSO` passou a aceitar `cfg.denso`.
+
+A preferência, nesta ordem: **menos páginas, letra maior, espaçamento
+folgado, tempero menor**. É por isso que o laço tem a letra por fora, o
+espaçamento no meio e o tempero por dentro — a letra maior e o
+espaçamento folgado valem mais para quem lê; o tempero não custa nada a
+ninguém. Para na primeira combinação que alcança o alvo, e o alvo é o
+melhor caso da turma: se alguém coube em duas, ninguém deveria precisar
+de três.
+
+### O custo, medido
+
+São até 4 × 2 × 25 = **200 combinações**. Cada uma exige medir a turma
+inteira, o que seria inviável no celular se cada medição remedisse as
+questões.
+
+`alturasCanonicas` depende do corpo e do espaçamento, mas **não do
+tempero** — então ela entra num cache com chave `corpo|denso`: 8 medições
+de questões em vez de 200. Resultado numa turma de 40: **200 combinações
+em 180 ms**.
+
+### Duas suítes ajustadas
+
+- **`teste54`** exigia especificamente que a LETRA tivesse descido. Agora
+  o app usa a alavanca mais barata que resolve, e naquele caso é o
+  tempero. A asserção passou a ser "houve algum ajuste, e ele economizou
+  folha" — qual das três foi não importa, importa que o app tenha mexido
+  na apresentação em vez de acrescentar folha.
+- **`teste61`** ancorava a ordem dos recursos em um comentário que a
+  reescrita apagou. Agora ele confere a estrutura do laço: letra por
+  fora, espaçamento no meio, tempero por dentro.
+
+### O que continua sem prova
+
+Ainda não reproduzi sinteticamente o caso do professor. Todas as turmas
+que montei saem parelhas mesmo sem a busca. A evidência de que o caso
+existe continua sendo a captura de tela dele.

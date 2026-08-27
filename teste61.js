@@ -180,14 +180,20 @@ setTimeout(() => {
      "o app experimenta até " + G.TEMPEROS + " reorganizações");
   const ordemDosRecursos = require("fs")
     .readFileSync(__dirname + "/gerador.js", "utf8");
-  const iLetra = ordemDosRecursos.indexOf("nivelar por BAIXO");
-  const iOrdem = ordemDosRecursos.indexOf("a reorganiza\u00e7\u00e3o, quando a letra");
-  const iRasc  = ordemDosRecursos.indexOf("tiragem pareja");
-  ok(iLetra > 0 && iOrdem > iLetra,
-     "a reorganização vem DEPOIS de tentar a letra");
-  ok(iRasc > iOrdem,
-     "e a folha de rascunho vem depois das duas — é o último recurso, " +
-     "não o primeiro");
+  const iBusca = ordemDosRecursos.indexOf("nivelar por BAIXO");
+  const iRasc  = ordemDosRecursos.indexOf("── tiragem pareja");
+  ok(iBusca > 0, "a busca por tiragem pareja existe");
+  ok(iRasc > iBusca,
+     "e a folha de rascunho vem DEPOIS dela — é o último recurso, não o " +
+     "primeiro");
+  /* dentro da busca, a preferência é: menos páginas, letra maior,
+     espaçamento folgado, tempero menor */
+  const trecho = ordemDosRecursos.slice(iBusca, iRasc);
+  ok(/for\(const fs of escada\)[\s\S]*for\(const denso of modos\)[\s\S]*for\(let t = temperoBase/
+     .test(trecho),
+     "e ela varre letra por fora, espaçamento no meio e tempero por " +
+     "dentro — a letra maior e o espaçamento folgado ganham do tempero " +
+     "menor, que não custa nada ao leitor");
 
   console.log(falhas ? "\nteste61: " + falhas + " FALHA(S)" : "\nteste61: tudo certo");
   process.exit(falhas ? 1 : 0);
