@@ -1071,12 +1071,23 @@ function unidadesQuestao(doc, n, item, larg, fs, opcoes, m, rotuloBloco){
   });
 
   const nAlt = m.alts.length;
+  const altoAlts = m.alts.reduce((a, la) => a + la.length * m.passo + AR_ALT(), 0);
+  const divideAlts = altoAlts >= (DENSO ? 36 : 42);
   m.alts.forEach((la, k) => {
     const ultima = (k === nAlt - 1);
     const extra = AR_ALT() + (ultima ? AR_QUESTAO() : 0);
-    /* nenhuma alternativa fica sozinha: as duas primeiras e as duas
-       últimas viajam sempre juntas */
-    const cola = (k === 0 && nAlt > 1) || (k === nAlt - 2 && nAlt > 1);
+    /* O bloco de alternativas só se divide se for ALTO. A regra antiga
+       apenas impedia que UMA ficasse sozinha — o que permitia partir A e
+       B de um lado e C, D e E do outro, e era exatamente isso que saía
+       impresso: o estudante virava a página no meio das opções.
+
+       Cinco alternativas curtas ocupam uns 15 mm; parti-las não ganha
+       espaço que valha o estrago. Acima do limiar são cinco parágrafos de
+       duas ou três linhas cada — aí dividir volta a valer, e aí sim vale
+       a regra de nunca deixar UMA sozinha. */
+    const cola = divideAlts
+      ? ((k === 0 || k === nAlt - 2) && nAlt > 1)
+      : !ultima;
     push(la.length * m.passo + extra, cola, (x, y) => {
       doc.setFont(FONTE_TEXTO, "bold"); doc.setTextColor(...COR.orange); doc.setFontSize(fs);
       doc.text(opcoes[k] + ")", x + 1, y + m.passo * 0.75);
@@ -1299,7 +1310,14 @@ function alturasCanonicas(doc, cfg, fs){
        para `paginasNoPior` remontá-las na ordem de cada estudante. */
     const nAlt = m.alts.length;
     const altsBase = m.alts.map(la => la.length * m.passo + AR_ALT());
-    return {alturas: U.map(u => u.h), colas: U.map(u => u.cola), nAlt, altsBase};
+    /* se o bloco de alternativas pode ou não ser dividido. Vai junto com
+       as alturas de propósito: `unidadesNaOrdem` precisa aplicar a MESMA
+       regra que `unidadesQuestao` usou, e recalculá-la lá seria uma
+       segunda fonte da verdade esperando divergir — foi o que aconteceu
+       na v63, com a medição achando 4 páginas e o desenho gastando 5. */
+    const divideAlts = altsBase.reduce((a, b) => a + b, 0) >= (DENSO ? 36 : 42);
+    return {alturas: U.map(u => u.h), colas: U.map(u => u.cola),
+            nAlt, altsBase, divideAlts};
   });
 }
 
@@ -1314,7 +1332,11 @@ function unidadesNaOrdem(q, perm, destinoA, destinoC){
     const canonico = (perm && perm[k] != null) ? perm[k] : k;
     const base = q.altsBase[canonico];
     destinoA.push(base + (k === q.nAlt - 1 ? AR_QUESTAO() : 0));
-    destinoC.push((q.nAlt > 1) && (k === 0 || k === q.nAlt - 2));
+    /* a MESMA regra de `unidadesQuestao`: bloco curto anda inteiro, bloco
+       alto pode dividir sem deixar nenhuma alternativa sozinha */
+    destinoC.push(q.divideAlts
+      ? ((q.nAlt > 1) && (k === 0 || k === q.nAlt - 2))
+      : (k < q.nAlt - 1));
   }
 }
 
@@ -1848,4 +1870,4 @@ if(typeof module !== "undefined") module.exports =
    pedacosDeNivel, remarcar, semMarcas, temMarcas, medidasQuestao, desenharQuestaoCol, prepararFontes, medirFigura,
    segmentarEnunciado, classificarCorpo, pareceFormula, unidadesQuestao, melhorCorte,
    grupoColado, empacotar, distribuirPagina, encherColuna, molduraDaPagina, fundoUtil, RODAPE, unidadesNaOrdem, paginasDaTurma, paginasNoPior, preFlightCheck, alternativasNaFigura, indicesFixos, ordemDaProva, paresDeOrdem, chavesDaTurma, charsDeNivel, cabecalho, larguraComNiveis,
-   AR_QUESTAO, REGRA_GABARITO, alturaFaixaCabecalho, comTempero, TEMPEROS};
+   AR_QUESTAO, AR_ALT, REGRA_GABARITO, alturaFaixaCabecalho, comTempero, TEMPEROS};

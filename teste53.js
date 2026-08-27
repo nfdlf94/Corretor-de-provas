@@ -118,6 +118,131 @@ setTimeout(() => {
        primeiro.toFixed(1) + " mm)");
   }
 
+  /* ── 0c. o bloco de alternativas não se parte ── */
+  /* Saía impresso com A e B numa coluna e C, D e E na outra: o estudante
+     virava a página no meio das opções. A regra antiga só impedia que UMA
+     ficasse sozinha, o que permitia exatamente esse corte. */
+  {
+    const doc3 = {
+      internal:{pageSize:{getWidth:()=>210,getHeight:()=>297}},
+      setFont(){}, setFontSize(v){this.fs=v;}, setTextColor(){}, setDrawColor(){},
+      setLineWidth(){}, line(){}, rect(){}, setFillColor(){}, setLineDashPattern(){},
+      getTextWidth(t){ return String(t).length*1.75; },
+      splitTextToSize(t,l){
+        const w=String(t).split(/\s+/).filter(Boolean); const o=[]; let a="";
+        w.forEach(p=>{const x=a?a+" "+p:p; if(x.length*1.75<=l||!a)a=x;else{o.push(a);a=p;}});
+        if(a)o.push(a); return o.length?o:[""];
+      },
+      text(){}, addImage(){}
+    };
+    const L3 = (210-24-7)/2, OP3 = ["A","B","C","D","E"];
+    const curtas = {enunciado:"Os pontos A(1, 2) e B(3, 8) pertencem ao gráfico " +
+      "de uma função polinomial f do 1º grau.\nDetermine a lei de formação dessa " +
+      "função e assinale a alternativa correta.",
+      alternativas:["f(x) = 3x + 1.","f(x) = 3x − 1.","f(x) = −3x + 1.",
+                    "f(x) = x + 1.","f(x) = 2x."], imagem:null};
+    const mc = G.medidasQuestao(doc3, curtas, L3, 10.5, OP3);
+    const Uc = G.unidadesQuestao(doc3, 4, curtas, L3, 10.5, OP3, mc, null);
+    const iAlt = Uc.length - mc.alts.length;
+    const cortesNasAlts = Uc.filter((u, i) =>
+      i >= iAlt && i < Uc.length - 1 && !u.cola).length;
+    ok(mc.alts.length === 5, "a questão tem as cinco alternativas");
+    ok(cortesNasAlts === 0,
+       "com alternativas de uma linha, nenhum corte é permitido entre elas " +
+       "(" + cortesNasAlts + ") — o bloco anda inteiro");
+
+    /* alternativas longas: aí dividir volta a valer */
+    const longas = {enunciado:"Leia o texto abaixo.\nUm título qualquer\n" +
+      "O texto de apoio desta questão é curto.\nAssinale a alternativa correta.",
+      alternativas: Array.from({length:5}, (_, k) =>
+        "Alternativa " + "ABCDE"[k] + ": " +
+        ("uma justificativa longa o bastante para ocupar três linhas inteiras " +
+         "da coluna, como acontece nas questões de interpretação. ").repeat(2)),
+      imagem:null};
+    const ml2 = G.medidasQuestao(doc3, longas, L3, 10.5, OP3);
+    const Ul2 = G.unidadesQuestao(doc3, 5, longas, L3, 10.5, OP3, ml2, null);
+    const iAlt2 = Ul2.length - ml2.alts.length;
+    const alto = ml2.alts.reduce((a, la) => a + la.length * ml2.passo, 0);
+    ok(alto > 42, "o bloco de alternativas longas passa de 42 mm (" +
+       alto.toFixed(0) + ")");
+    const cortes2 = Ul2.filter((u, i) =>
+      i >= iAlt2 && i < Ul2.length - 1 && !u.cola).length;
+    ok(cortes2 > 0,
+       "aí o bloco volta a poder ser dividido (" + cortes2 + " cortes legais)");
+    ok(Ul2[iAlt2].cola === true && Ul2[Ul2.length-2].cola === true,
+       "mas a primeira segue colada na segunda e a penúltima na última — " +
+       "nenhuma alternativa fica sozinha");
+  }
+
+  /* ── 0d. medição e desenho contam a MESMA coisa ── */
+  /* `unidadesQuestao` monta as unidades para DESENHAR; `unidadesNaOrdem`
+     as remonta na ordem de cada estudante para MEDIR. As duas precisam
+     aplicar as mesmas regras de cola.
+
+     Na v63 elas divergiram: mudei a regra do bloco de alternativas numa e
+     esqueci a outra. A medição achou 4 páginas, o desenho gastou 5, e a
+     turma inteira recebeu uma folha a mais. Este teste é a rede. */
+  {
+    const doc4 = {
+      internal:{pageSize:{getWidth:()=>210,getHeight:()=>297}},
+      setFont(){}, setFontSize(v){this.fs=v;}, setTextColor(){}, setDrawColor(){},
+      setLineWidth(){}, line(){}, rect(){}, setFillColor(){}, setLineDashPattern(){},
+      getTextWidth(t){ return String(t).length*1.75; },
+      splitTextToSize(t,l){
+        const w=String(t).split(/\s+/).filter(Boolean); const o=[]; let a="";
+        w.forEach(p=>{const x=a?a+" "+p:p; if(x.length*1.75<=l||!a)a=x;else{o.push(a);a=p;}});
+        if(a)o.push(a); return o.length?o:[""];
+      },
+      text(){}, addImage(){}
+    };
+    const L4 = (210-24-7)/2, OP4 = ["A","B","C","D","E"];
+    const casos = [
+      {nome:"alternativas curtas",
+       q:{enunciado:"Os pontos A(1, 2) e B(3, 8) pertencem ao gráfico.\n" +
+          "Determine a lei de formação e assinale a correta.",
+          alternativas:["f(x) = 3x + 1.","f(x) = 3x − 1.","f(x) = −3x + 1.",
+                        "f(x) = x + 1.","f(x) = 2x."], imagem:null}},
+      {nome:"alternativas longas",
+       q:{enunciado:"Leia o texto abaixo.\nUm título\nUm apoio curto.\n" +
+          "Assinale a alternativa correta.",
+          alternativas: Array.from({length:5}, (_, k) => "Opção " + "ABCDE"[k] +
+            ": " + ("uma justificativa longa o bastante para ocupar três " +
+            "linhas inteiras da coluna. ").repeat(2)), imagem:null}},
+      {nome:"texto de apoio longo",
+       q:{enunciado:"Leia o texto abaixo.\nUm título\n" +
+          ("A leitura silenciosa firmou-se tarde na história e mudou o modo " +
+           "como as pessoas se relacionam com o texto escrito. ").repeat(6) +
+          "\nASSIS, Machado de. Contos. Ática, 1998. Acesso em: 6 fev. 2012.\n" +
+          "De acordo com o texto:",
+          alternativas:["a","b","c","d","e"], imagem:null}}
+    ];
+    let divergiu = 0;
+    casos.forEach(c => {
+      const mq2 = G.medidasQuestao(doc4, c.q, L4, 10.5, OP4);
+      const Ud = G.unidadesQuestao(doc4, 1, c.q, L4, 10.5, OP4, mq2, null);
+      /* o que `alturasCanonicas` guardaria desta questão */
+      const guardado = {
+        alturas: Ud.map(u => u.h), colas: Ud.map(u => u.cola),
+        nAlt: mq2.alts.length,
+        altsBase: mq2.alts.map(la => la.length * mq2.passo + G.AR_ALT()),
+        divideAlts: mq2.alts.reduce((a, la) =>
+          a + la.length * mq2.passo + G.AR_ALT(), 0) >= 42
+      };
+      /* remontado na ordem CANÔNICA: tem de dar exatamente o mesmo */
+      const A = [], C = [];
+      G.unidadesNaOrdem(guardado, null, A, C);
+      const mesmaAltura = A.length === Ud.length &&
+        A.every((h, i) => Math.abs(h - Ud[i].h) < 0.001);
+      const mesmaCola = C.length === Ud.length &&
+        C.every((v, i) => !!v === !!Ud[i].cola);
+      if(!mesmaAltura || !mesmaCola) divergiu++;
+      ok(mesmaAltura, c.nome + ": as alturas batem entre medição e desenho");
+      ok(mesmaCola, c.nome + ": e as COLAS também — era aqui que a v63 " +
+         "divergia");
+    });
+    ok(divergiu === 0, "nenhum dos três casos diverge");
+  }
+
   /* ── 1. o caso mínimo ── */
   /* três unidades de 40 mm; as duas primeiras coladas. Numa coluna de
      100 mm, cabem duas por coluna. O fim da página não pode cair entre

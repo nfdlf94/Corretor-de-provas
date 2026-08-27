@@ -2935,3 +2935,79 @@ fica no fim da questão anterior, que é onde branco não incomoda.
 curto + figura grande) nenhum corte é permitido antes dos 30 mm, a última
 unidade não fica colada, e um texto longo continua com vários cortes
 legais — o primeiro deles depois dos 30 mm.
+
+---
+
+## v63 — o bloco de alternativas não se parte
+
+Nas fotos: **A e B numa coluna, C, D e E na outra.** O estudante vira a
+página no meio das opções.
+
+### A regra antiga era fraca demais
+
+```js
+const cola = (k === 0 && nAlt > 1) || (k === nAlt - 2 && nAlt > 1);
+```
+
+Ela só impedia que UMA alternativa ficasse sozinha — o que permite
+exatamente o corte A,B | C,D,E. Era a regra que eu tinha escrito na v43 e
+que sobreviveu vinte versões sem ninguém olhar para o que ela permitia.
+
+Agora o bloco **anda inteiro**, com uma exceção: se ele passa de 42 mm
+(36 no modo denso), volta a poder ser dividido, e aí sim vale a regra
+antiga de não deixar nenhuma sozinha. Cinco alternativas de uma linha
+ocupam uns 15 mm e parti-las não ganha nada; cinco parágrafos de três
+linhas são outra história.
+
+### O custo, medido duas vezes
+
+Com o corpo FIXO em 10,5 pt, dez ordens diferentes do mesmo caderno:
+
+| | antes | depois |
+|---|---|---|
+| blocos de alternativas partidos | **9** | **0** |
+| páginas somadas | 25 | 29 |
+
+16% a mais — assustador. Mas essa medição ignora a busca da v61. Rodando
+`gerarProvas` de verdade, com letra, ordem e espaçamento em jogo, a mesma
+prova numa turma de 40 fecha em **3 páginas por estudante nas duas
+versões**. O custo real foi **zero**: a busca recupera o que a regra
+gasta.
+
+Lição: medir com o corpo travado superestima o custo de qualquer regra de
+quebra. O número que vale é o do fim da linha.
+
+### A armadilha, e ela mordeu
+
+`unidadesQuestao` monta as unidades para DESENHAR. `unidadesNaOrdem` as
+remonta na ordem de cada estudante para MEDIR. **As duas precisam aplicar
+as mesmas regras de cola.**
+
+Mudei a regra numa e esqueci a outra. A medição continuou achando que o
+bloco de alternativas podia ser partido, calculou 4 páginas, e o desenho
+gastou 5 — a turma inteira recebeu uma folha a mais.
+
+Quem pegou foi o `teste50`, que exige que as três turmas da série saiam
+iguais: a 3A saiu com 4 e as irmãs com 5. O teste não foi escrito para
+isso, mas o invariante que ele guarda é justamente esse.
+
+A correção: `divideAlts` passou a ser calculado UMA vez, em
+`alturasCanonicas`, e viaja junto com as alturas. Recalculá-lo em
+`unidadesNaOrdem` seria uma segunda fonte da verdade esperando divergir de
+novo.
+
+### Duas suítes ajustadas
+
+**`teste53`** ganhou a rede: para três formatos de questão (alternativas
+curtas, longas, texto de apoio longo), as alturas E as colas de
+`unidadesQuestao` e `unidadesNaOrdem` têm de bater exatamente. É o teste
+que faltava na v63.
+
+**`teste54`** exigia que o app tivesse AJUSTADO alguma coisa (letra,
+ordem ou espaçamento) para nivelar a tiragem. Com o bloco de alternativas
+indivisível, a paginação ficou bem menos sensível à ordem e aquele
+conjunto de dados passou a sair parelho sozinho — não há o que ajustar.
+
+O teste passou a exigir a CONSEQUÊNCIA e não o meio: ou houve ajuste e
+ele economizou folha, ou não houve e a tiragem já saiu pareja. O que o
+app nunca pode fazer é acrescentar folha sem ter tentado antes.

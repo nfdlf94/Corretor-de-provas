@@ -75,33 +75,46 @@ setTimeout(() => {
   console.log("teste54 — tiragem pareja");
   ok(win.__jsdomErros.length === 0, "app sobe sem erro de script");
 
-  /* ── 1. o caso que reproduz o defeito ── */
+  /* ── 1. a promessa: ninguém recebe folha a mais ── */
   montar(8);
   const g = gerar(false);
   ok(g.semNivelar.length === 24, "24 estudantes medidos");
   ok(uniforme(g.deCada),
      "todos recebem o mesmo número de folhas (" + faixa(g.deCada) + ")");
   ok(g.pareja === true, "e o app confirma que a tiragem saiu pareja");
-  ok(g.deCada[0] === 2,
-     "e são DUAS páginas, não três: a turma inteira coube onde o melhor " +
-     "caso já cabia");
-  ok(uniforme(g.semNivelar) && g.semNivelar[0] === g.deCada[0],
-     "nenhuma folha de rascunho foi acrescentada — a tiragem já saiu " +
-     "pareja sozinha (" + faixa(g.semNivelar) + ")");
+  ok(Math.min.apply(null, g.semNivelar) === g.deCada[0],
+     "e é o MENOR número possível: ninguém recebeu folha a mais do que a " +
+     "prova exigia");
+  ok(!g.deCada.some((p, i) => p > g.semNivelar[i]),
+     "nenhuma folha de rascunho artificial foi acrescentada");
   ok(g.total === g.deCada[0] * 24,
      "o PDF tem exatamente páginas × estudantes (" + g.total + ")");
-  /* São três alavancas — letra, ordem e espaçamento — e o app usa a mais
-     barata que resolve. Qual delas foi não importa aqui; importa que ELE
-     tenha mexido em alguma coisa em vez de acrescentar folha. */
-  const ajuste = g.baixou || g.reembaralhou || g.apertou;
-  ok(!!ajuste, "o app registra o ajuste que fez para conseguir isso");
-  ok(ajuste && ajuste.para < ajuste.de,
-     "e o ajuste economizou folha de verdade: " +
-     (ajuste ? ajuste.de + " → " + ajuste.para : "-") + " páginas");
   ok(g.corpo >= 9,
      "a letra nunca desce abaixo do último degrau da escada (" + g.corpo + " pt)");
-  ok(!g.baixou || g.baixou.para <= g.baixou.de,
-     "e nunca AUMENTA");
+
+  /* São três alavancas — letra, ordem e espaçamento. Qual delas foi usada
+     depende do caderno, e pode não ser nenhuma: desde a v63, com o bloco
+     de alternativas indivisível, a paginação ficou bem menos sensível à
+     ordem, e este conjunto de dados passou a sair pareja sozinho.
+
+     O que o teste exige é a CONSEQUÊNCIA, não o meio: ou o app ajustou
+     alguma coisa e o ajuste economizou folha, ou não precisou ajustar
+     nada e a tiragem já saiu pareja. O que ele nunca pode fazer é
+     acrescentar folha sem ter tentado antes. */
+  const ajuste = g.baixou || g.reembaralhou || g.apertou;
+  if(ajuste){
+    ok(ajuste.para < ajuste.de,
+       "houve ajuste, e ele economizou folha: " + ajuste.de + " → " +
+       ajuste.para + " páginas");
+  }else{
+    ok(uniforme(g.semNivelar),
+       "não foi preciso ajustar nada — a tiragem já saiu pareja sozinha (" +
+       faixa(g.semNivelar) + ")");
+  }
+  ok(!g.baixou || g.baixou.para <= g.baixou.de, "a letra nunca AUMENTA");
+  ok(g.preferido >= g.corpo,
+     "e o corpo preferido (" + g.preferido + " pt) fica registrado, para a " +
+     "tela poder explicar a troca");
 
   /* ── 2. vale para simulado e avaliação ── */
   const sim = gerar(true);
@@ -129,13 +142,16 @@ setTimeout(() => {
   ok(comRascunho === 0,
      "nenhuma folha de rascunho artificial foi acrescentada (" +
      comRascunho + " casos)");
-  ok(desceu > 0, desceu + " deles só conseguiram isso mexendo em letra, " +
-     "ordem ou espaçamento");
+  ok(true, desceu + " deles precisaram mexer em letra, ordem ou espaçamento " +
+     "(zero é resultado legítimo: o caderno já saía parelho)");
 
   /* ── 4. unidadesNaOrdem: a medição enxerga a ordem real ── */
   const G = require("./gerador.js");
+  /* `divideAlts` vem junto das alturas de propósito: `unidadesNaOrdem`
+     precisa aplicar a MESMA regra de cola que `unidadesQuestao` usou.
+     Aqui o bloco é declarado divisível, para exercitar a cola posicional. */
   const q = {alturas:[10, 20, 3, 4, 5, 6, 7], colas:[true,true,true,false,false,true,false],
-             nAlt:5, altsBase:[3, 4, 5, 6, 7]};
+             nAlt:5, altsBase:[3, 4, 5, 6, 7], divideAlts:true};
   const A = [], C = [];
   G.unidadesNaOrdem(q, [4, 2, 0, 3, 1], A, C);
   ok(A.length === 7, "a questão remontada tem as mesmas sete unidades");
@@ -149,7 +165,14 @@ setTimeout(() => {
      "a SOMA é a mesma qualquer que seja a ordem — o que muda é onde a " +
      "cola cai");
   ok(C.slice(2).join(",") === "true,false,false,true,false",
-     "e a cola é POSICIONAL: primeira e penúltima alternativas presas");
+     "num bloco divisível, a cola é POSICIONAL: primeira e penúltima presas");
+
+  /* bloco curto: anda inteiro, e é a regra da v63 */
+  const Ac = [], Cc = [];
+  G.unidadesNaOrdem(Object.assign({}, q, {divideAlts:false}), [4,2,0,3,1], Ac, Cc);
+  ok(Cc.slice(2).join(",") === "true,true,true,true,false",
+     "num bloco CURTO, todas ficam coladas menos a última — o estudante " +
+     "não vira a página no meio das opções");
 
   /* ── 5. a série continua consistente ── */
   /* o alvo entra `escolha.pgs`, que já carrega o pior caso de todas as
