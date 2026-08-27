@@ -33,18 +33,43 @@ setTimeout(() => {
      metades de altura parecida —, e qualquer página que fechasse antes
      do fim saía com as duas colunas paradas no meio. */
   {
-    const A = [20, 20, 20, 20, 20, 20];
-    const C = [false, false, false, false, false, false];
+    /* 12 unidades de 20 mm numa coluna de 100: a página leva 10 e ainda
+       sobram 2, então NÃO é a última — vale a regra de encher a esquerda */
+    const A = Array(12).fill(20), C = Array(12).fill(false);
     const d = G.distribuirPagina(A, C, 0, A.length, 100);
     ok(d.corte === 5,
-       "com 6 unidades de 20 mm numa coluna de 100, a esquerda leva CINCO " +
-       "(" + d.corte + ") — enche até o limite");
-    ok(d.leva === 6, "e a sexta abre a coluna da direita");
+       "numa página que continua, a esquerda leva CINCO unidades (" +
+       d.corte + ") — enche até o limite");
+    ok(d.leva === 10, "e a direita leva outras cinco");
     const esq = A.slice(0, d.corte).reduce((a,b)=>a+b,0);
     ok(esq === 100, "a esquerda fecha exatamente no fundo (" + esq + " mm)");
-    ok(A.slice(d.corte, d.leva).reduce((a,b)=>a+b,0) === 20,
-       "e a direita fica com o resto, curta — que é o certo: o texto " +
-       "acabou, não a coluna");
+    ok(d.leva < A.length, "e a página não esgota o conteúdo — ela continua");
+  }
+  {
+    /* ÚLTIMA página: o que resta cabe todo aqui. Encher a esquerda
+       deixaria a direita INTEIRA vazia; equilibrar reparte. */
+    const A = Array(6).fill(20), C = Array(6).fill(false);
+    const d = G.distribuirPagina(A, C, 0, A.length, 100);
+    ok(d.leva === 6, "a última página leva tudo o que resta");
+    const esq = A.slice(0, d.corte).reduce((a,b)=>a+b,0);
+    const dir = A.slice(d.corte, d.leva).reduce((a,b)=>a+b,0);
+    ok(dir > 0,
+       "e a coluna direita NÃO fica vazia (" + esq + "/" + dir + " mm)");
+    ok(esq >= dir,
+       "com a esquerda nunca menor que a direita — uma esquerda curta " +
+       "seguida de uma direita comprida se lê como defeito");
+    ok(Math.abs(esq - dir) <= 20,
+       "e as duas terminam perto uma da outra (" + Math.abs(esq-dir) + " mm)");
+  }
+  {
+    /* quando o único corte legal deixaria a esquerda menor, fica como
+       estava: esquerda cheia, direita vazia. Questões são blocos grandes
+       e nem sempre há onde cortar. */
+    const A = [30, 70], C = [false, false];
+    const d = G.distribuirPagina(A, C, 0, A.length, 100);
+    ok(d.corte === 2 && d.leva === 2,
+       "com 30 e 70 mm, nenhum corte deixa a esquerda ≥ direita: as duas " +
+       "ficam na esquerda (corte " + d.corte + ")");
   }
   {
     /* nada obriga a esquerda a estourar para caber mais: o grupo colado

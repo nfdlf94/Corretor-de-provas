@@ -1378,8 +1378,43 @@ function encherColuna(alturas, colas, i, fim, cap){
    as colunas nem o fim da página partem um grupo colado. */
 function distribuirPagina(alturas, colas, i, fim, cap){
   const corte = encherColuna(alturas, colas, i, fim, cap) - i;
-  const leva = encherColuna(alturas, colas, i + corte, fim, cap) - i;
-  return {corte, leva: Math.max(leva, corte)};
+  const leva = Math.max(encherColuna(alturas, colas, i + corte, fim, cap) - i, corte);
+
+  /* ÚLTIMA PÁGINA: aqui, e só aqui, as duas colunas se equilibram.
+     Encher a esquerda é a regra de leitura e vale para toda página que
+     continua na seguinte. Mas quando o que resta cabe todo nesta folha,
+     encher a esquerda deixa a coluna DIREITA INTEIRA vazia — uma folha
+     partida ao meio, no sentido errado. Equilibrando, sobra uma faixa de
+     branco no pé das duas, que é como um livro termina um capítulo.
+
+     Isto NÃO muda quantas páginas a prova ocupa: `leva` é o mesmo, só o
+     ponto de corte entre as colunas muda. Por isso `empacotar` e `fluir`
+     continuam contando a mesma coisa. */
+  if(i + leva >= fim){
+    /* Entre os cortes legais, o mais equilibrado — com uma condição: a
+       coluna esquerda NUNCA pode ficar menor que a direita. Sem ela o
+       equilíbrio produz páginas com a esquerda curta e a direita comprida,
+       que se leem como defeito: o olho desce a primeira coluna, ela acaba
+       cedo, e a segunda continua muito abaixo. Um erro pior que o que se
+       queria consertar.
+
+       Quando o único corte legal deixaria a esquerda menor, fica como
+       estava: esquerda cheia, direita vazia. As questões são blocos
+       grandes e nem sempre há onde cortar. */
+    let melhor = -1, dif = Infinity, soma = 0;
+    const total = alturas.slice(i, fim).reduce((a, b) => a + b, 0);
+    for(let k = 1; k < fim - i; k++){
+      soma += alturas[i + k - 1];
+      if(colas[i + k - 1]) continue;
+      const dir = total - soma;
+      if(soma > cap || dir > cap) continue;
+      if(soma < dir) continue;                 // esquerda nunca menor
+      const d = soma - dir;
+      if(d < dif){ dif = d; melhor = k; }
+    }
+    if(melhor > 0) return {corte: melhor, leva};
+  }
+  return {corte, leva};
 }
 
 function empacotar(alturas, topoPrimeira, fundo, colas){

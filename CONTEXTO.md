@@ -3069,3 +3069,87 @@ largura próprias, na largura de UMA coluna, e nunca numa caixa minúscula.
 Detalhe de método: remendar `addPage` no protótipo do jsPDF **não**
 intercepta o objeto real. A página é perguntada ao próprio doc, com
 `doc.internal.getCurrentPageInfo()`. Já perdi tempo com isso duas vezes.
+
+---
+
+## v65 — a última página equilibra as colunas
+
+Antes de mexer, medi onde o branco está de fato. Instrumentei a paginação
+de um estudante da avaliação do professor (10 questões, 4 com figura):
+
+| | capacidade/coluna | esquerda | direita | branco |
+|---|---|---|---|---|
+| pág 1 | 169 mm | 145 | 110 | 83 mm |
+| pág 2 | 268 mm | 229 | 242 | 65 mm |
+| pág 3 | 268 mm | 125 | **0** | **411 mm** |
+
+**73% do branco estava na última página, com a coluna direita inteira
+vazia** — consequência direta da regra da v59 (encher a esquerda
+primeiro), que vale para toda página que continua na seguinte mas produz
+uma folha partida ao meio quando o conteúdo acaba.
+
+### A regra
+
+Quando o que resta cabe todo nesta folha, as duas colunas se equilibram.
+Isto **não muda quantas páginas a prova ocupa**: `leva` é o mesmo, só o
+ponto de corte entre as colunas muda — por isso `empacotar` e `fluir`
+continuam contando a mesma coisa.
+
+### A condição que salvou a ideia
+
+A primeira versão usava `melhorCorte` direto e produzia páginas assim:
+
+```
+60/125     186/69     117/85     61/85
+```
+
+Uma coluna esquerda curta seguida de uma direita comprida. O olho desce a
+primeira coluna, ela acaba cedo, e a segunda continua muito abaixo — lê-se
+como defeito, e é um erro **pior** que o que se queria consertar.
+
+A condição é: **a esquerda nunca pode ficar menor que a direita.** Entre os
+cortes que satisfazem isso, o mais equilibrado. Resultado nas mesmas seis
+provas:
+
+| | antes (v64) | equilíbrio cru | com a condição |
+|---|---|---|---|
+| 1 | 185/0 | 60/125 | 185/0 |
+| 2 | 255/0 | 186/69 | 186/69 |
+| 3 | 202/0 | 117/85 | 117/85 |
+| 4 | 146/0 | 61/85 | 146/0 |
+| 5 | 168/0 | 112/56 | 112/56 |
+| 6 | 186/0 | 125/61 | 125/61 |
+
+Quatro das seis melhoram; duas ficam como estavam, porque não existe
+corte legal que mantenha a esquerda maior. Questões são blocos grandes e
+nem sempre há onde cortar.
+
+### O que NÃO mudou, e é importante
+
+O total de branco é **exatamente o mesmo** (6 708 mm em 12 estudantes) e o
+número de páginas também (36). Equilibrar **redistribui** o branco, não o
+elimina. O branco das páginas do meio é estrutural: na página 1 sobravam
+59 mm na direita e o próximo grupo indivisível media 68 mm — rótulo +
+enunciado + tabela, o menor pedaço que se pode levar sem quebrar a
+questão.
+
+### Uma tentativa medida e desfeita
+
+No mesmo ciclo tentei soltar a figura de APOIO do comando (deixar a tabela
+terminar uma coluna e o "Assinale a alternativa…" começar na outra),
+mantendo a cola só quando as alternativas estão dentro da figura.
+
+Varri 12 ordens: **6 708 mm de branco antes, 6 708 depois, 36 páginas nos
+dois casos.** Zero ganho, e traria de volta o defeito da v48 (comando
+separado do gráfico). Desfeito.
+
+Fica registrado para não ser tentado de novo: a razão de não ganhar nada é
+que o grupo mínimo continua sendo rótulo + enunciado + figura (68 mm), e
+era esse que não cabia.
+
+### Suíte
+
+`teste53` separou os dois regimes, que antes estavam misturados no mesmo
+caso: uma página que CONTINUA (a esquerda enche até o limite) e a ÚLTIMA
+página (as duas se equilibram, com a esquerda nunca menor). Mais o caso
+em que não há corte legal e a direita fica vazia mesmo.
