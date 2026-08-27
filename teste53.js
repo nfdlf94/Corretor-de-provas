@@ -58,6 +58,66 @@ setTimeout(() => {
     ok(d.leva === 3, "e o grupo inteiro vai para a direita, sem partir");
   }
 
+  /* ── 0b. nenhuma lasca de questão no pé da coluna ── */
+  /* O enunciado de duas linhas ficava sozinho no pé da coluna e a tabela
+     ou o gráfico iam para a seguinte, com um buraco entre os dois. É a
+     regra da viúva no nível da questão: ou entra um trecho de verdade,
+     ou não entra nada. */
+  {
+    const doc2 = {
+      internal:{pageSize:{getWidth:()=>210,getHeight:()=>297}},
+      setFont(){}, setFontSize(v){this.fs=v;}, setTextColor(){}, setDrawColor(){},
+      setLineWidth(){}, line(){}, rect(){}, setFillColor(){}, setLineDashPattern(){},
+      getTextWidth(t){ return String(t).length*1.75; },
+      splitTextToSize(t,l){
+        const w=String(t).split(/\s+/).filter(Boolean); const o=[]; let a="";
+        w.forEach(p=>{const x=a?a+" "+p:p; if(x.length*1.75<=l||!a)a=x;else{o.push(a);a=p;}});
+        if(a)o.push(a); return o.length?o:[""];
+      },
+      text(){}, addImage(){}
+    };
+    const L2 = (210-24-7)/2, OP = ["A","B","C","D","E"];
+    /* a questão das fotos: enunciado curto e uma figura grande logo depois */
+    const curta = {enunciado:"Uma função polinomial f do 1º grau é definida " +
+      "por f(x) = −2x + 6.\nAssinale a alternativa cujo gráfico representa essa função.",
+      alternativas:["","","","",""], imagem:{dados:"d",w:1169,h:674}};
+    const mq = G.medidasQuestao(doc2, curta, L2, 10.5, OP);
+    const Uq = G.unidadesQuestao(doc2, 3, curta, L2, 10.5, OP, mq, null);
+    let acc = 0, cortesCedo = 0;
+    Uq.forEach((u, i) => {
+      acc += u.h;
+      if(i < Uq.length - 1 && !u.cola && acc < 30) cortesCedo++;
+    });
+    ok(cortesCedo === 0,
+       "nenhum corte permitido antes de a questão comprometer 30 mm com a " +
+       "coluna (" + cortesCedo + ")");
+    ok(Uq[Uq.length-1].cola === false,
+       "e a última unidade NÃO fica colada — senão a questão inteira " +
+       "grudaria na seguinte");
+    ok(Uq.some(u => !u.cola),
+       "a questão continua tendo pelo menos um corte legal");
+
+    /* um texto longo continua podendo ser dividido */
+    const longa = {enunciado:"Leia o texto abaixo.\nUm título\n" +
+      ("A leitura silenciosa firmou-se tarde na história e mudou o modo como " +
+       "as pessoas se relacionam com o texto escrito. ").repeat(6) +
+      "\nASSIS, Machado de. Contos. Ática, 1998. Acesso em: 6 fev. 2012.\n" +
+      "De acordo com o texto:",
+      alternativas:["a","b","c","d","e"], imagem:null};
+    const ml = G.medidasQuestao(doc2, 1 && longa, L2, 10.5, OP);
+    const Ul = G.unidadesQuestao(doc2, 1, longa, L2, 10.5, OP, ml, null);
+    const legais = Ul.filter((u,i) => i < Ul.length-1 && !u.cola).length;
+    ok(legais >= 3,
+       "um texto longo segue com vários cortes legais (" + legais + ") — a " +
+       "regra da lasca não engessa a divisão entre colunas");
+    let acc2 = 0, primeiro = -1;
+    Ul.forEach((u,i) => { acc2 += u.h;
+      if(primeiro < 0 && i < Ul.length-1 && !u.cola) primeiro = acc2; });
+    ok(primeiro >= 30,
+       "e o primeiro deles só aparece depois de 30 mm (" +
+       primeiro.toFixed(1) + " mm)");
+  }
+
   /* ── 1. o caso mínimo ── */
   /* três unidades de 40 mm; as duas primeiras coladas. Numa coluna de
      100 mm, cabem duas por coluna. O fim da página não pode cair entre

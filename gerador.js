@@ -937,9 +937,24 @@ function desenharLinhasParte(doc, pt, x, y, largCol, de, ate){
    A soma das alturas das unidades é exatamente `m.h + AR_QUESTAO()`
    (mais a faixa de bloco, quando houver) — a paginação continua medindo
    a mesma coisa que o desenho gasta. */
+/* Pedaço mínimo de questão que vale a pena deixar numa coluna. Cortar
+   antes disso deixa um enunciado de duas linhas sozinho no pé da coluna e
+   manda a tabela ou o gráfico para a seguinte — com um buraco entre os
+   dois. É a regra da viúva, no nível da questão: ou entra um trecho de
+   verdade, ou não entra nada. */
+const MIN_TRECHO = () => DENSO ? 26 : 30;
+
 function unidadesQuestao(doc, n, item, larg, fs, opcoes, m, rotuloBloco){
   const U = [];
-  const push = (h, cola, desenhar) => U.push({h, cola: !!cola, desenhar});
+  let acumulado = 0;
+  const push = (h, cola, desenhar) => {
+    /* enquanto a questão não tiver comprometido MIN_TRECHO com esta
+       coluna, nenhum corte é permitido: o que ficaria para trás seria
+       uma lasca */
+    const lasca = acumulado + h < MIN_TRECHO();
+    acumulado += h;
+    U.push({h, cola: !!cola || lasca, desenhar});
+  };
 
   if(rotuloBloco){
     push(ALT_CABECALHO, true, (x, y) => {
@@ -1075,6 +1090,10 @@ function unidadesQuestao(doc, n, item, larg, fs, opcoes, m, rotuloBloco){
       return y + la.length * m.passo + extra;
     });
   });
+  /* a última unidade da questão NUNCA fica colada: senão a questão inteira
+     gruda na seguinte. Numa questão mais curta que MIN_TRECHO, a regra da
+     lasca marcaria todas — inclusive esta. */
+  if(U.length) U[U.length - 1].cola = false;
   return U;
 }
 

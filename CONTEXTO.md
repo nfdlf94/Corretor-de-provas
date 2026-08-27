@@ -2870,3 +2870,68 @@ em 180 ms**.
 Ainda não reproduzi sinteticamente o caso do professor. Todas as turmas
 que montei saem parelhas mesmo sem a busca. A evidência de que o caso
 existe continua sendo a captura de tela dele.
+
+---
+
+## v62 — a regra da viúva, no nível da questão
+
+Nas fotos da avaliação impressa: um enunciado de duas linhas sozinho no
+pé da coluna e a tabela ou o gráfico dele no alto da coluna seguinte, com
+um vão enorme entre os dois.
+
+```
+QUESTÃO 04
+   Uma vela decorativa foi acesa e sua altura
+foi medida a cada hora, conforme a tabela
+abaixo.
+                                          ← 90 mm de nada
+```
+
+### Por que acontecia
+
+Todas as regras de cola olhavam para **pares** de unidades: o comando não
+se separa das alternativas, a figura não se separa do comando, a fonte
+não fica isolada. Nenhuma olhava para o **tamanho do pedaço** que ficava
+para trás.
+
+O corte entre o texto de apoio e o comando é legal — e é ele que permite
+dividir um texto longo entre as colunas, o que resolveu o buraco da v43.
+Só que num enunciado de duas linhas esse mesmo corte deixa uma lasca no
+pé da coluna e manda todo o resto (comando + figura de 50 mm) para a
+seguinte.
+
+### A regra
+
+`MIN_TRECHO` (30 mm, 26 no modo denso): **enquanto a questão não tiver
+comprometido esse tanto com a coluna, nenhum corte é permitido.** Ou
+entra um trecho de verdade, ou não entra nada.
+
+É a regra tipográfica da viúva, aplicada à questão em vez do parágrafo. E
+não engessa a divisão de textos longos: passados os 30 mm, os cortes
+voltam a ser legais, um por linha.
+
+Uma armadilha: numa questão INTEIRA menor que 30 mm, a regra marcaria
+todas as unidades como coladas — inclusive a última, o que grudaria a
+questão na seguinte e criaria um bloco indivisível gigante. Por isso a
+última unidade tem a cola forçada para `false` no fim de
+`unidadesQuestao`.
+
+### O custo, medido
+
+Varredura de 50 cadernos com figura e tabela:
+
+| | antes | depois |
+|---|---|---|
+| cortes deixando lasca (< 30 mm) | **74** | **0** |
+| páginas somadas | 113 | 116 |
+
+74 lascas viram zero por 3 páginas em 113 — **2,6%**. O vão continua
+existindo, mas mudou de lugar: em vez de rasgar a questão ao meio, ele
+fica no fim da questão anterior, que é onde branco não incomoda.
+
+### Suíte
+
+`teste53` ganhou a conferência direta: na questão das fotos (enunciado
+curto + figura grande) nenhum corte é permitido antes dos 30 mm, a última
+unidade não fica colada, e um texto longo continua com vários cortes
+legais — o primeiro deles depois dos 30 mm.
