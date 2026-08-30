@@ -488,8 +488,12 @@ function segmentarEnunciado(texto){
   const seg = {instrucao: null, titulo: null, corpo: [], fonte: null, comando: null};
 
   if(RE_INSTRUCAO.test(paras[0])) seg.instrucao = paras.shift();
-  /* título: linha curta, sem ponto final, logo depois da instrução */
-  if(paras.length > 1 && paras[0].length <= 70 && !/[.?!:;]$/.test(paras[0]))
+  /* Título: linha curta logo depois da instrução. Ponto final, dois-pontos
+     e ponto e vírgula descartam — são frase, não título. Mas EXCLAMAÇÃO e
+     INTERROGAÇÃO não: "Eu te amo não diz tudo!" e "Quem descobriu o
+     Brasil?" são títulos de reportagem, e era o único formato que o app
+     não reconhecia. */
+  if(paras.length > 1 && paras[0].length <= 70 && !/[.:;]$/.test(paras[0]))
     seg.titulo = paras.shift();
 
   /* referência: procura de trás para frente o fim de uma fórmula
@@ -947,13 +951,25 @@ const MIN_TRECHO = () => DENSO ? 26 : 30;
 function unidadesQuestao(doc, n, item, larg, fs, opcoes, m, rotuloBloco){
   const U = [];
   let acumulado = 0;
-  const push = (h, cola, desenhar) => {
+  /* ── dois graus de cola ──────────────────────────────────
+     `cola` é DURA: cortar ali estraga a questão — o rótulo sozinho no pé
+     da coluna, a figura longe do comando que manda observá-la, uma
+     alternativa isolada.
+
+     `mole` é PREFERÊNCIA: melhor não cortar, mas cortar é melhor que
+     deixar meia coluna em branco. O comando gosta de ficar com as
+     alternativas; a fonte gosta de ficar com o comando. Se o preço disso
+     for um buraco de 60 mm, rompe.
+
+     Até a v65 tudo era duro, e o resultado eram questões inteiras viradas
+     blocos de 110 mm que não cabiam em lugar nenhum. */
+  const push = (h, cola, desenhar, mole) => {
     /* enquanto a questão não tiver comprometido MIN_TRECHO com esta
        coluna, nenhum corte é permitido: o que ficaria para trás seria
        uma lasca */
     const lasca = acumulado + h < MIN_TRECHO();
     acumulado += h;
-    U.push({h, cola: !!cola || lasca, desenhar});
+    U.push({h, cola: !!cola || lasca, mole: !!mole, desenhar});
   };
 
   if(rotuloBloco){
@@ -987,7 +1003,14 @@ function unidadesQuestao(doc, n, item, larg, fs, opcoes, m, rotuloBloco){
   /* Estes nunca podem ser o último elemento de uma coluna: a instrução e
      o título ficariam órfãos, a fonte ficaria solta e o comando se
      separaria das alternativas que ele manda escolher. */
-  const GRUDA = {instrucao: 1, titulo: 1, fonte: 1, comando: 1};
+  /* Instrução e título nunca ficam órfãos: são duros.
+     A FONTE, ao contrário do que a v43 fazia, pertence ao TEXTO acima e
+     não ao comando abaixo — no caderno oficial ela vem logo sob o fio da
+     moldura. Colá-la ao comando fazia a referência atravessar para a
+     outra coluna deixando um buraco embaixo do texto, que foi o que o
+     professor viu na questão 11. */
+  const GRUDA = {instrucao: 1, titulo: 1};
+  const MOLE = {fonte: 1, comando: 1};
 
   /* O fio da moldura é desenhado POR UNIDADE: as duas verticais em toda
      unidade cercada, a horizontal de cima só na primeira e a de baixo só
@@ -1008,9 +1031,17 @@ function unidadesQuestao(doc, n, item, larg, fs, opcoes, m, rotuloBloco){
   };
 
   m.partes.forEach((pt, i) => {
-    if(i === m.posFig && m.fig) push(figH, true, desenharFig);
+    /* figura que carrega as ALTERNATIVAS é a resposta: cola dura no
+       comando. Figura de APOIO — tabela, gráfico para observar — pertence
+       ao enunciado, e a cola é mole: rompe se o buraco valer mais. */
+    if(i === m.posFig && m.fig)
+      push(figH, m.naFigura, desenharFig, !m.naFigura);
     const ultima = (i === m.partes.length - 1);
-    const cola = !!GRUDA[pt.tipo] || ultima;
+    const proxima = m.partes[i + 1];
+    /* a parte ANTES da fonte segura a fonte: é assim que a referência
+       fica logo abaixo do texto a que pertence */
+    const cola = !!GRUDA[pt.tipo] || (proxima && proxima.tipo === "fonte");
+    const mole = !!MOLE[pt.tipo] || ultima;
     const depois = espacoDepois(pt.tipo, m.partes[i + 1]);
     const L = pt.linhas.length;
     const abreAqui  = pt.moldura && i === m.abreMold;
@@ -1032,7 +1063,7 @@ function unidadesQuestao(doc, n, item, larg, fs, opcoes, m, rotuloBloco){
         (fechaAqui ? PAD_MOLDURA : 0);
       if(pt.moldura) fn = cercar(fn, abreAqui, fechaAqui, dentroDoFio);
       push(L * pt.passo + depois + (abreAqui ? PAD_MOLDURA : 0) +
-           (fechaAqui ? PAD_MOLDURA : 0), cola, fn);
+           (fechaAqui ? PAD_MOLDURA : 0), cola, fn, mole);
       return;
     }
     for(let k = 0; k < L; k++){
@@ -1051,7 +1082,7 @@ function unidadesQuestao(doc, n, item, larg, fs, opcoes, m, rotuloBloco){
         (fe ? PAD_MOLDURA : 0)
       )(k, fechaL, fim);
       if(pt.moldura) fn = cercar(fn, abreL, fechaL, dentroDoFio);
-      push(alt, fim ? cola : !podeCortar, fn);
+      push(alt, fim ? cola : !podeCortar, fn, fim ? mole : false);
     }
   });
 
@@ -1065,10 +1096,10 @@ function unidadesQuestao(doc, n, item, larg, fs, opcoes, m, rotuloBloco){
   /* sem alternativas de texto (elas estão na figura), é este rabicho que
      carrega o ar que separa uma questão da seguinte */
   const rabicho = AR_ENUN() + (m.alts.length ? 0 : AR_QUESTAO());
-  push((figNoFim ? figH : 0) + rabicho, m.alts.length > 0, (x, y) => {
+  push((figNoFim ? figH : 0) + rabicho, false, (x, y) => {
     if(figNoFim) y = desenharFig(x, y);
     return y + rabicho;
-  });
+  }, m.alts.length > 0);
 
   const nAlt = m.alts.length;
   const altoAlts = m.alts.reduce((a, la) => a + la.length * m.passo + AR_ALT(), 0);
@@ -1085,9 +1116,14 @@ function unidadesQuestao(doc, n, item, larg, fs, opcoes, m, rotuloBloco){
        espaço que valha o estrago. Acima do limiar são cinco parágrafos de
        duas ou três linhas cada — aí dividir volta a valer, e aí sim vale
        a regra de nunca deixar UMA sozinha. */
-    const cola = divideAlts
-      ? ((k === 0 || k === nAlt - 2) && nAlt > 1)
-      : !ultima;
+    /* Nenhuma alternativa fica sozinha: a primeira anda com a segunda e a
+       penúltima com a última — isso é DURO. Entre as do meio a cola é
+       mole: o bloco prefere andar inteiro, mas se a alternativa é ficar
+       com meia coluna vazia, ele se divide. Foi o que o professor pediu:
+       "as alternativas não precisam estar obrigatoriamente na mesma
+       coluna ou página". */
+    const cola = (k === 0 || k === nAlt - 2) && nAlt > 1;
+    const mole = !ultima && !cola;
     push(la.length * m.passo + extra, cola, (x, y) => {
       doc.setFont(FONTE_TEXTO, "bold"); doc.setTextColor(...COR.orange); doc.setFontSize(fs);
       doc.text(opcoes[k] + ")", x + 1, y + m.passo * 0.75);
@@ -1099,7 +1135,7 @@ function unidadesQuestao(doc, n, item, larg, fs, opcoes, m, rotuloBloco){
         else doc.text(ln, x + 7, yy);
       });
       return y + la.length * m.passo + extra;
-    });
+    }, mole);
   });
   /* a última unidade da questão NUNCA fica colada: senão a questão inteira
      gruda na seguinte. Numa questão mais curta que MIN_TRECHO, a regra da
@@ -1317,9 +1353,8 @@ function alturasCanonicas(doc, cfg, fs){
        regra que `unidadesQuestao` usou, e recalculá-la lá seria uma
        segunda fonte da verdade esperando divergir — foi o que aconteceu
        na v63, com a medição achando 4 páginas e o desenho gastando 5. */
-    const divideAlts = altsBase.reduce((a, b) => a + b, 0) >= (DENSO ? 36 : 42);
     return {alturas: U.map(u => u.h), colas: U.map(u => u.cola),
-            nAlt, altsBase, divideAlts};
+            moles: U.map(u => u.mole), nAlt, altsBase};
   });
 }
 
@@ -1327,18 +1362,22 @@ function alturasCanonicas(doc, cfg, fs){
    estudante recebeu. `perm[k]` é o índice canônico que aparece na
    posição k. O ar entre questões (`AR_QUESTAO`) anda pendurado na
    última posição, seja qual for a alternativa que caiu lá. */
-function unidadesNaOrdem(q, perm, destinoA, destinoC){
+function unidadesNaOrdem(q, perm, destinoA, destinoC, destinoM){
   const cab = q.alturas.length - q.nAlt;
-  for(let k = 0; k < cab; k++){ destinoA.push(q.alturas[k]); destinoC.push(q.colas[k]); }
+  for(let k = 0; k < cab; k++){
+    destinoA.push(q.alturas[k]); destinoC.push(q.colas[k]);
+    if(destinoM) destinoM.push(q.moles ? q.moles[k] : false);
+  }
   for(let k = 0; k < q.nAlt; k++){
     const canonico = (perm && perm[k] != null) ? perm[k] : k;
     const base = q.altsBase[canonico];
-    destinoA.push(base + (k === q.nAlt - 1 ? AR_QUESTAO() : 0));
-    /* a MESMA regra de `unidadesQuestao`: bloco curto anda inteiro, bloco
-       alto pode dividir sem deixar nenhuma alternativa sozinha */
-    destinoC.push(q.divideAlts
-      ? ((q.nAlt > 1) && (k === 0 || k === q.nAlt - 2))
-      : (k < q.nAlt - 1));
+    const ultima = (k === q.nAlt - 1);
+    destinoA.push(base + (ultima ? AR_QUESTAO() : 0));
+    /* a MESMA regra de `unidadesQuestao`: nenhuma alternativa sozinha
+       (duro), o resto mole */
+    const dura = (k === 0 || k === q.nAlt - 2) && q.nAlt > 1;
+    destinoC.push(dura);
+    if(destinoM) destinoM.push(!ultima && !dura);
   }
 }
 
@@ -1346,17 +1385,49 @@ function unidadesNaOrdem(q, perm, destinoA, destinoC){
    Devolve o índice EXCLUSIVO do primeiro bloco que ficou de fora.
    Quando nem o primeiro grupo cabe, devolve o grupo inteiro assim mesmo:
    a página precisa andar, e transbordar é melhor que travar. */
-function encherColuna(alturas, colas, i, fim, cap){
+/* Quanto sobraria de coluna em branco para o app preferir romper uma cola
+   mole. Abaixo disso, a preferência ganha: melhor um vão pequeno do que o
+   comando separado das alternativas. */
+const VAZIO_TOLERADO = () => DENSO ? 22 : 26;
+
+function encherAte(alturas, presas, i, fim, cap){
   if(i >= fim) return i;
   let soma = 0, ultimo = -1;
   for(let k = i; k < fim; k++){
     soma += alturas[k];
-    const legal = (k === fim - 1) || !colas[k];
+    const legal = (k === fim - 1) || !presas[k];
     if(legal){
       if(soma <= cap) ultimo = k + 1; else break;
     }else if(soma > cap && ultimo >= 0) break;
   }
-  return ultimo >= 0 ? ultimo : Math.min(fim, i + grupoColado(colas, i, fim));
+  return ultimo;
+}
+
+/* Até onde uma coluna chega a partir de `i`, sem partir grupo colado.
+
+   Dois passes. O primeiro respeita TODAS as colas, duras e moles — é o
+   layout preferido. Se ele deixar mais que `VAZIO_TOLERADO` de coluna em
+   branco, o segundo passe rompe as moles e, se couber mais conteúdo,
+   ganha. É a flexibilidade que o professor pediu: manter o comando com as
+   alternativas é prioridade, não dogma.
+
+   Quando nem o primeiro grupo DURO cabe, o grupo transborda inteiro: a
+   página precisa andar, e transbordar é melhor que travar. */
+function encherColuna(alturas, colas, i, fim, cap, moles){
+  if(i >= fim) return i;
+  const duras = colas;
+  const todas = moles ? colas.map((c, k) => c || moles[k]) : colas;
+
+  const preferido = encherAte(alturas, todas, i, fim, cap);
+  if(preferido >= 0){
+    const usado = alturas.slice(i, preferido).reduce((a, b) => a + b, 0);
+    if(preferido >= fim || cap - usado <= VAZIO_TOLERADO()) return preferido;
+  }
+  const solto = (todas === duras) ? preferido
+                                  : encherAte(alturas, duras, i, fim, cap);
+  const melhor = Math.max(preferido, solto);
+  return melhor >= 0 ? melhor
+                     : Math.min(fim, i + grupoColado(duras, i, fim));
 }
 
 /* Como fica UMA página a partir de `i`: onde termina a coluna esquerda
@@ -1376,9 +1447,10 @@ function encherColuna(alturas, colas, i, fim, cap){
 
    Os dois limites caem sempre num corte legal, então nem a divisão entre
    as colunas nem o fim da página partem um grupo colado. */
-function distribuirPagina(alturas, colas, i, fim, cap){
-  const corte = encherColuna(alturas, colas, i, fim, cap) - i;
-  const leva = Math.max(encherColuna(alturas, colas, i + corte, fim, cap) - i, corte);
+function distribuirPagina(alturas, colas, i, fim, cap, moles){
+  const corte = encherColuna(alturas, colas, i, fim, cap, moles) - i;
+  const leva = Math.max(
+    encherColuna(alturas, colas, i + corte, fim, cap, moles) - i, corte);
 
   /* ÚLTIMA PÁGINA: aqui, e só aqui, as duas colunas se equilibram.
      Encher a esquerda é a regra de leitura e vale para toda página que
@@ -1401,7 +1473,7 @@ function distribuirPagina(alturas, colas, i, fim, cap){
        Quando o único corte legal deixaria a esquerda menor, fica como
        estava: esquerda cheia, direita vazia. As questões são blocos
        grandes e nem sempre há onde cortar. */
-    let melhor = -1, dif = Infinity, soma = 0;
+    let melhor = -1, custo = Infinity, soma = 0;
     const total = alturas.slice(i, fim).reduce((a, b) => a + b, 0);
     for(let k = 1; k < fim - i; k++){
       soma += alturas[i + k - 1];
@@ -1409,18 +1481,21 @@ function distribuirPagina(alturas, colas, i, fim, cap){
       const dir = total - soma;
       if(soma > cap || dir > cap) continue;
       if(soma < dir) continue;                 // esquerda nunca menor
-      const d = soma - dir;
-      if(d < dif){ dif = d; melhor = k; }
+      /* romper uma cola mole custa: entre dois equilíbrios parecidos,
+         ganha o que não separa comando de alternativas */
+      const d = (soma - dir) + ((moles && moles[i + k - 1]) ? 500 : 0);
+      if(d < custo){ custo = d; melhor = k; }
     }
     if(melhor > 0) return {corte: melhor, leva};
   }
   return {corte, leva};
 }
 
-function empacotar(alturas, topoPrimeira, fundo, colas){
+function empacotar(alturas, topoPrimeira, fundo, colas, moles){
   let paginas = 1, i = 0, topo = topoPrimeira;
   while(i < alturas.length){
-    const {leva} = distribuirPagina(alturas, colas, i, alturas.length, fundo - topo);
+    const {leva} = distribuirPagina(alturas, colas, i, alturas.length,
+                                    fundo - topo, moles);
     i += Math.max(1, leva);
     if(i < alturas.length){ paginas++; topo = TOPO; }
   }
@@ -1477,13 +1552,13 @@ function paginasDaTurma(doc, cfg, alunos, fs, topoPrimeira, fundo, hPronto){
   paresDeOrdem(cfg, alunos).forEach(par => {
     const {oq, oa} = ordemDaProva(nq, no, par.turma,
       comTempero(par.chave, cfg.tempero), comps, cfg.alternarBlocos, fixas);
-    const alturas = [], colas = [];
+    const alturas = [], colas = [], moles = [];
     oq.forEach((idx, p) => {
       const abre = comps && (p === 0 || comps[oq[p - 1]] !== comps[idx]);
-      if(abre){ alturas.push(ALT_CABECALHO); colas.push(true); }
-      unidadesNaOrdem(h[idx], oa[p], alturas, colas);
+      if(abre){ alturas.push(ALT_CABECALHO); colas.push(true); moles.push(false); }
+      unidadesNaOrdem(h[idx], oa[p], alturas, colas, moles);
     });
-    const pgs = empacotar(alturas, topoPrimeira, fundo, colas);
+    const pgs = empacotar(alturas, topoPrimeira, fundo, colas, moles);
     if(pgs > pior) pior = pgs;
     if(pgs < melhor) melhor = pgs;
   });
@@ -1530,6 +1605,7 @@ function fluir(doc, cfg, aluno, fs, dry, totalPag){
   const blocos = blocosDaProva(doc, cfg, aluno, fs);
   const alturas = blocos.map(b => b.h);
   const colas = blocos.map(b => !!b.cola);
+  const moles = blocos.map(b => !!b.mole);
 
   let i = 0, topo = topoPrimeira, ultimoUso = topo;
   /* onde cada coluna parou na ÚLTIMA página: é lá que o rascunho cabe */
@@ -1538,7 +1614,7 @@ function fluir(doc, cfg, aluno, fs, dry, totalPag){
     /* a MESMA conta que `empacotar` faz ao contar as páginas: se as duas
        divergirem, a escolha do corpo mira um layout que não é o que sai
        impresso */
-    const d = distribuirPagina(alturas, colas, i, blocos.length, fundo - topo);
+    const d = distribuirPagina(alturas, colas, i, blocos.length, fundo - topo, moles);
     const corte = d.corte, leva = Math.max(1, d.leva);
 
     if(!dry){

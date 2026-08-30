@@ -84,12 +84,15 @@ setTimeout(() => {
   win.eval(`(function(){
     E.provas.forEach(function(pr){
       pr.questoes.forEach(function(q,i){
-        if(i % 2 === 0){
-          q.enunciado="Observe o grafico abaixo.\\nQual e a lei de formacao?";
-          q.alternativas=["a","b","c","d","e"];
-          q.imagem={dados:"d", w:900, h:500};
+        if(i % 4 === 0){
+          q.enunciado="Observe o grafico abaixo.\\nQual e a lei de formacao dessa funcao polinomial do primeiro grau?";
+          q.alternativas=["f(x) = 2x - 4","f(x) = -2x + 4","f(x) = 2x + 4",
+                          "f(x) = -x + 4","f(x) = -2x - 4"];
+          q.imagem={dados:"d", w:900, h:440};
         }else{
-          q.enunciado="Questao "+(i+1)+" de texto curto. Qual e a resposta correta para o problema proposto acima?";
+          q.enunciado="Leia o texto abaixo.\\nUm titulo\\n"+
+            ("A leitura silenciosa firmou-se tarde na historia e mudou o modo como as pessoas se relacionam com o texto escrito. ").repeat(1+(i%3))+
+            "\\nASSIS, Machado. Contos. Atica, 1998. Acesso em: 6 fev. 2012.\\nDe acordo com o texto:";
           q.alternativas=["primeira","segunda","terceira","quarta","quinta"];
           q.imagem=null;
         }

@@ -169,12 +169,20 @@ setTimeout(() => {
     const mc = G.medidasQuestao(doc3, curtas, L3, 10.5, OP3);
     const Uc = G.unidadesQuestao(doc3, 4, curtas, L3, 10.5, OP3, mc, null);
     const iAlt = Uc.length - mc.alts.length;
-    const cortesNasAlts = Uc.filter((u, i) =>
-      i >= iAlt && i < Uc.length - 1 && !u.cola).length;
+    const durosNasAlts = Uc.filter((u, i) =>
+      i >= iAlt && i < Uc.length - 1 && !u.cola && !u.mole).length;
+    const molesNasAlts = Uc.filter((u, i) =>
+      i >= iAlt && i < Uc.length - 1 && u.mole).length;
     ok(mc.alts.length === 5, "a questão tem as cinco alternativas");
-    ok(cortesNasAlts === 0,
-       "com alternativas de uma linha, nenhum corte é permitido entre elas " +
-       "(" + cortesNasAlts + ") — o bloco anda inteiro");
+    ok(durosNasAlts === 0,
+       "nenhum corte LIVRE entre as alternativas (" + durosNasAlts + "): o " +
+       "bloco prefere andar inteiro");
+    ok(molesNasAlts === 2,
+       "os cortes que existem são MOLES (" + molesNasAlts + ") — só usados " +
+       "quando a alternativa é deixar meia coluna vazia");
+    ok(Uc[iAlt].cola === true && Uc[Uc.length - 2].cola === true,
+       "e a primeira e a penúltima seguem com cola DURA: nenhuma " +
+       "alternativa fica sozinha");
 
     /* alternativas longas: aí dividir volta a valer */
     const longas = {enunciado:"Leia o texto abaixo.\nUm título qualquer\n" +
@@ -187,16 +195,13 @@ setTimeout(() => {
     const ml2 = G.medidasQuestao(doc3, longas, L3, 10.5, OP3);
     const Ul2 = G.unidadesQuestao(doc3, 5, longas, L3, 10.5, OP3, ml2, null);
     const iAlt2 = Ul2.length - ml2.alts.length;
-    const alto = ml2.alts.reduce((a, la) => a + la.length * ml2.passo, 0);
-    ok(alto > 42, "o bloco de alternativas longas passa de 42 mm (" +
-       alto.toFixed(0) + ")");
-    const cortes2 = Ul2.filter((u, i) =>
-      i >= iAlt2 && i < Ul2.length - 1 && !u.cola).length;
-    ok(cortes2 > 0,
-       "aí o bloco volta a poder ser dividido (" + cortes2 + " cortes legais)");
+    /* a regra é a mesma para bloco curto e longo: a diferença passou a ser
+       decidida na hora de empacotar, não na hora de medir */
     ok(Ul2[iAlt2].cola === true && Ul2[Ul2.length-2].cola === true,
-       "mas a primeira segue colada na segunda e a penúltima na última — " +
-       "nenhuma alternativa fica sozinha");
+       "num bloco longo, a primeira segue colada na segunda e a penúltima " +
+       "na última — nenhuma alternativa fica sozinha");
+    ok(Ul2.filter((u, i) => i >= iAlt2 && u.mole).length === 2,
+       "e as do meio seguem moles");
   }
 
   /* ── 0d. medição e desenho contam a MESMA coisa ── */

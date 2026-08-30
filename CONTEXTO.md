@@ -3153,3 +3153,81 @@ era esse que não cabia.
 caso: uma página que CONTINUA (a esquerda enche até o limite) e a ÚLTIMA
 página (as duas se equilibram, com a esquerda nunca menor). Mais o caso
 em que não há corte legal e a direita fica vazia mesmo.
+
+---
+
+## v66 — cola dura e cola mole
+
+Três defeitos relatados de uma vez, e todos com a mesma raiz.
+
+### 1. A fonte pertence ao TEXTO, não ao comando
+
+Na questão 11 do simulado: o texto terminava, sobrava um vão grande na
+coluna esquerda, e a referência bibliográfica aparecia lá no alto da
+coluna da direita, junto do comando. Cabia folgado embaixo do texto.
+
+`GRUDA` colava a fonte ao comando desde a v43. Errado: no caderno oficial
+a referência vem logo **sob o fio da moldura**, presa ao texto que ela
+credita. Agora é a parte ANTES da fonte que a segura.
+
+### 2. "Eu te amo não diz tudo!"
+
+Único formato de título que o app não reconhecia. A detecção descartava
+qualquer primeira linha terminada em `.?!:;` — mas **exclamação e
+interrogação são títulos de reportagem** ("Eu te amo não diz tudo!",
+"Quem descobriu o Brasil?"). Só ponto final, dois-pontos e ponto e
+vírgula continuam descartando.
+
+### 3. Os vãos: dois graus de cola
+
+Era a raiz de tudo. Da v43 à v65, cola era booleana: ou o corte era
+proibido ou era livre. Com o tempo empilhei proibições — figura junto do
+comando, comando junto das alternativas, alternativas inteiras, mínimo de
+30 mm por questão — e cada uma, isolada, era razoável. Somadas, viraram
+questões-monólito de 110 mm que não cabiam em lugar nenhum e abriam
+buracos de meia coluna.
+
+O professor deu a formulação certa: *"a prioridade é deixar o comando e
+as alternativas juntos, mas eles podem ser mais flexíveis"*.
+
+Cada unidade passou a ter **dois** graus:
+
+| | significado | onde |
+|---|---|---|
+| `cola` | DURA: cortar ali estraga a questão | rótulo, instrução, título, figura que É a resposta, mínimo de 30 mm, 1ª↔2ª e penúltima↔última alternativa |
+| `mole` | PREFERÊNCIA: melhor não, mas cortar é melhor que meia coluna vazia | fonte→comando, comando→alternativas, figura de apoio, alternativas do meio |
+
+`encherColuna` faz **dois passes**: o primeiro respeita todas as colas —
+é o layout preferido. Se ele deixar mais de `VAZIO_TOLERADO` (26 mm, 22 no
+denso) de coluna em branco, o segundo rompe as moles e vence se couber
+mais conteúdo. Na última página, o equilíbrio penaliza cortes moles em
+500 mm de "custo": entre dois equilíbrios parecidos, ganha o que não
+separa comando de alternativas.
+
+### O que foi medido
+
+Simulado de 16 questões (8 LP + 8 MAT), turma de 12:
+
+| | tudo duro (v65) | com cola mole |
+|---|---|---|
+| páginas somadas | 51 | **48** |
+| branco total | 4 793 mm | **3 185 mm** |
+
+**34% menos vão e 3 páginas a menos.**
+
+### Quatro suítes ajustadas, e todas pelo mesmo motivo
+
+`teste47`, `teste53` e `teste54` afirmavam que certas colas eram DURAS.
+Agora são moles, e as asserções passaram a exigir isso explicitamente —
+`cola === false && mole === true` — para que ninguém volte a endurecê-las
+sem perceber.
+
+`divideAlts` (v63) deixou de existir: a decisão de dividir o bloco de
+alternativas saiu da MEDIÇÃO e foi para o EMPACOTAMENTO, que é onde se
+sabe se há espaço. A regra ficou uma só para bloco curto e longo.
+
+`teste50` precisou de novo conjunto de dados: com a cola mole a paginação
+ficou menos sensível à ordem e as três turmas passaram a sair iguais
+sozinhas. Recalibrado com figuras de 440 px a cada quatro questões, a
+divergência voltou a aparecer — 3A fecha em 4 páginas a 9 pt onde as
+irmãs precisam de 5.

@@ -113,10 +113,15 @@ setTimeout(() => {
      "mas a penúltima anda colada na última: nenhuma alternativa fica sozinha");
   ok(U[ultimaAlt - 4].cola === true,
      "e a primeira alternativa anda colada na segunda");
-  /* a unidade imediatamente antes das cinco alternativas é o rabicho do
-     enunciado, que carrega o ar entre comando e alternativas */
-  ok(U[ultimaAlt - 5].cola === true,
-     "o enunciado não se separa da primeira alternativa");
+  ok(U[ultimaAlt - 3].mole === true && U[ultimaAlt - 2].mole === true,
+     "as do meio ficam com cola mole — o bloco prefere andar inteiro, mas " +
+     "se divide antes de deixar meia coluna vazia");
+  /* A unidade imediatamente antes das cinco alternativas é o rabicho do
+     enunciado. Desde a v66 a cola dele é MOLE: o enunciado prefere ficar
+     com a primeira alternativa, mas se o preço for meia coluna em branco,
+     rompe. Preferência, não dogma. */
+  ok(U[ultimaAlt - 5].cola === false && U[ultimaAlt - 5].mole === true,
+     "o enunciado prefere não se separar da primeira alternativa, mas pode");
 
   /* nenhuma unidade colada pode ser a última: seria cola sem par */
   ok(U[U.length - 1].cola === false, "a última unidade da questão não fica colada");

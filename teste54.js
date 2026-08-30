@@ -147,32 +147,26 @@ setTimeout(() => {
 
   /* ── 4. unidadesNaOrdem: a medição enxerga a ordem real ── */
   const G = require("./gerador.js");
-  /* `divideAlts` vem junto das alturas de propósito: `unidadesNaOrdem`
-     precisa aplicar a MESMA regra de cola que `unidadesQuestao` usou.
-     Aqui o bloco é declarado divisível, para exercitar a cola posicional. */
   const q = {alturas:[10, 20, 3, 4, 5, 6, 7], colas:[true,true,true,false,false,true,false],
-             nAlt:5, altsBase:[3, 4, 5, 6, 7], divideAlts:true};
-  const A = [], C = [];
-  G.unidadesNaOrdem(q, [4, 2, 0, 3, 1], A, C);
+             moles:[false,false,false,false,true,false,false],
+             nAlt:5, altsBase:[3, 4, 5, 6, 7]};
+  const A = [], C = [], M = [];
+  G.unidadesNaOrdem(q, [4, 2, 0, 3, 1], A, C, M);
   ok(A.length === 7, "a questão remontada tem as mesmas sete unidades");
   ok(A[0] === 10 && A[1] === 20, "o enunciado não se mexe");
   ok(A.slice(2, 6).join(",") === "7,5,3,6",
      "as quatro primeiras alternativas saem na ordem do estudante: " +
      A.slice(2, 7).join(", "));
-  const semPerm = [], semPermC = [];
-  G.unidadesNaOrdem(q, null, semPerm, semPermC);
+  const semPerm = [], semPermC = [], semPermM = [];
+  G.unidadesNaOrdem(q, null, semPerm, semPermC, semPermM);
   ok(Math.abs(A.reduce((a,b)=>a+b,0) - semPerm.reduce((a,b)=>a+b,0)) < 0.001,
      "a SOMA é a mesma qualquer que seja a ordem — o que muda é onde a " +
      "cola cai");
   ok(C.slice(2).join(",") === "true,false,false,true,false",
-     "num bloco divisível, a cola é POSICIONAL: primeira e penúltima presas");
-
-  /* bloco curto: anda inteiro, e é a regra da v63 */
-  const Ac = [], Cc = [];
-  G.unidadesNaOrdem(Object.assign({}, q, {divideAlts:false}), [4,2,0,3,1], Ac, Cc);
-  ok(Cc.slice(2).join(",") === "true,true,true,true,false",
-     "num bloco CURTO, todas ficam coladas menos a última — o estudante " +
-     "não vira a página no meio das opções");
+     "a cola DURA é posicional: primeira e penúltima alternativas presas");
+  ok(M.slice(2).join(",") === "false,true,true,false,false",
+     "e as do meio ficam MOLES — preferem não se separar, mas se separam " +
+     "antes de deixar meia coluna vazia");
 
   /* ── 5. a série continua consistente ── */
   /* o alvo entra `escolha.pgs`, que já carrega o pior caso de todas as
