@@ -3359,3 +3359,70 @@ Escrevi `tetoDoSimulado` esperando objetos e todos os níveis saíram
 linha, os itens sem nível ficando de fora, o PDF da turma, o da série com
 duas turmas e 16 estudantes, e o PDF saindo sem quebrar quando não há
 cartão corrigido.
+
+---
+
+## v69 — a faixa do nível quebrava em duas linhas
+
+Relato: o relatório dizia *"Os itens deste caderno não têm o nível da
+escala informado"* — mas o arquivo do simulado TEM a tabela "RELAÇÃO DE
+NÍVEL DE PROFICIÊNCIA".
+
+### O que a investigação mostrou
+
+Rodei o leitor contra o arquivo de verdade (`1º Simulado SAEPE 3EM
+Matemática`, extraído com pdfplumber) e a leitura funcionava: 9 itens,
+`semNivel: 0`, e o caminho até `pr.niv` gravava `[7,6,9,6,7,9,8,8,8]`.
+**O simulado do professor foi importado por uma versão anterior do app**,
+antes de o nível entrar — reimportar resolve, e o relatório agora diz
+isso em vez de mandar "associar cada questão a uma habilidade oficial",
+que não era acionável.
+
+### Mas o teste achou um defeito de verdade
+
+O PDF parte a faixa do nível no meio da linha:
+
+```
+1 Nível 7 (375 a Reconhecer gráfico de função afim ... Desejável
+400) algébrica.
+```
+
+O `(375 a` fica numa linha, o `400)` abre a seguinte, e o texto da
+habilidade se enfia entre os dois. Resultado: `de`/`ate` saíam **nulos** e
+o texto da habilidade ia parar no relatório assim —
+`"(375 a Reconhecer gráfico ... 400) algébrica."`
+
+A costura junta os dois pedaços da faixa antes de interpretar e devolve o
+resto da segunda linha como continuação do texto. Quatro dos nove itens
+do arquivo real estavam nessa situação: questões 1, 3, 5 e 7.
+
+### Fixture de verdade, finalmente
+
+`fixture-sim-mat.txt` é o texto extraído do arquivo que o professor
+realmente sobe. É a primeira suíte do projeto que não usa um arquivo
+reconstruído por mim — as `teste39`, `40`, `42` e `43` continuam paradas
+esperando os PDFs do 1º Simulado, mas esta não depende delas.
+
+### Uma expectativa minha que estava errada
+
+Escrevi o teste esperando 5 habilidades para 5 descritores e vieram 7.
+Está certo vir 7: **um descritor não corresponde a um nível.** Neste
+arquivo o D22 aparece no nível 7 (questão 1) e no nível 8 (questão 8); o
+D23, no 7 e no 8. São habilidades diferentes sob o mesmo código, e a
+escala oficial as posiciona em lugares diferentes — o `saepe-oficial.js`
+avisa isso no próprio cabeçalho. Agrupar só pelo código esconderia
+justamente a variação de dificuldade que o teto existe para mostrar.
+
+### O que o arquivo do professor revela sobre ele mesmo
+
+O 1º Simulado de Matemática vai do **nível 6 ao nível 9** — e o 9 é o
+topo da escala do 3º EM. Este caderno **não tem teto baixo**: ele alcança
+o Desejável. O relatório passa a dizer isso em vez de calar.
+
+### Suíte nova
+
+`teste64` — a leitura completa do arquivo real (9 questões, gabarito em
+colunas, 5 descritores, 9 níveis), a costura nas quatro linhas quebradas,
+o texto da habilidade saindo limpo (sem `400)` perdido dentro e sem o
+padrão vazando), a linha sem quebra continuando igual, o caminho até
+`pr.niv` e até `tetoDoSimulado`, e o relatório sendo gerado.

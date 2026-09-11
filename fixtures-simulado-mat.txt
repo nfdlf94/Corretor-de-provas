@@ -1,0 +1,110 @@
+1. Uma função polinomial do 1º grau possui coeficientes angular e linear iguais a 2. Observe abaixo cinco gráficos de
+funções polinomiais do 1º grau.
+Qual desses gráficos representa a função f?
+A) Gráfico I.
+B) Gráfico II.
+C) Gráfico III.
+D) Gráfico IV.
+E) Gráfico V.
+2. Para acabar com o estoque de inverno, uma loja fez uma “queima”, oferecendo ofertas em todas as mercadorias. Após x
+dias de ofertas, verificou-se que as vendas diárias y poderiam ser calculadas de acordo com a função y = − x² + 11x + 12.
+Depois de quantos dias as vendas se reduziriam a zero?
+A) 169
+B) 24
+C) 13
+D) 12
+E) 2
+3. Em uma rodoviária, 8 pessoas de um grupo aguardam no guichê para comprar passagens de ida para determinada
+cidade. O atendente do guichê avisa que restam 3 passagens disponíveis para venda e pede às pessoas que escolham, entre
+elas, quem comprará essas passagens.
+Quantos grupos diferentes de três pessoas podem ser formados com essas 8 pessoas para comprar essas passagens
+restantes?
+A) 11
+B) 24
+C) 56
+D) 336
+E) 512
+4. José planta alface em um canteiro de formato quadrado. Ele verificou que, se aumentasse 3 m em cada uma das duas
+dimensões desse canteiro, a área plantada passaria a ser de 64 m².
+Quanto mede cada lado do canteiro de José?
+A) 11 m
+B) 9 m
+C) 8 m
+D) 6 m
+E) 5 m
+5. O gráfico abaixo representa uma função polinomial de primeiro grau.
+Qual é a representação algébrica dessa função?
+A) y = x + 2
+B) y = x − 1
+C) y = 2x + 1
+D) y = 2x + 3
+E) y = 3x + 1
+6. Os membros de uma banca examinadora escolheram 7 questões de Matemática, 5 questões de Português e 4 questões
+de Ciências. Desse grupo de questões, eles irão sortear 2 questões de Matemática, 2 de Português e 1 de Ciências para
+compor a prova de um concurso.
+Quantas provas diferentes poderão ser elaboradas para esse concurso?
+A) 140
+B) 280
+C) 560
+D) 700
+E) 840
+7. Observe abaixo o gráfico de uma função afim.
+Qual é a lei de formação que corresponde a essa função?
+A) f(x) = 4x + 4
+B) f(x) = 4x + 1
+C) f(x) = x + 4
+D) f(x) = − 4x + 4
+E) f(x) = − 4x − 4
+8. Observe abaixo a reta de equação y = mx + n desenhada no plano cartesiano.
+Quais são os valores dos coeficientes m e n dessa reta?
+A) m > 0 e n > 0.
+B) m > 0 e n < 0.
+C) m > 0 e n = 0.
+D) m < 0 e n > 0.
+E) m < 0 e n < 0.
+9. Em uma partida de futebol, um goleiro chuta uma bola, e sua trajetória descreve uma parábola de equação h(x) = 16x −
+2x², em que h(x) representa a altura atingida pela bola, em metros, e x, a distância horizontal, também em metros.
+Nessas condições, a altura máxima, em metros, atingida pela bola é
+A) 4
+B) 8
+C) 16
+D) 32
+E) 64
+GABARITO
+1 — A 4 — E 7 — B
+2 — D 5 — A 8 — D
+3 — C 6 — E 9 — D
+DESCRITORES
+D17 — Resolver problema envolvendo equação do 2º grau.
+Questões: 2 e 4.
+D22 — Reconhecer o gráfico de uma função polinomial de 1º grau por meio de seus coeficientes.
+Questões: 1 e 8.
+D23 — Reconhecer a representação algébrica de uma função do 1º grau dado o seu gráfico.
+Questões: 5 e 7.
+D24 — Resolver problemas que envolvam os pontos de máximo ou de mínimo no gráfico de uma função polinomial do 2º
+grau.
+Questão: 9.
+D31 — Resolver problema de contagem utilizando o princípio multiplicativo ou noções de permutação simples, arranjo
+simples e/ou combinação simples.
+Questões: 3 e 6.
+RELAÇÃO DE NÍVEL DE PROFICIÊNCIA
+Os níveis abaixo remetem à Escala de Proficiência de Matemática do SAEPE — 3ª série do Ensino Médio (9 níveis), conforme a Revista da
+Escola SAEPE 2024. Padrões de desempenho: Elementar I (até 250), Elementar II (251 a 290), Básico (291 a 325) e Desejável (326 ou mais).
+Questão Nível Habilidade posicionada na Escala de Proficiência do SAEPE Padrão
+1 Nível 7 (375 a Reconhecer gráfico de função afim a partir de sua representação Desejável
+400) algébrica.
+2 Nível 6 (350 a 375) Determinar os zeros de uma função quadrática a partir de sua lei de Desejável
+formação.
+3 Nível 9 (acima de Resolver problemas de análise combinatória utilizando o Princípio Desejável
+425) Fundamental da Contagem ou combinação simples.
+4 Nível 6 (350 a 375) Resolver problemas envolvendo equação do 2º grau. Desejável
+5 Nível 7 (375 a Reconhecer a lei de formação de uma função afim dada sua Desejável
+400) representação gráfica.
+6 Nível 9 (acima de Resolver problemas de análise combinatória utilizando o Princípio Desejável
+425) Fundamental da Contagem ou combinação simples.
+7 Nível 8 (400 a Reconhecer a representação algébrica de função afim a partir de seu Desejável
+425) gráfico.
+8 Nível 8 (400 a Interpretar o significado dos coeficientes da equação de uma reta, a Desejável
+425) partir de sua forma reduzida ou de seu gráfico.
+9 Nível 8 (400 a Determinar o valor de uma função quadrática a partir de sua expressão Desejável
+425) algébrica e das expressões que determinam as coordenadas do vértice.

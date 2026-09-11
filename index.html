@@ -1153,7 +1153,30 @@ function lerSimuladoDoc(txt, figuras){
        texto:(atual.txt||"").replace(/\s+/g," ")
          .replace(/\s*(Elementar I{1,2}|B[áa]sico|Desej[áa]vel)\s*\/?\s*/gi," ")
          .replace(/\s+/g," ").trim()}; atual=null; };
-    blocoNiv.forEach(l=>{
+    /* O PDF quebra a FAIXA do nível no meio da linha. A tabela sai assim:
+
+         1 Nível 7 (375 a Reconhecer gráfico de função afim ... Desejável
+         400) algébrica.
+
+       O "(375 a" fica numa linha, o "400)" abre a seguinte, e o texto da
+       habilidade se enfia entre os dois. Sem costurar, a faixa não é
+       lida (de/ate ficam nulos) e o texto da habilidade sai embaralhado
+       com os números — foi o que apareceu no relatório do professor.
+
+       A costura junta os dois pedaços da faixa e devolve o resto da
+       segunda linha como continuação do texto. */
+    const costuradas=blocoNiv.slice();
+    for(let i=0;i<costuradas.length;i++){
+      const t=limpo(costuradas[i]);
+      if(t.indexOf("(")<0 || t.indexOf(")")>=0) continue;
+      const m=/\(((?:de\s*)?\d{2,3}\s*(?:a|até|-|–)|acima de|até)\s+(.*)$/i.exec(t);
+      if(!m) continue;
+      const mf=/^(\d{2,3})\)\s*(.*)$/.exec(limpo(costuradas[i+1]||""));
+      if(!mf) continue;
+      costuradas[i]=t.slice(0,m.index)+"("+m[1]+" "+mf[1]+") "+m[2];
+      costuradas[i+1]=mf[2];
+    }
+    costuradas.forEach(l=>{
       const t=limpo(l); if(!t) return;
       const m=/^(\d{1,2})\s+N[íi]vel\s+(\d{1,2})\s*(?:\(\s*(?:de\s*)?(\d{2,3})\s*(?:a|até|-|–)\s*(\d{2,3})\s*\)|\(\s*(?:até|acima de)\s*(\d{2,3})\s*\))?\s*(.*)$/i.exec(t);
       if(m){
@@ -6442,9 +6465,13 @@ function pdfAnalise(escopo){
 
     sub("Até onde este simulado consegue medir");
     if(T.maxNivel==null){
-      par("Os itens deste caderno não têm o nível da escala informado, então "+
-          "não é possível dizer o teto. Para preenchê-lo, associe cada questão "+
-          "a uma habilidade oficial na importação do simulado.",CINZA,8);
+      par("Os itens deste caderno estão sem o nível da escala, então não dá "+
+          "para dizer o teto.",ESC,8);
+      par("O app lê o nível automaticamente do arquivo do simulado, na tabela "+
+          "\u201cRELAÇÃO DE NÍVEL DE PROFICIÊNCIA\u201d que vem depois dos "+
+          "descritores. Se o seu arquivo tem essa tabela e mesmo assim o nível "+
+          "não apareceu, o simulado provavelmente foi importado por uma versão "+
+          "anterior do app: reimporte o arquivo e o nível entra sozinho.",CINZA,8);
     }else{
       const fx=T.faixaTeto||{};
       const faixaTxt=(fx.de==null?"até "+fx.ate:(fx.ate==null?"acima de "+fx.de:
