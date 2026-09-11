@@ -3231,3 +3231,131 @@ ficou menos sensível à ordem e as três turmas passaram a sair iguais
 sozinhas. Recalibrado com figuras de 440 px a cada quatro questões, a
 divergência voltou a aparecer — 3A fecha em 4 páginas a 9 pt onde as
 irmãs precisam de 5.
+
+---
+
+## v67 — prova de recuperação
+
+Pedido: a prova de recuperação é igual a qualquer avaliação; a única
+diferença é que ela sai **só para os estudantes que o professor indicar**.
+
+### Onde o filtro entra
+
+Num ponto só: `alunosDaProva(t, p)`.
+
+É por lá que já passavam as onze telas que perguntam "quem faz esta
+prova?" — gerar o PDF, gerar só os cartões, a planilha de gabaritos, a
+tela de resultados, quem falta corrigir, a análise, o fechamento.
+Filtrar em cada uma seria onze lugares para esquecer um.
+
+```js
+const ehRecuperacao = p => Array.isArray(p && p.recuperacao);
+const alunosDaProva = (t,p) => (...).filter(a => emRecuperacao(p, a));
+```
+
+`p.recuperacao` guarda os NÚMEROS dos estudantes. Ausente = prova comum.
+
+### Três decisões que não são óbvias
+
+**Marcar a turma inteira apaga a lista.** Guardar todos os números faria
+a prova "esquecer" quem entrasse na turma depois — um estudante novo
+ficaria de fora para sempre. Se a seleção cobre todo mundo, a prova volta
+a ser comum.
+
+**Lista vazia não gera para ninguém.** Recuperação sem ninguém marcado
+podia significar duas coisas; a interpretação segura é "ainda não
+escolhi", e o app avisa em vez de imprimir 40 provas por engano.
+
+**O embaralhamento não muda.** A ordem é semeada por turma + número, não
+por posição na lista: o estudante nº 05 recebe exatamente a mesma prova
+estando ou não em recuperação. É isso que faz corrigir uma recuperação
+ser idêntico a corrigir qualquer avaliação — nenhum caminho da correção
+precisou saber que a recuperação existe.
+
+### Na tela
+
+"Estudantes em recuperação" fica na tela da prova, acima de "Gerar provas
+em PDF". Caixas de seleção, "Marcar todos", "Voltar à turma inteira", e o
+subtítulo do botão de gerar passa a dizer quantas provas vão sair e se é
+só a recuperação.
+
+Quando a prova já tem cartão corrigido, a tela avisa: mudar quem faz a
+prova não apaga nota nenhuma, mas os cadernos impressos continuam
+valendo.
+
+### Suíte nova
+
+`teste62` — turma inteira sem lista; três marcados gerando três cadernos
+com tiragem pareja; o gabarito do nº 05 idêntico com e sem recuperação;
+a correção funcionando igual; os resultados cobrando três e não dez; a
+planilha com três linhas; marcar todos apagando a lista; e a lista vazia
+não gerando nada.
+
+---
+
+## v68 — relatório de análise em PDF
+
+Botão **"Relatório completo em PDF"** dentro da aba Análise, nos dois
+níveis: por SÉRIE (reunindo as turmas) e por TURMA. Sai do simulado
+aberto, com os dados reais dele.
+
+### O que o documento traz
+
+1. **Capa e "Como ler este relatório"** — proficiência, padrão de
+   desempenho e descritor explicados em linguagem corrente. O documento
+   vai para a gestão, para a Secretaria e às vezes para a família: nenhum
+   deles é obrigado a saber o vocabulário da avaliação externa.
+2. **Por componente**: proficiência média com o padrão, distribuição dos
+   estudantes pelas quatro faixas em barras, e a observação técnica
+   quando a proficiência veio do percentual e não da TRI.
+3. **O teto do simulado** (abaixo).
+4. **Habilidades observadas**: descritor, nível da escala, texto da
+   habilidade, nº de itens e % de acerto, com cor por faixa.
+5. **Comparação entre turmas**, na análise de série.
+6. **Desempenho individual por turma**: acertos, proficiência e padrão de
+   cada estudante, em cada componente, mais a lista de quem ficou nos dois
+   padrões mais baixos — "quem precisa de atenção primeiro".
+
+### O teto do simulado
+
+`tetoDoSimulado(sims, comp)` — a parte nova de verdade.
+
+Um simulado só enxerga as habilidades que cobra. Se o item mais difícil
+está no nível 4 da escala do SAEPE, **nenhum estudante pode ser
+posicionado acima daquele nível por este instrumento**, mesmo acertando
+tudo. O relatório diz o nível mínimo, o máximo, a faixa de pontos
+correspondente, o padrão que esse teto representa e — quando o caderno
+não alcança o topo da escala — quais níveis ficaram sem observação.
+
+É a informação que falta na maioria dos relatórios e que muda a leitura
+do resultado: *"a turma ficou no Básico"* significa uma coisa se o
+caderno alcançava o Desejável e outra bem diferente se ele parava ali.
+
+O nível vem de `pr.niv[i]`, preenchido na importação a partir dos Níveis
+de Desempenho oficiais. Itens sem nível ficam de fora da conta e o
+relatório informa quantos são.
+
+### Uma armadilha que mordeu
+
+Existem DUAS funções chamadas `itensDe` no projeto. A de `index.html`
+(linha ~828) devolve os **índices** das questões de um componente; a do
+caminho de importação devolve **objetos** com `niv`, `desc`, `gab`.
+Escrevi `tetoDoSimulado` esperando objetos e todos os níveis saíram
+`null`. O `teste63` pegou na primeira execução.
+
+### Duas afirmações que o relatório faz de propósito
+
+- **A proficiência individual de um simulado só tem margem de erro
+  grande.** O documento diz que ela serve para agrupar estudantes por
+  necessidade, não para classificar um estudante isoladamente — e põe o
+  número de acertos ao lado, que é o dado direto e sem estimativa.
+- **Os padrões vêm com a ação recomendada**, não só com o nome:
+  "Elementar I (indica recuperação)".
+
+### Suíte nova
+
+`teste63` — o teto com níveis 2 a 5 em LP e 1 a 4 em MAT, a escala do
+3º EM indo até o 10, o descritor repetido somando itens sem duplicar
+linha, os itens sem nível ficando de fora, o PDF da turma, o da série com
+duas turmas e 16 estudantes, e o PDF saindo sem quebrar quando não há
+cartão corrigido.

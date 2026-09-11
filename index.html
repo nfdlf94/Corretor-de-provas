@@ -843,8 +843,27 @@ function rotuloProva(p){
   return t?nomeDisc(t,p.disciplina):"";
 }
 /* No simulado não há período: entram todos os estudantes ativos. */
-const alunosDaProva=(t,p)=>ehCaderno(p)?(t.alunos||[]).filter(ativo)
-                                       :alunosEm(t,p.periodo||1);
+/* ── quem faz esta prova ───────────────────────────────────────────
+   Normalmente é a turma inteira do período. Na prova de RECUPERAÇÃO é
+   só quem o professor indicou: `p.recuperacao` guarda os números dos
+   estudantes.
+
+   O filtro entra aqui, e só aqui, porque este é o ponto por onde já
+   passam as onze telas que perguntam "quem faz esta prova?" — gerar o
+   PDF, os cartões, a planilha de gabaritos, os resultados, quem falta
+   corrigir, a análise. Filtrar em cada uma seria onze lugares para
+   esquecer um.
+
+   Lista ausente (`null`) é prova comum. Lista vazia é recuperação sem
+   ninguém marcado ainda — e aí o app não gera nada, em vez de gerar para
+   a turma toda. */
+const ehRecuperacao=p=>Array.isArray(p&&p.recuperacao);
+const emRecuperacao=(p,a)=>!ehRecuperacao(p) ||
+  p.recuperacao.indexOf(String(a.numero))>=0;
+
+const alunosDaProva=(t,p)=>(ehCaderno(p)?(t.alunos||[]).filter(ativo)
+                                        :alunosEm(t,p.periodo||1))
+  .filter(a=>emRecuperacao(p,a));
 
 /* ── escala ────────────────────────────────────────────────────────
    O percentual de acerto é sempre PROPORCIONAL ao número de itens
@@ -2010,6 +2029,7 @@ function montarCasaInterno(box){
   if(casaNivel==="config")   return telaConfig(box);
   if(casaNivel==="figuras")  return telaFiguras(box);
   if(casaNivel==="disc")     return telaDiscursivas(box);
+  if(casaNivel==="recup")    return telaRecuperacao(box);
   if(casaNivel==="fechamento") return telaFechamento(box);
   if(casaNivel==="editar")   return telaEditar(box);
 }
@@ -3072,6 +3092,71 @@ function comprimirImagem(arquivo){
   });
 }
 
+/* ══════════════════════════════════════════════════════════════════
+   Estudantes em recuperação — quem faz ESTA prova.
+
+   O resto do app não muda em nada: a prova é gerada, impressa, lida e
+   corrigida exatamente como qualquer avaliação. A única diferença é o
+   conjunto de estudantes, e ela entra num ponto só (`alunosDaProva`).
+   ══════════════════════════════════════════════════════════════════ */
+function telaRecuperacao(box){
+  const p=provaDe(casaProva), t=turmaDe(casaTurma);
+  if(!p||!t){ casaNivel="prova"; return montarCasa(); }
+  const todos=ehCaderno(p)?(t.alunos||[]).filter(ativo):alunosEm(t,p.periodo||1);
+  const marcados=ehRecuperacao(p)?p.recuperacao:null;
+  const marcado=a=>!marcados||marcados.indexOf(String(a.numero))>=0;
+  const quantos=marcados?marcados.length:todos.length;
+  const travado=temResultados(p);
+
+  box.innerHTML=`
+    <div class="tit">Estudantes em recuperação</div>
+    <div class="sub">${esc(p.titulo||p.codigo)} · ${esc(t.nome)}</div>
+    ${travado?`<div class="aviso" style="margin-top:12px">
+      Esta prova já tem cartão corrigido. Mudar quem faz a prova agora não
+      apaga nota nenhuma, mas os cadernos já impressos continuam valendo —
+      confira antes de aplicar.</div>`:""}
+    <p class="hint" style="margin-top:12px">Marque quem vai fazer esta prova.
+      Sem ninguém marcado, ela sai para a turma inteira — que é o normal de
+      uma avaliação. Marcando, ela vira prova de recuperação: o PDF, os
+      cartões, a planilha de gabaritos e a tela de resultados passam a
+      considerar só esses estudantes.</p>
+    <div class="linha" style="margin-top:12px">
+      <button class="btn sec" id="rTodos">Marcar todos</button>
+      <button class="btn gho" id="rNinguem">Voltar à turma inteira</button></div>
+    <div style="margin-top:14px">${
+      todos.length?todos.map(a=>`<label class="aluno" style="cursor:pointer">
+        <input type="checkbox" data-rec="${esc(a.numero)}" ${marcado(a)?"checked":""}
+          style="width:22px;height:22px;margin:0 12px 0 0;flex:0 0 auto">
+        <div style="flex:1;min-width:0">
+          <div class="nm"><span style="color:var(--mute);font-family:var(--mono);font-size:12px">${esc(a.numero)} </span>${esc(a.nome)}</div>
+        </div></label>`).join("")
+      :`<div class="aviso">Nenhum estudante matriculado neste período.</div>`}</div>
+    <div class="kpi" style="margin-top:14px">
+      <div><div class="v" id="rConta">${quantos}</div>
+        <div class="l">${marcados?"em recuperação":"turma inteira"}</div></div>
+      <div><div class="v">${todos.length}</div><div class="l">na turma</div></div></div>
+    <button class="btn" id="rSalvar" style="margin-top:16px">Salvar</button>
+    <button class="btn gho" id="rVolta" style="margin-top:9px">Voltar</button>`;
+
+  const caixas=()=>Array.from(box.querySelectorAll("[data-rec]"));
+  const recontar=()=>{ const n=caixas().filter(c=>c.checked).length;
+    $("#rConta").textContent=n; };
+  caixas().forEach(c=>c.onchange=recontar);
+  $("#rTodos").onclick=()=>{ caixas().forEach(c=>c.checked=true); recontar(); };
+  $("#rNinguem").onclick=()=>{
+    delete p.recuperacao; salvar(); casaNivel="prova"; montarCasa(); };
+  $("#rVolta").onclick=()=>{ casaNivel="prova"; montarCasa(); };
+  $("#rSalvar").onclick=()=>{
+    const escolhidos=caixas().filter(c=>c.checked).map(c=>c.dataset.rec);
+    /* marcar a turma inteira é o mesmo que não ter recuperação: guardar a
+       lista completa faria a prova "esquecer" quem entrasse na turma
+       depois */
+    if(escolhidos.length===todos.length) delete p.recuperacao;
+    else p.recuperacao=escolhidos;
+    salvar(); casaNivel="prova"; montarCasa();
+  };
+}
+
 function telaFiguras(box){
   const p=provaDe(casaProva);
   if(!p){ casaNivel="turmas"; return montarCasa(); }
@@ -3622,8 +3707,20 @@ function telaProva(box){
     <button class="item" id="aFiguras"><div class="cor"><div class="t1">Figuras das questões</div>
       <div class="t2">${(p.questoes||[]).filter(q=>q.imagem).length} de ${(p.questoes||[]).length||p.nq} com figura</div>
       </div><span class="ch">›</span></button>
+    <button class="item" id="aRecup"><div class="cor">
+      <div class="t1">Estudantes em recuperação</div>
+      <div class="t2">${ehRecuperacao(p)
+        ? (p.recuperacao.length
+            ? p.recuperacao.length+" marcado"+(p.recuperacao.length===1?"":"s")+
+              " — a prova sai só para eles"
+            : "Prova de recuperação sem ninguém marcado ainda")
+        : "A prova sai para a turma inteira — toque para restringir"}</div>
+      </div><span class="ch">›</span></button>
     <button class="item" id="aPdf"><div class="cor"><div class="t1">Gerar provas em PDF</div>
-      <div class="t2">${t.alunos.length?t.alunos.length+" provas personalizadas":"Cadastre os estudantes primeiro"}</div>
+      <div class="t2">${!t.alunos.length ? "Cadastre os estudantes primeiro"
+        : alunosDaProva(t,p).length+" prova"+(alunosDaProva(t,p).length===1?"":"s")+
+          " personalizada"+(alunosDaProva(t,p).length===1?"":"s")+
+          (ehRecuperacao(p)?" · só a recuperação":"")}</div>
       </div><span class="ch">›</span></button>
     <button class="item" id="aCartoes"><div class="cor"><div class="t1">Gerar só os cartões-resposta</div>
       <div class="t2">Para quem imprime a prova separadamente</div></div><span class="ch">›</span></button>
@@ -3648,6 +3745,7 @@ function telaProva(box){
     substituindo=p.id; descartarLeitura(); casaProva=null; casaNivel="ler"; montarCasa(); };
   $("#aFiguras").onclick=()=>{casaNivel="figuras";montarCasa();};
   $("#aDisc").onclick=()=>{casaNivel="disc";montarCasa();};
+  $("#aRecup").onclick=()=>{casaNivel="recup";montarCasa();};
   $("#aPdf").onclick=()=>gerarPDF(p,t,"prova");
   $("#aCartoes").onclick=()=>gerarPDF(p,t,"cartoes");
   $("#aGabAluno").onclick=()=>{
@@ -3991,6 +4089,13 @@ function gerarPDF(p,t,modo){
   const st=$("#pdfStatus");
   const dizer=(cls,txt)=>{ st.innerHTML=`<div class="${cls}" style="margin-top:12px">${txt}</div>`; };
   if(!t.alunos.length){ dizer("aviso","Cadastre os estudantes da turma antes de gerar."); return; }
+  /* na recuperação, só quem o professor indicou */
+  const quem=alunosDaProva(t,p);
+  if(!quem.length){
+    dizer("aviso", ehRecuperacao(p)
+      ? "Nenhum estudante marcado em recuperação. Use “Estudantes em recuperação” para escolher quem faz esta prova."
+      : "Nenhum estudante matriculado neste período.");
+    return; }
   if(typeof window.jspdf==="undefined"||typeof qrcode!=="function"){
     dizer("aviso","Faltou carregar jspdf.umd.min.js ou qrcode.min.js. Envie-os para o GitHub."); return; }
   if(modo==="prova" && ehCaderno(p)){
@@ -4008,7 +4113,7 @@ function gerarPDF(p,t,modo){
     if(f.gab){ dizer("aviso",`Faltam ${f.gab} letras no gabarito. O gabarito vai dentro do
       QR de cada cartão — sem ele a correção sai errada.`); return; }
   }
-  dizer("diag","Montando "+t.alunos.length+" provas…");
+  dizer("diag","Montando "+quem.length+" prova"+(quem.length===1?"":"s")+"…");
   setTimeout(()=>{
     try{
       const e=escolaDe(t.escola);
@@ -4029,8 +4134,8 @@ function gerarPDF(p,t,modo){
         tempero:p.tempero||0, permitirTempero:!temResultados(p),
         rotulosComp:COMPONENTES.reduce((m,c)=>{m[c.id]=c.nome;return m;},{})};
       const doc = (modo==="cartoes")
-        ? gerarFolhasDeCartoes(cfg,t.alunos)
-        : gerarProvas(cfg,t.alunos,window.jspdf.jsPDF);
+        ? gerarFolhasDeCartoes(cfg,quem)
+        : gerarProvas(cfg,quem,window.jspdf.jsPDF);
       fixarTempero(p,doc);
       const nome=(modo==="cartoes"?"cartoes_":"provas_")+t.nome+"_"+p.codigo+".pdf";
       doc.save(nome);
@@ -6014,10 +6119,21 @@ function analiseTurma(){
   sel.innerHTML=`<div class="migalha"><button id="anVolta">‹ ${esc(t.nome)}</button></div>`;
   /* as duas disciplinas, sempre juntas */
   corpo.innerHTML=COMPONENTES.map(c=>blocoComponente(apurarConjunto([sm],c.id),c.id)).join("")
-    +`<button class="btn sec" id="anCsv" style="margin-top:14px">Baixar CSV desta análise</button>`;
+    +`<button class="btn" id="anPdf" style="margin-top:14px">Relatório completo em PDF</button>
+      <p class="hint">Turma, habilidades observadas, até onde o simulado mede e o
+        desempenho de cada estudante — com as explicações, para qualquer pessoa
+        conseguir ler.</p>
+      <button class="btn sec" id="anCsv" style="margin-top:4px">Baixar CSV desta análise</button>`;
   $("#anVolta").onclick=()=>{anSim=null;pintarDesempenho();};
   $("#anCsv").onclick=()=>baixarAnalise("turma",t.nome,sm.titulo,
     COMPONENTES.map(c=>({comp:c.id, A:apurarConjunto([sm],c.id)})));
+  $("#anPdf").onclick=()=>{
+    const e=escolaDe(t.escola)||{nome:""};
+    const doc=pdfAnalise({nivel:"turma", recorte:t.nome, titulo:sm.titulo,
+      etapa:sm.etapa, escola:e.nome, sims:[sm],
+      individual:[{turma:t, sims:[sm]}]});
+    doc.save("analise-"+String(t.nome).replace(/[^\w-]+/g,"-")+".pdf");
+  };
 }
 
 function analiseSerie(){
@@ -6065,10 +6181,400 @@ function analiseSerie(){
   sel.innerHTML=`<div class="migalha"><button id="anVolta">‹ ${esc(serie.nome)}</button></div>`;
   corpo.innerHTML=COMPONENTES.map(c=>
       blocoComponente(apurarConjunto(grupo.sims,c.id),c.id,{turmas:true})).join("")
-    +`<button class="btn sec" id="anCsv" style="margin-top:14px">Baixar CSV desta análise</button>`;
+    +`<button class="btn" id="anPdf" style="margin-top:14px">Relatório completo em PDF</button>
+      <p class="hint">A série inteira, a comparação entre as turmas, as habilidades
+        observadas, até onde o simulado mede e o desempenho individual de cada
+        turma — tudo num documento só.</p>
+      <button class="btn sec" id="anCsv" style="margin-top:4px">Baixar CSV desta análise</button>`;
   $("#anVolta").onclick=()=>{anSimSerie=null;pintarDesempenho();};
   $("#anCsv").onclick=()=>baixarAnalise("série",serie.nome,grupo.titulo,
     COMPONENTES.map(c=>({comp:c.id, A:apurarConjunto(grupo.sims,c.id)})));
+  $("#anPdf").onclick=()=>{
+    const t0=turmaDe(grupo.sims[0].turma);
+    const e=(t0&&escolaDe(t0.escola))||{nome:""};
+    const doc=pdfAnalise({nivel:"série", recorte:serie.nome, titulo:grupo.titulo,
+      etapa:grupo.sims[0].etapa, escola:e.nome, sims:grupo.sims,
+      /* uma seção individual por turma, na ordem em que aparecem na série */
+      individual:grupo.sims.map(sm=>({turma:turmaDe(sm.turma), sims:[sm]}))
+        .filter(x=>x.turma)});
+    doc.save("analise-"+String(serie.nome).replace(/[^\w-]+/g,"-")+".pdf");
+  };
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   O TETO DO SIMULADO
+
+   Até onde ESTE caderno consegue medir. Um simulado só enxerga as
+   habilidades que ele cobra: se o item mais difícil está no nível 4 da
+   escala do SAEPE, nenhum estudante pode ser posicionado acima daquele
+   nível por este instrumento — mesmo que acerte tudo.
+
+   É a informação que falta na maioria dos relatórios e que muda a
+   leitura do resultado: "a turma ficou no Básico" significa uma coisa se
+   o caderno alcançava o Desejável e outra bem diferente se ele parava no
+   Básico.
+
+   O nível vem do próprio arquivo do simulado (`pr.niv[i]`), preenchido na
+   importação a partir dos Níveis de Desempenho oficiais.
+   ══════════════════════════════════════════════════════════════════ */
+function tetoDoSimulado(sims,comp){
+  const etapa=(sims[0]&&sims[0].etapa)||"3EM";
+  const porNivel={}, habs={};
+  let total=0, comNivel=0;
+  /* CUIDADO: `itensDe(prova, comp)` devolve os ÍNDICES das questões daquele
+     componente, não objetos. É a mesma função que `apurarConjunto` usa. */
+  sims.forEach(sm=>{
+    const pr=provaDoSim(sm); if(!pr) return;
+    itensDe(pr,comp).forEach(i=>{
+      total++;
+      const niv=(pr.niv||[])[i];
+      const cod=codDesc((pr.desc||[])[i]||"");
+      const k=cod+"|"+(niv==null?"":niv);
+      if(!habs[k]) habs[k]={cod, nivel:(niv==null?null:niv), itens:0,
+                            texto:textoDesc(comp,cod)};
+      habs[k].itens++;
+      if(niv!=null){ comNivel++; porNivel[niv]=(porNivel[niv]||0)+1; }
+    });
+  });
+  const niveis=Object.keys(porNivel).map(Number).sort((a,b)=>a-b);
+  const daEscala=n=>SAEPE_NIVEIS.find(x=>x.comp===comp&&x.etapa===etapa&&x.nivel===n)||null;
+  const maxNivel=niveis.length?niveis[niveis.length-1]:null;
+  const h=maxNivel!=null?daEscala(maxNivel):null;
+  /* o ponto mais alto que o caderno alcança: o topo da faixa do nível mais
+     difícil que ele cobra. Faixa aberta ("acima de 400") usa o piso. */
+  const ponto=h?(h.ate!=null?h.ate:h.de):null;
+  const escala=habilidadesDe(comp,etapa);
+  const ultimo=escala.length?escala[escala.length-1].nivel:null;
+  return {etapa, total, comNivel, niveis,
+    minNivel:niveis.length?niveis[0]:null, maxNivel,
+    faixaTeto:h?{de:h.de,ate:h.ate}:null, pontoTeto:ponto,
+    padraoTeto:ponto!=null?padraoDe(ponto,etapa,comp):null,
+    ultimoDaEscala:ultimo,
+    porNivel,
+    habilidades:Object.keys(habs).map(k=>habs[k]).sort((a,b)=>
+      (a.nivel==null?99:a.nivel)-(b.nivel==null?99:b.nivel) ||
+      String(a.cod).localeCompare(String(b.cod)))};
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   RELATÓRIO DE ANÁLISE EM PDF
+
+   Um documento que se explica sozinho. Quem abre pode ser o professor, a
+   gestão, a mãe de um estudante ou alguém da Secretaria — e nenhum deles
+   é obrigado a saber o que é proficiência, padrão de desempenho ou
+   descritor. Por isso cada número vem acompanhado da frase que diz como
+   lê-lo.
+
+   `escopo` = {nivel:"série"|"turma", recorte, titulo, sims, escola,
+               individual:[{turma, sims}]}
+   ══════════════════════════════════════════════════════════════════ */
+function pdfAnalise(escopo){
+  const doc=new window.jspdf.jsPDF({unit:"mm",format:"a4",compress:true});
+  prepararFontes(doc);
+  const W=210, H=297, M=16, UTIL=W-2*M;
+  const FT=(typeof FONTE_TEXTO!=="undefined")?FONTE_TEXTO:"helvetica";
+  const vg=(x,c)=>x==null?"—":Number(x).toFixed(c==null?1:c).replace(".",",");
+  const CINZA=[120,128,140], ESC=[25,28,34], AZUL=[15,32,63], LARANJA=[240,120,40];
+  const CORPAD=[[180,60,55],[190,140,30],[45,110,180],[25,130,90]];
+  let y=0, pagina=0;
+
+  const rodape=()=>{
+    doc.setFont(FT,"normal"); doc.setFontSize(6.5);
+    doc.setTextColor(...CINZA);
+    doc.text(escopo.titulo+" · "+escopo.recorte, M, H-10);
+    doc.text("pág. "+pagina, W-M, H-10, {align:"right"});
+  };
+  const novaPagina=()=>{
+    if(pagina) rodape();
+    doc.addPage(); pagina++;
+    doc.setFillColor(...AZUL); doc.rect(0,0,W,11,"F");
+    doc.setTextColor(255,255,255); doc.setFont(FT,"bold"); doc.setFontSize(7);
+    doc.text("ANÁLISE DE DESEMPENHO · SAEPE",M,7.2);
+    doc.text(String(escopo.recorte).toUpperCase(),W-M,7.2,{align:"right"});
+    y=22;
+  };
+  const espaco=(n)=>{ if(y+n>H-18) novaPagina(); };
+  const titulo=(t,tam)=>{
+    espaco(14);
+    doc.setFont(FT,"bold"); doc.setFontSize(tam||12); doc.setTextColor(...AZUL);
+    doc.splitTextToSize(t,UTIL).forEach(l=>{ doc.text(l,M,y); y+=(tam||12)*0.42+1.2; });
+    doc.setDrawColor(...LARANJA); doc.setLineWidth(0.7);
+    doc.line(M,y-1,M+22,y-1); y+=4;
+  };
+  const sub=(t)=>{
+    espaco(10);
+    doc.setFont(FT,"bold"); doc.setFontSize(8.5); doc.setTextColor(...ESC);
+    doc.splitTextToSize(t,UTIL).forEach(l=>{ doc.text(l,M,y); y+=4.2; });
+    y+=1.5;
+  };
+  const par=(t,cor,tam)=>{
+    doc.setFont(FT,"normal"); doc.setFontSize(tam||8.5);
+    doc.setTextColor.apply(doc,cor||ESC);
+    doc.splitTextToSize(t,UTIL).forEach(l=>{ espaco(6); doc.text(l,M,y); y+=(tam||8.5)*0.46; });
+    y+=2.5;
+  };
+  const linha=()=>{ espaco(4); doc.setDrawColor(215,220,228); doc.setLineWidth(0.25);
+    doc.line(M,y,W-M,y); y+=4; };
+
+  /* tabela simples: cols = [{t,w,al}], linhas = [[...]] */
+  const tabela=(cols,dados,opc)=>{
+    const o=opc||{};
+    const cab=()=>{
+      espaco(10);
+      doc.setFont(FT,"bold"); doc.setFontSize(7); doc.setTextColor(...CINZA);
+      let x=M;
+      cols.forEach(c=>{ doc.text(c.t, c.al==="r"?x+c.w:x, y, c.al==="r"?{align:"right"}:undefined);
+        x+=c.w; });
+      doc.setDrawColor(210,215,222); doc.setLineWidth(0.3);
+      doc.line(M,y+1.5,W-M,y+1.5); y+=5.5;
+    };
+    cab();
+    dados.forEach((L,i)=>{
+      const alturas=cols.map((c,k)=>doc.splitTextToSize(String(L[k]==null?"":L[k]),c.w-3).length);
+      const nl=Math.max.apply(null,alturas);
+      if(y+nl*3.8+2>H-18){ novaPagina(); cab(); }
+      if(i%2===1){ doc.setFillColor(246,248,251); doc.rect(M-1.5,y-3.2,UTIL+3,nl*3.8+1.6,"F"); }
+      let x=M;
+      cols.forEach((c,k)=>{
+        const cor=(o.cor&&o.cor(L,k))||null;
+        doc.setFont(FT,c.b?"bold":"normal"); doc.setFontSize(7.5);
+        doc.setTextColor.apply(doc,cor||ESC);
+        let yy=y;
+        doc.splitTextToSize(String(L[k]==null?"":L[k]),c.w-3).forEach(t=>{
+          doc.text(t, c.al==="r"?x+c.w-3:x, yy, c.al==="r"?{align:"right"}:undefined);
+          yy+=3.8;
+        });
+        x+=c.w;
+      });
+      y+=nl*3.8+1.6;
+    });
+    y+=3;
+  };
+
+  /* barra horizontal proporcional */
+  const barra=(rot,valor,maximo,cor,detalhe)=>{
+    espaco(8);
+    doc.setFont(FT,"normal"); doc.setFontSize(7.5); doc.setTextColor(...ESC);
+    doc.text(rot,M,y);
+    const x0=M+42, larg=UTIL-42-30;
+    doc.setFillColor(235,238,243); doc.rect(x0,y-3,larg,4,"F");
+    const frac=maximo>0?Math.max(0,Math.min(1,valor/maximo)):0;
+    if(frac>0){ doc.setFillColor.apply(doc,cor); doc.rect(x0,y-3,larg*frac,4,"F"); }
+    doc.setTextColor(...CINZA); doc.setFontSize(7);
+    doc.text(detalhe||"",W-M,y,{align:"right"});
+    y+=6.5;
+  };
+
+  /* ── capa ── */
+  novaPagina();
+  doc.setFont(FT,"bold"); doc.setFontSize(19); doc.setTextColor(...AZUL);
+  doc.splitTextToSize("Análise de desempenho",UTIL).forEach(l=>{doc.text(l,M,y);y+=8.5;});
+  doc.setFontSize(12); doc.setTextColor(...LARANJA);
+  doc.text(escopo.recorte,M,y); y+=7;
+  doc.setFont(FT,"normal"); doc.setFontSize(9.5); doc.setTextColor(...ESC);
+  doc.text(escopo.titulo,M,y); y+=6;
+  doc.setFontSize(8); doc.setTextColor(...CINZA);
+  doc.text([escopo.escola, "Etapa: "+etapaDe(escopo.etapa).nome,
+    "Gerado em "+new Date().toLocaleDateString("pt-BR")].filter(Boolean).join("  ·  "),M,y);
+  y+=10;
+
+  titulo("Como ler este relatório");
+  par("Este documento resume o que o simulado mostrou sobre a aprendizagem. "+
+      "Ele usa três medidas, e cada uma responde a uma pergunta diferente.");
+  sub("1. Proficiência");
+  par("É uma nota numa escala que vai de cerca de 175 a 400 pontos, a mesma "+
+      "escala que o SAEPE e o SAEB usam. Ela não é o percentual de acerto: "+
+      "dois estudantes com o mesmo número de acertos podem ter proficiências "+
+      "diferentes se acertaram itens de dificuldades diferentes. Serve para "+
+      "comparar turmas, anos e edições.");
+  sub("2. Padrão de desempenho");
+  par("A escala é dividida em quatro faixas, que dizem o que fazer com o "+
+      "resultado: "+PADROES.map(p=>p.nome+" (indica "+p.acao+")").join("; ")+".");
+  sub("3. Descritores e habilidades");
+  par("Cada questão do simulado foi escrita para observar uma habilidade "+
+      "específica da Matriz de Referência — o descritor. O percentual de "+
+      "acerto por descritor mostra o que a turma já domina e o que precisa "+
+      "ser retomado, questão por questão.");
+  sub("O teto do simulado");
+  par("Um simulado só consegue medir as habilidades que ele cobra. Se o item "+
+      "mais difícil do caderno está no nível 4 da escala, nenhum estudante "+
+      "pode ser posicionado acima daquele nível por este instrumento — mesmo "+
+      "acertando tudo. Por isso cada componente traz, adiante, até onde este "+
+      "caderno alcança. É a diferença entre \u201ca turma não chegou lá\u201d e "+
+      "\u201co instrumento não foi até lá\u201d.");
+
+  /* ── por componente ── */
+  COMPONENTES.forEach(c=>{
+    const A=apurarConjunto(escopo.sims,c.id);
+    const T=tetoDoSimulado(escopo.sims,c.id);
+    if(!A){ return; }
+    novaPagina();
+    titulo(c.nome,15);
+    par(A.alunos+" estudante"+(A.alunos===1?"":"s")+"  ·  "+A.itens+
+        " "+(A.itens===1?"item":"itens")+"  ·  "+escopo.recorte,CINZA,8);
+
+    sub("Resultado geral");
+    const pm=A.padraoMedio||{nome:"—"};
+    doc.setFont(FT,"bold"); doc.setFontSize(26); doc.setTextColor(...AZUL);
+    doc.text(vg(A.media,0),M,y+4);
+    doc.setFontSize(10); doc.setTextColor(...ESC);
+    doc.text("pontos  ·  padrão "+pm.nome,M+doc.getTextWidth(vg(A.media,0))+4,y+4);
+    y+=12;
+    par("A proficiência média "+(escopo.nivel==="série"?"da série":"da turma")+
+        " é de "+vg(A.media,0)+" pontos, o que corresponde ao padrão "+pm.nome+
+        (pm.acao?" — a recomendação associada a esse padrão é "+pm.acao+".":"."),ESC,8);
+    if(A.metodo!=="tri")
+      par("Observação técnica: a proficiência foi estimada pelo percentual de "+
+          "acerto, e não por TRI. "+(A.semAncora
+          ? "Os cadernos das turmas não têm itens em comum suficientes para uma "+
+            "calibração conjunta, e forçá-la achataria a diferença real entre elas."
+          : "São poucos estudantes para calibrar um modelo de TRI com segurança."),CINZA,7.5);
+
+    sub("Distribuição pelos padrões de desempenho");
+    par("Quantos estudantes ficaram em cada faixa. É a leitura mais útil para "+
+        "planejar: ela diz o tamanho de cada grupo.",CINZA,7.5);
+    PADROES.forEach((pd,i)=>{
+      const n=A.dist[i]||0;
+      barra(pd.nome,n,A.alunos,CORPAD[i],
+        n+" de "+A.alunos+"  ("+vg(100*n/A.alunos,0)+"%)");
+    });
+    y+=2;
+
+    sub("Até onde este simulado consegue medir");
+    if(T.maxNivel==null){
+      par("Os itens deste caderno não têm o nível da escala informado, então "+
+          "não é possível dizer o teto. Para preenchê-lo, associe cada questão "+
+          "a uma habilidade oficial na importação do simulado.",CINZA,8);
+    }else{
+      const fx=T.faixaTeto||{};
+      const faixaTxt=(fx.de==null?"até "+fx.ate:(fx.ate==null?"acima de "+fx.de:
+                      fx.de+" a "+fx.ate))+" pontos";
+      par("O item mais difícil deste caderno está no nível "+T.maxNivel+
+          " da escala do SAEPE ("+faixaTxt+"). O item mais fácil está no nível "+
+          T.minNivel+". A escala desta etapa vai até o nível "+T.ultimoDaEscala+".");
+      par("Portanto, o desempenho máximo que este simulado consegue atestar é "+
+          "de aproximadamente "+vg(T.pontoTeto,0)+" pontos — padrão "+
+          (T.padraoTeto?T.padraoTeto.nome:"—")+". Um estudante que acertasse "+
+          "todas as questões não poderia, por este instrumento, ser posicionado "+
+          "acima disso.",ESC,8);
+      if(T.ultimoDaEscala && T.maxNivel<T.ultimoDaEscala)
+        par("Atenção ao planejar o próximo simulado: os níveis "+
+            (T.maxNivel+1)+" a "+T.ultimoDaEscala+" não foram observados. "+
+            "Quem já domina o que foi cobrado não teve como demonstrar mais "+
+            "do que isso.",CORPAD[1],8);
+      if(T.comNivel<T.total)
+        par("("+(T.total-T.comNivel)+" de "+T.total+" itens estão sem nível "+
+            "informado e não entraram nesta conta.)",CINZA,7.5);
+      const porN=[];
+      T.niveis.forEach(n=>porN.push(["Nível "+n, T.porNivel[n]+" "+
+        (T.porNivel[n]===1?"item":"itens")]));
+      if(porN.length) tabela([{t:"NÍVEL DA ESCALA",w:40},{t:"ITENS NO CADERNO",w:UTIL-40}],porN);
+    }
+
+    sub("Habilidades observadas");
+    par("Cada linha é um descritor cobrado pelo simulado, com o percentual de "+
+        "acerto. Percentuais baixos apontam o que retomar primeiro.",CINZA,7.5);
+    const pctDe={};
+    (A.descritores||[]).forEach(d=>pctDe[codDesc(d.cod)]=d);
+    const linhasHab=T.habilidades.map(h=>{
+      const d=pctDe[h.cod];
+      return [h.cod||"—", h.nivel==null?"—":String(h.nivel),
+              h.texto||textoDesc(c.id,h.cod)||"(sem descrição na matriz)",
+              h.itens, d?vg(d.pct,0)+"%":"—"];
+    });
+    tabela([{t:"DESCRITOR",w:20,b:true},{t:"NÍVEL",w:14,al:"r"},
+            {t:"HABILIDADE",w:UTIL-20-14-14-18},{t:"ITENS",w:14,al:"r"},
+            {t:"ACERTO",w:18,al:"r",b:true}],linhasHab,
+      {cor:(L,k)=>{
+        if(k!==4) return null;
+        const v=parseFloat(String(L[4]).replace(",","."));
+        if(isNaN(v)) return null;
+        return v>=70?CORPAD[3]:v>=50?CORPAD[2]:v>=30?CORPAD[1]:CORPAD[0];
+      }});
+
+    if(escopo.nivel==="série" && A.turmas && A.turmas.length>1){
+      sub("Comparação entre as turmas");
+      par("A mesma medida, turma a turma. Diferenças grandes entre turmas da "+
+          "mesma série costumam apontar para o percurso do ano, não para o "+
+          "instrumento.",CINZA,7.5);
+      tabela([{t:"TURMA",w:50,b:true},{t:"ESTUDANTES",w:30,al:"r"},
+              {t:"PROFICIÊNCIA",w:35,al:"r",b:true},{t:"PADRÃO",w:UTIL-115}],
+        A.turmas.map(x=>[x.turma.nome, x.n, vg(x.media,0),
+                         x.padrao?x.padrao.nome:"—"]));
+    }
+  });
+
+  /* ── desempenho individual, por turma ── */
+  (escopo.individual||[]).forEach(bloco=>{
+    const t=bloco.turma;
+    const dados={};
+    COMPONENTES.forEach(c=>{
+      const A=apurarConjunto(bloco.sims,c.id);
+      if(!A) return;
+      A.linhas.forEach(L=>{
+        const k=String(L.res.numero);
+        if(!dados[k]) dados[k]={numero:L.res.numero, nome:L.res.nome, comp:{}};
+        const prof=profPorPercentual(L.sm,L.acertos,L.total,5,c.id);
+        dados[k].comp[c.id]={acertos:L.acertos, total:L.total, prof,
+          padrao:padraoDe(prof,L.sm.etapa,c.id)};
+      });
+    });
+    const lista=Object.keys(dados).map(k=>dados[k])
+      .sort((a,b)=>ordNum(a.numero,b.numero));
+    if(!lista.length) return;
+
+    novaPagina();
+    titulo("Desempenho individual — "+t.nome,14);
+    par(lista.length+" estudante"+(lista.length===1?"":"s")+" com cartão "+
+        "corrigido. Para cada componente: acertos, proficiência estimada e "+
+        "padrão de desempenho.",CINZA,8);
+    par("A proficiência individual de um único simulado tem margem de erro "+
+        "grande — ela vale para agrupar estudantes por necessidade, não para "+
+        "classificar um estudante isoladamente. O número de acertos, ao lado, "+
+        "é o dado direto e sem estimativa.",CINZA,7.5);
+
+    const comps=COMPONENTES.filter(c=>lista.some(L=>L.comp[c.id]));
+    const cols=[{t:"Nº",w:10},{t:"ESTUDANTE",w:UTIL-10-comps.length*38,b:true}];
+    comps.forEach(c=>{
+      cols.push({t:c.curto.toUpperCase()+" ACERTOS",w:18,al:"r"});
+      cols.push({t:c.curto.toUpperCase()+" PADRÃO",w:20,al:"r"});
+    });
+    const linhas=lista.map(L=>{
+      const out=[L.numero, encurtarNome(L.nome,38)];
+      comps.forEach(c=>{
+        const x=L.comp[c.id];
+        out.push(x?x.acertos+"/"+x.total:"—");
+        out.push(x&&x.padrao?vg(x.prof,0)+" · "+x.padrao.nome:"—");
+      });
+      return out;
+    });
+    tabela(cols,linhas,{cor:(L,k)=>{
+      if(k<2) return null;
+      const txt=String(L[k]);
+      const i=PADROES.findIndex(p=>txt.indexOf(p.nome)>=0);
+      return i>=0?CORPAD[i]:null;
+    }});
+
+    sub("Quem precisa de atenção primeiro");
+    const criticos=lista.filter(L=>comps.some(c=>{
+      const x=L.comp[c.id]; return x&&x.padrao&&x.padrao.indice<=1; }));
+    if(!criticos.length) par("Nenhum estudante desta turma ficou nos padrões "+
+      PADROES[0].nome+" ou "+PADROES[1].nome+" em algum componente.",ESC,8);
+    else{
+      par(criticos.length+" estudante"+(criticos.length===1?"":"s")+
+        " ficaram em "+PADROES[0].nome+" ou "+PADROES[1].nome+" em pelo menos "+
+        "um componente — são os que a recuperação deve alcançar primeiro.",ESC,8);
+      tabela([{t:"Nº",w:10},{t:"ESTUDANTE",w:UTIL-10-60,b:true},
+              {t:"COMPONENTE(S)",w:60}],
+        criticos.map(L=>[L.numero, encurtarNome(L.nome,38),
+          comps.filter(c=>{const x=L.comp[c.id];
+            return x&&x.padrao&&x.padrao.indice<=1;})
+            .map(c=>c.nome).join(", ")]));
+    }
+  });
+
+  rodape();
+  return doc;
 }
 
 function baixarAnalise(nivel,recorte,titulo,blocos){
