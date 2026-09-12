@@ -873,6 +873,30 @@ const acertoCorrigido=(acertos,total,no)=>{
   const chute=1/(no||5);
   return Math.max(0,((acertos/total)-chute)/(1-chute));
 };
+
+/* ── quando a prova não mediu nada ─────────────────────────────────
+   Acertar no nível do CHUTE — 0 de 9, ou 2 de 9 com cinco alternativas —
+   não é evidência de nenhum nível de proficiência. É o resultado que
+   qualquer pessoa teria marcando ao acaso.
+
+   A TRI não sabe disso sozinha, e o que ela faz é pior do que parece.
+   Um padrão todo errado não tem estimativa finita: o que segura o número
+   é o PRIOR, centrado no meio da escala. Resultado perverso, medido com
+   os itens do 1º Simulado de Matemática:
+
+     itens difíceis (350–425)  →  quem errou tudo sai com 281 pontos
+     itens fáceis   (200–300)  →  quem errou tudo sai com 196 pontos
+
+   Ou seja: **quanto mais difícil a prova, maior a nota de quem não
+   acertou nada** — porque errar tudo numa prova difícil é o esperado, e
+   o modelo conclui que aquilo não informa. Estatisticamente coerente;
+   para o professor, para a família e para o conselho de classe,
+   indefensável.
+
+   Nesses casos o app para de dar um número e diz o que sabe: o estudante
+   está ABAIXO do que este caderno consegue medir. */
+const noNivelDoChute=(acertos,total,no)=>
+  !!total && (acertos/total)<=(1/(no||5))+1e-9;
 /* A faixa de um componente. `sm.faixa` aceita as duas formas: o objeto
    {LP:[...],MAT:[...]} de agora e o par [piso,teto] das versões antigas,
    que valia para os dois componentes. */
@@ -5836,6 +5860,13 @@ function apurarComp(sm,comp){
   }
   if(metodo==="pct")
     feitos.forEach(L=>{ L.prof=profPorPercentual(sm,L.acertos,idx.length,pr.no,comp); });
+  /* Acerto no nível do chute não posiciona ninguém. Vale para os DOIS
+     métodos: no percentual o valor já é o piso da escala, e na TRI ele
+     seria o prior — que sobe quando a prova fica mais difícil. */
+  feitos.forEach(L=>{
+    L.semEvidencia=noNivelDoChute(L.acertos,idx.length,pr.no);
+    if(L.semEvidencia) L.prof=profPorPercentual(sm,L.acertos,idx.length,pr.no,comp);
+  });
   linhas.forEach(L=>{ if(L.prof==null) L.prof=null;
     L.padrao=L.prof==null?null:padraoDe(L.prof,sm.etapa,comp); });
 
@@ -6132,6 +6163,11 @@ function apurarConjunto(sims,comp){
   }
   if(metodo==="pct")
     linhas.forEach(L=>{ L.prof=profPorPercentual(sm0,L.acertos,L.total,no,comp); });
+  /* mesma regra do conjunto: acerto no nível do chute não posiciona */
+  linhas.forEach(L=>{
+    L.semEvidencia=noNivelDoChute(L.acertos,L.total,no);
+    if(L.semEvidencia) L.prof=profPorPercentual(L.sm||sm0,L.acertos,L.total,no,comp);
+  });
   linhas.forEach(L=>{ L.padrao=padraoDe(L.prof,etapa,comp); });
 
   const media=linhas.reduce((x,L)=>x+L.prof,0)/linhas.length;
@@ -6897,8 +6933,10 @@ function pdfAnalise(escopo){
       A.linhas.forEach(L=>{
         const k=String(L.res.numero);
         if(!dados[k]) dados[k]={numero:L.res.numero, nome:L.res.nome, comp:{}};
-        const prof=profPorPercentual(L.sm,L.acertos,L.total,5,c.id);
+        const prof=(L.prof!=null)?L.prof
+          :profPorPercentual(L.sm,L.acertos,L.total,5,c.id);
         dados[k].comp[c.id]={acertos:L.acertos, total:L.total, prof,
+          semEvidencia:!!L.semEvidencia,
           padrao:padraoDe(prof,L.sm.etapa,c.id)};
       });
     });
@@ -6915,6 +6953,16 @@ function pdfAnalise(escopo){
         "grande — ela vale para agrupar estudantes por necessidade, não para "+
         "classificar um estudante isoladamente. O número de acertos, ao lado, "+
         "é o dado direto e sem estimativa.",CINZA,7.5);
+    const compsAqui=COMPONENTES.filter(c=>lista.some(L=>L.comp[c.id]));
+    const semEv=lista.filter(L=>compsAqui.some(c=>L.comp[c.id]&&L.comp[c.id].semEvidencia));
+    if(semEv.length)
+      par("\u201cNão medido\u201d aparece quando o estudante acertou no nível do "+
+          "chute (com cinco alternativas, 1 em 5). Esse resultado é o que "+
+          "qualquer pessoa teria marcando ao acaso: ele não é evidência de "+
+          "nenhum nível de proficiência, e o app prefere dizer isso a "+
+          "apresentar um número que viria do modelo, não do estudante. "+
+          semEv.length+" "+(semEv.length===1?"estudante está":"estudantes estão")+
+          " nessa situação.",CORPAD[1],7.5);
 
     const comps=COMPONENTES.filter(c=>lista.some(L=>L.comp[c.id]));
     const cols=[{t:"Nº",w:10},{t:"ESTUDANTE",w:UTIL-10-comps.length*38,b:true}];
@@ -6927,7 +6975,8 @@ function pdfAnalise(escopo){
       comps.forEach(c=>{
         const x=L.comp[c.id];
         out.push(x?x.acertos+"/"+x.total:"—");
-        out.push(x&&x.padrao?vg(x.prof,0)+" · "+x.padrao.nome:"—");
+        out.push(!x?"—":(x.semEvidencia?"não medido"
+                        :(x.padrao?vg(x.prof,0)+" · "+x.padrao.nome:"—")));
       });
       return out;
     });

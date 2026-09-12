@@ -3607,3 +3607,67 @@ do banco; a conferência não achando mais nada na segunda passada; o item
 mais fácil acima do corte do Desejável; e a sugestão com sete descritores,
 motivo, texto, e o que a turma não domina vindo antes do que nunca foi
 cobrado.
+
+---
+
+## v73 — quem errou tudo não tem proficiência
+
+Relato: um estudante que não acertou NADA em Matemática saiu com **257
+pontos** — acima do corte do Elementar I (250), classificado em
+Elementar II.
+
+### A causa, e ela é pior do que parece
+
+Um padrão todo errado **não tem estimativa finita** na TRI. O que segura
+o número é o PRIOR, centrado no meio da escala. Reproduzido com os itens
+do 1º Simulado de Matemática:
+
+| itens do caderno | quem errou tudo sai com |
+|---|---|
+| difíceis (350–425) | **281 pontos** |
+| fáceis (200–300) | **196 pontos** |
+
+**Quanto mais difícil a prova, maior a nota de quem não acertou nada** —
+porque errar tudo numa prova difícil é o esperado, e o modelo conclui que
+aquilo não informa, deixando o prior decidir.
+
+Estatisticamente coerente. Para o professor, para a família e para o
+conselho de classe, indefensável. E note a interação com o achado da v72:
+o caderno é todo acima do corte do Desejável, o que empurra o prior para
+cima exatamente para quem menos sabe.
+
+### A regra
+
+`noNivelDoChute(acertos, total, no)` — acertar no nível do chute (0 de 9,
+ou 2 de 10 com cinco alternativas) não é evidência de nenhum nível de
+proficiência: é o resultado que qualquer pessoa teria marcando ao acaso.
+
+Nesses casos o app **para de dar um número** e diz o que sabe: o estudante
+está abaixo do que este caderno consegue medir. A proficiência usada para
+agregação cai para o piso da escala, não para o prior. Vale para os DOIS
+métodos — no percentual o valor já era o piso; na TRI era o prior.
+
+A conta acompanha o número de alternativas, não um percentual fixo: 2 de 8
+é chute com quatro opções e não é com cinco.
+
+### No relatório
+
+A tabela individual mostra **"não medido"** no lugar do número, e explica:
+
+> "Não medido" aparece quando o estudante acertou no nível do chute (com
+> cinco alternativas, 1 em 5). Esse resultado é o que qualquer pessoa
+> teria marcando ao acaso: ele não é evidência de nenhum nível de
+> proficiência, e o app prefere dizer isso a apresentar um número que
+> viria do modelo, não do estudante.
+
+### Suíte nova
+
+`teste67` — o efeito perverso reproduzido (281 na prova difícil contra 196
+na fácil, e o 281 passando do corte do Elementar I); a regra do chute em
+sete casos, incluindo a dependência do número de alternativas; o estudante
+de zero acertos caindo para o piso e ficando em Elementar I em vez de
+Elementar II; quem acertou tudo seguindo intocado; e o "não medido" no
+PDF.
+
+O comentário no código registra o MOTIVO, para ninguém "consertar" isso de
+volta achando que é um bug de arredondamento.
