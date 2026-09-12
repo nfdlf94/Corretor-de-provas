@@ -591,7 +591,7 @@ const guarda=(()=>{ let mem={},ok=false;
    morre aqui.
 
    TEM DE CASAR com o VERSAO do sw.js. */
-const VERSAO_APP="v74";
+const VERSAO_APP="v75";
 
 const $=s=>document.querySelector(s);
 /* `esc` também resolve as marcas de expoente e índice: nas telas elas
@@ -6133,7 +6133,12 @@ function apurarConjunto(sims,comp){
     const chaves=idx.map(i=>{
       const k=chaveItem(pr,i);
       if(colunas[k]==null){ colunas[k]=ordem.length;
-        ordem.push({chave:k, cod:(pr.desc||[])[i]||"", comp}); }
+        /* a âncora vai junto da coluna, aqui, onde ainda se sabe de qual
+           prova e de qual item ela veio. Reencontrar isso depois exigiria
+           desfazer a chave, que é opaca de propósito. */
+        const anc=ancoraDoItem(pr,i,comp,sm.etapa);
+        ordem.push({chave:k, cod:(pr.desc||[])[i]||"", comp,
+                    ponto:anc?anc.ponto:null}); }
       return colunas[k];
     });
     resDa(pr.id).forEach(r=>{
@@ -6177,17 +6182,47 @@ function apurarConjunto(sims,comp){
     });
   });
   const nCadernos=new Set(linhas.map(L=>L.sm.id)).size;
-  const ancoras=cadernosPorColuna.filter(n=>n>1).length;
-  const semAncora=(nCadernos>1 && ancoras<ANCORA_MIN);
+  const ancorasComuns=cadernosPorColuna.filter(n=>n>1).length;
+  const semAncora=(nCadernos>1 && ancorasComuns<ANCORA_MIN);
 
-  let metodo="pct", par=null, thMedio=0;
-  if(!semAncora && linhas.length>=TRI_MIN_ALUNOS && I>=TRI_MIN_ITENS){
-    par=calibrar(matriz,no);
+  /* ── ÂNCORAS NA ESCALA OFICIAL ───────────────────────────────────
+     Isto faltava aqui, e era a razão de a aba Análise mostrar um número
+     e a aba Notas outro: 198,6 (Elementar I) contra 274,1 (Elementar II)
+     para a MESMA turma, no mesmo simulado.
+
+     `apurarComp` — que alimenta a tela de Notas — ancora a dificuldade
+     dos itens na faixa de pontos do nível oficial. `apurarConjunto` —
+     que alimenta a Análise — calibrava a dificuldade só com as respostas
+     da turma e posicionava o grupo pelo percentual de acerto.
+
+     A diferença não é de arredondamento, é de significado. Sem âncora, o
+     nível do grupo vem de QUANTOS itens foram acertados; com âncora, vem
+     de QUAIS — e num caderno todo difícil, "acertou poucos" e "acertou
+     poucos, mas os difíceis" são coisas muito diferentes.
+
+     Quando os itens têm nível, a versão ancorada é a certa, e é a que a
+     rede reconheceria. As duas telas passam a dizer o mesmo número. */
+  const ref=referenciaEscala(sm0,comp);
+  const ancoraCol=ordem.map(o=>
+    o.ponto==null?null:pontosParaTheta(o.ponto,ref));
+  const nAncoradas=ancoraCol.filter(x=>x!=null).length;
+  const ancorado=nAncoradas>=ANCORA_MIN_ITENS;
+
+  let metodo="pct", par=null, thMedio=0, centroUsado=centro;
+  if((!semAncora||ancorado) && linhas.length>=TRI_MIN_ALUNOS && I>=TRI_MIN_ITENS){
+    par=calibrar(matriz,no,ancorado?ancoraCol:null);
     if(par){
-      metodo="tri";
+      metodo=ancorado?"tri-ancorada":"tri";
       linhas.forEach((L,k)=>{ L.theta=estimarTheta(matriz[k],par); });
       thMedio=linhas.reduce((x,L)=>x+L.theta,0)/linhas.length;
-      linhas.forEach(L=>{ L.prof=escalaTRI(sm0,L.theta,thMedio,centro); });
+      if(ancorado){
+        const [piso,teto]=faixaDe(sm0,comp);
+        linhas.forEach(L=>{ L.prof=Math.max(piso,Math.min(teto,
+          thetaParaPontos(L.theta,ref))); });
+        centroUsado=thetaParaPontos(thMedio,ref);
+      }else{
+        linhas.forEach(L=>{ L.prof=escalaTRI(sm0,L.theta,thMedio,centro); });
+      }
     }
   }
   if(metodo==="pct")
@@ -6229,7 +6264,8 @@ function apurarConjunto(sims,comp){
     padrao:padraoDe(o.soma/o.n,etapa,comp)})).sort((a,b)=>b.media-a.media);
 
   return {comp, etapa, linhas, media, dist, descritores, turmas, metodo,
-    nCadernos, ancoras, semAncora,
+    ancorado, nAncoradas,
+    nCadernos, ancoras:ancorasComuns, semAncora,
     itens:I, alunos:linhas.length, padraoMedio:padraoDe(media,etapa,comp),
     cadernosDiferentes:sims.length>1 && I>Math.max.apply(null,
       sims.map(sm=>{const pr=provaDoSim(sm);return pr?itensDe(pr,comp).length:0}))};

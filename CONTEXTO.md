@@ -3710,3 +3710,68 @@ eles não aparecem, não é a análise que está errada — é a versão.
 sw.js**, visível na tela, com o botão que fala com o service worker, e a
 planilha carimbada. A asserção de sincronia é a que importa: ela quebra na
 próxima vez que alguém subir o número num arquivo e esquecer o outro.
+
+---
+
+## v75 — duas telas, dois estimadores, 75 pontos de diferença
+
+As capturas do professor, lado a lado, mostravam a MESMA turma no MESMO
+simulado:
+
+| | proficiência | padrão |
+|---|---|---|
+| aba **Notas** | **274,1** | Elementar II |
+| aba **Análise** | **198,6** | Elementar I |
+
+E a explicação estava escrita na própria tela. Notas dizia *"TRI ANCORADA
+na escala oficial: 9 dos 9 itens estão associados a habilidades do
+SAEPE"*. Análise dizia *"calibrada com as respostas dos 32 estudantes
+deste recorte"*.
+
+### A causa
+
+`apurarComp` (Notas) ancora a dificuldade dos itens na faixa de pontos do
+nível oficial. `apurarConjunto` (Análise) calibrava só com as respostas da
+turma e posicionava o grupo pelo percentual de acerto.
+
+A diferença não é de arredondamento, é de significado. Sem âncora, o
+nível do grupo vem de **quantos** itens foram acertados; com âncora, vem
+de **quais**. Num caderno todo difícil — que é o caso, v72 — "acertou
+poucos" e "acertou poucos, mas os difíceis" são coisas muito diferentes.
+
+E era exatamente por isso que preencher os níveis (v70) mudou uma tela e
+não a outra: só uma delas sabia o que fazer com o dado novo.
+
+### A correção
+
+A âncora passou a ser guardada **na própria coluna**, no momento em que
+ela é criada — onde ainda se sabe de qual prova e de qual item ela veio.
+Reencontrá-la depois exigiria desfazer a chave da coluna, que é opaca de
+propósito.
+
+Com isso `apurarConjunto` ancora igual a `apurarComp`, e a proficiência
+das duas telas passou a ser idêntica: **288,9 contra 288,9, zero pontos de
+diferença** no caderno real.
+
+Medido no mesmo conjunto: **ancorar muda a proficiência em 58,5 pontos**.
+Não é enfeite.
+
+### O que este episódio ensina sobre o projeto
+
+Duas funções calculando a mesma grandeza de jeitos diferentes é o mesmo
+defeito da v63 (`unidadesQuestao` × `unidadesNaOrdem`) e da v53 (o QR × o
+cálculo). Três vezes o mesmo erro: **uma segunda fonte da verdade,
+esperando divergir.**
+
+O `teste69` guarda a propriedade que importa — as duas telas dizem o mesmo
+número — e não o valor, que muda com os dados. Confere também o caso SEM
+níveis: nenhuma das duas ancora, e elas continuam de acordo. O ponto nunca
+foi "ancorar sempre"; é as duas fazerem a MESMA coisa.
+
+### Suíte nova
+
+`teste69` — o caderno real com 32 estudantes: as duas telas com método
+`tri-ancorada`, a mesma média, o mesmo padrão e a mesma distribuição; sem
+os níveis, as duas caindo juntas para `tri`; a prova de que ancorar muda
+o resultado; e a análise de série ancorando também, com as turmas saindo
+com médias distintas em vez de achatadas.
