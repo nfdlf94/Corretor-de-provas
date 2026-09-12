@@ -3775,3 +3775,150 @@ foi "ancorar sempre"; é as duas fazerem a MESMA coisa.
 os níveis, as duas caindo juntas para `tri`; a prova de que ancorar muda
 o resultado; e a análise de série ancorando também, com as turmas saindo
 com médias distintas em vez de achatadas.
+
+---
+
+## v76 — por que 5 acertos caem em dois padrões
+
+Pergunta do professor, e ele já sabia que não era bug: por que alguém com
+7 acertos e alguém com 5 ficam os dois no Desejável, e alguém com 4 ou 3
+fica no Básico?
+
+### Primeiro eu entendi errado
+
+Comecei a construir a explicação da INVERSÃO — menos acertos valendo mais
+que mais acertos. Escrevi a função, procurei o caso na turma e **não
+achei nenhum**. A TRI de 3 parâmetros pune padrões aberrantes: quem acerta
+o difícil e erra o fácil tem o acerto atribuído ao chute, e não sobe.
+
+Então fui olhar os dados em vez de continuar supondo. Reproduzido com o
+caderno real e 32 estudantes:
+
+| acertos | proficiência | padrão |
+|---|---|---|
+| 0 | 175 | Elementar I |
+| 2 | 281 a 287 | Elementar II |
+| 3 | 299 | Básico |
+| 4 | 304 a 317 | Básico |
+| **5** | **324 a 333** | **Básico / Desejável** |
+| 6 | 349 a 353 | Desejável |
+| 7 | 362 a 367 | Desejável |
+
+A relação **é** crescente — não há inversão nenhuma. São duas outras
+coisas:
+
+1. **O corte é uma linha no meio da faixa.** O Desejável começa em 325 e
+   quem acertou 5 ficou entre 324 e 333: uns de um lado, outros do outro.
+2. **O mesmo número de acertos não dá a mesma proficiência** — 13 pontos
+   de variação na faixa mais larga —, porque a escala ancorada mede QUAIS
+   itens foram acertados, não quantos.
+
+### O que entrou no relatório
+
+`dispersaoPorAcertos(A)` monta essa tabela com os números da PRÓPRIA
+turma, e o relatório a mostra com as linhas de padrão duplo destacadas,
+seguidas das duas frases que explicam cada fenômeno.
+
+Explicação genérica não sobrevive a uma reunião com a gestão; a tabela da
+turma, sim. E `inversaoNaTurma` ficou — quando o caso existir, o relatório
+mostra os dois estudantes reais; quando não existir, diz que não houve em
+vez de inventar exemplo.
+
+### A lição, que já apareceu antes neste projeto
+
+Eu ia escrever uma explicação para um fenômeno que **não estava nos
+dados**. A v65 tem a mesma anotação: quando uma medição contraria a
+ideia, vale conferir se ela contraria a ideia ou a implementação — e aqui,
+se o fenômeno que eu ia explicar é mesmo o que está acontecendo.
+
+### Suíte nova
+
+`teste70` — o cenário com semente fixa; a relação crescente (que descarta
+erro de conta); as faixas em que o mesmo número de acertos deu
+proficiências diferentes; os 5 acertos caindo em dois padrões com o corte
+de 325 passando no meio; e as frases da explicação presentes no relatório.
+
+---
+
+## v77 — o relatório estava somando habilidades diferentes
+
+O professor mandou o relatório, o arquivo do simulado e o caderno
+impresso e pediu para conferir se descritores e habilidades estavam
+tratados corretamente. **Não estavam, e os três defeitos eram meus.**
+
+### O que os números denunciavam
+
+O arquivo tem 9 questões e 5 descritores. O relatório da série (4 turmas,
+36 itens) mostrava ONZE linhas, com D22 e D31 (SAEB) convivendo com D23,
+D24, D25 e D32 (SAEPE). As contas fecham com exatamente UMA turma
+renumerada:
+
+```
+D23 nível 7 = "gráfico"   da turma renumerada      (1)
+            + "algébrica" das três não renumeradas (3)  = 4
+D24 nível 8 = "algébrica" da renumerada (1) + "máx/mín" das outras (3) = 4
+```
+
+Dois descritores diferentes somados no mesmo código, com um percentual de
+acerto que não é de habilidade nenhuma.
+
+### Defeito 1 — a renumeração não alcançava as turmas
+
+A v72 usava `irmaosDaMatriz`, e as quatro turmas do professor **não
+compartilhavam matriz** — é o que acontece quando ele importa turma por
+turma, que é como se faz. `cadernosDoMesmoSimulado(sm)` passou a achá-las
+também por título + etapa.
+
+### Defeito 2 — apagar o texto do código antigo
+
+`renumerarDescritores` removia o texto do código antigo do banco. Com só
+uma turma renumerada, os outros três cadernos continuavam com D22, o texto
+do arquivo sumia, e o relatório passava a exibir o D22 **oficial** —
+"Resolver problema envolvendo P.A./P.G." — para questões de gráfico de
+função afim. **Habilidade errada com aparência de certa**, que é pior que
+erro visível.
+
+Agora o texto antigo só sai quando nenhum caderno usa mais aquele código.
+
+### Defeito 3 — a fonte da verdade era global
+
+Este é o mais sutil, e só apareceu porque o teste falhou com 12 em vez de
+21 itens.
+
+`E.descritores` é GLOBAL; o significado de um código é POR CADERNO.
+Renumerado o primeiro caderno, o banco passa a dizer que D23 é "gráfico" —
+e a conferência do segundo, cujo D23 é "algébrica", consulta o banco,
+encontra "gráfico", conclui que bate com a matriz e **não vê a troca que
+falta**. O erro some exatamente onde estava.
+
+A saída é `pr.habs[i]`, que guarda o texto do descritor daquele item,
+gravado na importação. É a única fonte por caderno, e `conferirNumeracao`
+passou a preferi-la ao banco. Com isso os três cadernos restantes voltaram
+a ser detectados: 21 itens, 7 por caderno.
+
+`renumerarGrupo(sims, comp)` também tira uma fotografia do banco antes de
+mexer em qualquer coisa, decide todas as trocas contra ela e só então
+aplica.
+
+### A rede de segurança: `conferirCoerencia`
+
+Nada disso avisava nada. O relatório apresentava os percentuais como se
+estivessem bem.
+
+`conferirCoerencia(sims, comp)` roda ANTES de qualquer percentual e
+detecta a **mistura** — uns cadernos renumerados, outros não. É um estado
+invisível olhando um caderno de cada vez, porque cada um, isolado, é
+coerente consigo. Só o conjunto revela.
+
+O aviso aparece na tela da Análise e no relatório, acima da tabela de
+acerto por descritor, e diz as três coisas: que está errado, **por que** o
+número não vale, e o que fazer.
+
+### Suíte nova
+
+`teste71` — quatro turmas sem matriz comum; `cadernosDoMesmoSimulado`
+achando as três irmãs; a mistura detectada (1 no SAEPE, 3 no SAEB); o
+texto do D22 preservado enquanto três cadernos o usam e NÃO virando
+P.A./P.G.; a renumeração do grupo mexendo nos 21 itens; o conjunto ficando
+coerente com só os códigos do SAEPE; e os avisos presentes na tela e no
+PDF.

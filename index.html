@@ -591,7 +591,7 @@ const guarda=(()=>{ let mem={},ok=false;
    morre aqui.
 
    TEM DE CASAR com o VERSAO do sw.js. */
-const VERSAO_APP="v75";
+const VERSAO_APP="v77";
 
 const $=s=>document.querySelector(s);
 /* `esc` também resolve as marcas de expoente e índice: nas telas elas
@@ -868,6 +868,17 @@ function rotuloProva(p){
    Lista ausente (`null`) é prova comum. Lista vazia é recuperação sem
    ninguém marcado ainda — e aí o app não gera nada, em vez de gerar para
    a turma toda. */
+/* Os cadernos do MESMO simulado, em qualquer turma. A matriz liga os que
+   foram gerados juntos; título e etapa pegam os que foram importados um a
+   um, turma por turma — que é como o professor faz na prática. */
+function cadernosDoMesmoSimulado(sm){
+  if(!sm) return [];
+  const t=String(sm.titulo||"").trim().toLowerCase();
+  return (E.simulados||[]).filter(x=>x.id!==sm.id && (
+    (sm.matriz && x.matriz===sm.matriz) ||
+    (t && String(x.titulo||"").trim().toLowerCase()===t && x.etapa===sm.etapa)));
+}
+
 const ehRecuperacao=p=>Array.isArray(p&&p.recuperacao);
 const emRecuperacao=(p,a)=>!ehRecuperacao(p) ||
   p.recuperacao.indexOf(String(a.numero))>=0;
@@ -5165,15 +5176,16 @@ function telaSimulado(box){
      do arquivo, mas o descritor de cada item foi gravado na importação
      original e é o que amarra os dois. */
   if($("#bRenum")) $("#bRenum").onclick=()=>{
-    /* vale para as turmas irmãs também: é o mesmo caderno */
+    /* TODOS os cadernos do mesmo simulado, não só os irmãos de matriz.
+       As quatro turmas do professor não compartilhavam `matriz`, e o
+       resultado de renumerar só uma foi o pior dos mundos: metade dos
+       cadernos com a numeração do SAEB, metade com a do SAEPE, e o
+       relatório somando habilidades diferentes sob o mesmo código. */
+    const grupo=[sm].concat(cadernosDoMesmoSimulado(sm));
     let n=0, cadernos=0;
-    [sm].concat(irmaosDaMatriz(sm)).forEach(s2=>{
-      const p2=provaDoSim(s2); if(!p2) return;
-      let m=0;
-      COMPONENTES.forEach(c=>{
-        m+=renumerarDescritores(p2,c.id,conferirNumeracao(p2,c.id,s2.etapa));
-      });
-      if(m){ n+=m; cadernos++; }
+    COMPONENTES.forEach(c=>{
+      const r=renumerarGrupo(grupo,c.id);
+      n+=r.itens; cadernos=Math.max(cadernos,r.cadernos);
     });
     salvar(); montarCasa();
     const el=$("#impInfo");
@@ -6138,7 +6150,7 @@ function apurarConjunto(sims,comp){
            desfazer a chave, que é opaca de propósito. */
         const anc=ancoraDoItem(pr,i,comp,sm.etapa);
         ordem.push({chave:k, cod:(pr.desc||[])[i]||"", comp,
-                    ponto:anc?anc.ponto:null}); }
+                    ponto:anc?anc.ponto:null, nivel:anc?anc.nivel:null}); }
       return colunas[k];
     });
     resDa(pr.id).forEach(r=>{
@@ -6263,7 +6275,7 @@ function apurarConjunto(sims,comp){
     media:o.soma/o.n, pct:100*o.ac/o.tot,
     padrao:padraoDe(o.soma/o.n,etapa,comp)})).sort((a,b)=>b.media-a.media);
 
-  return {comp, etapa, linhas, media, dist, descritores, turmas, metodo,
+  return {comp, etapa, linhas, ordem, media, dist, descritores, turmas, metodo,
     ancorado, nAncoradas,
     nCadernos, ancoras:ancorasComuns, semAncora,
     itens:I, alunos:linhas.length, padraoMedio:padraoDe(media,etapa,comp),
@@ -6418,7 +6430,8 @@ function analiseTurma(){
   sel.innerHTML=`<div class="migalha"><button id="anVolta">‹ ${esc(t.nome)}</button></div>`;
   /* as duas disciplinas, sempre juntas */
   corpo.innerHTML=COMPONENTES.map(c=>
-      blocoComponente(apurarConjunto([sm],c.id),c.id)+tetoNaTela([sm],c.id)
+      avisoCoerencia([sm],c.id)
+      +blocoComponente(apurarConjunto([sm],c.id),c.id)+tetoNaTela([sm],c.id)
       +sugestaoNaTela([sm],c.id)).join("")
     +`<button class="btn" id="anPdf" style="margin-top:14px">Relatório completo em PDF</button>
       <p class="hint">Turma, habilidades observadas, até onde o simulado mede e o
@@ -6481,7 +6494,8 @@ function analiseSerie(){
   $("#desSub").textContent=`${serie.nome} · ${grupo.titulo} · ${turmas.join(", ")}`;
   sel.innerHTML=`<div class="migalha"><button id="anVolta">‹ ${esc(serie.nome)}</button></div>`;
   corpo.innerHTML=COMPONENTES.map(c=>
-      blocoComponente(apurarConjunto(grupo.sims,c.id),c.id,{turmas:true})
+      avisoCoerencia(grupo.sims,c.id)
+      +blocoComponente(apurarConjunto(grupo.sims,c.id),c.id,{turmas:true})
       +tetoNaTela(grupo.sims,c.id)+sugestaoNaTela(grupo.sims,c.id)).join("")
     +`<button class="btn" id="anPdf" style="margin-top:14px">Relatório completo em PDF</button>
       <p class="hint">A série inteira, a comparação entre as turmas, as habilidades
@@ -6532,11 +6546,22 @@ function conferirNumeracao(pr, comp, etapa){
   Object.keys(oficial).forEach(k=>{ porTexto[normDesc(oficial[k])]=k; });
   const banco=(E.descritores||{})[comp]||{};
   const vistos={}, out=[];
+  /* `pr.habs[i]` guarda o texto do descritor DAQUELE item, gravado na
+     importação: "MAT D22 — Reconhecer o gráfico…". É a única fonte POR
+     CADERNO — o banco `E.descritores` é global e, depois que um caderno
+     do grupo é renumerado, ele passa a dizer o que aquele código significa
+     no caderno renumerado, não neste. Foi assim que a conferência do 2º
+     caderno deixou de ver a troca que faltava. */
+  const textoDoItem=i=>{
+    const h=(pr.habs||[])[i];
+    if(h){ const m=/[—–-]\s*(.+)$/.exec(String(h)); if(m) return m[1].trim(); }
+    return "";
+  };
   itensDe(pr,comp).forEach(i=>{
     const cod=codDesc((pr.desc||[])[i]||"");
     if(!cod || vistos[cod]) return;
     vistos[cod]=1;
-    const texto=banco[cod]||"";
+    const texto=textoDoItem(i)||banco[cod]||"";
     if(!texto) return;                       // sem texto não há como casar
     const certo=porTexto[normDesc(texto)];
     if(certo && certo!==cod) out.push({de:cod, para:certo, texto});
@@ -6555,18 +6580,60 @@ function renumerarDescritores(pr, comp, trocas){
     const cod=codDesc(pr.desc[i]||"");
     if(mapa[cod]){ pr.desc[i]=mapa[cod]; n++; }
   });
-  /* o texto acompanha o código novo; o antigo sai do banco para não
-     ficar um D22 órfão apontando para função afim */
+  /* O texto acompanha o código novo. O ANTIGO só sai do banco se NENHUM
+     outro caderno ainda usar aquele código.
+
+     Apagar sempre foi um erro meu, e o efeito era pior que não renumerar:
+     com quatro turmas e só uma renumerada, os cadernos das outras três
+     continuavam com D22, o texto do arquivo sumia do banco, e o relatório
+     passava a mostrar o D22 OFICIAL — "Resolver problema envolvendo
+     P.A./P.G." — para questões de gráfico de função afim. Habilidade
+     errada, com aparência de certa. */
   E.descritores=E.descritores||{LP:{},MAT:{}};
   E.descritores[comp]=E.descritores[comp]||{};
+  const aindaUsado=cod=>(E.provas||[]).some(p2=>
+    (p2.desc||[]).some((d,i)=>codDesc(d||"")===cod &&
+      ((p2.comps||[])[i]===comp || !p2.comps)));
   trocas.forEach(t=>{
     E.descritores[comp][t.para]=t.texto;
-    if(E.descritores[comp][t.de]===t.texto) delete E.descritores[comp][t.de];
+    if(E.descritores[comp][t.de]===t.texto && !aindaUsado(t.de))
+      delete E.descritores[comp][t.de];
   });
   /* habs é derivado do desc: refaz */
   if(pr.habs) pr.habs=(pr.desc||[]).map((cod,i)=>
     cod?curtoComp((pr.comps||[])[i])+" "+rotuloDesc((pr.comps||[])[i],cod):"");
   return n;
+}
+
+/* Renumera o GRUPO inteiro de uma vez.
+
+   Fazer caderno a caderno não funciona, e a razão é sutil: o banco de
+   textos (`E.descritores`) é GLOBAL, mas o significado de um código é POR
+   CADERNO. Renumerado o primeiro, o banco passa a dizer que D23 é
+   "gráfico de função afim" — e a conferência do segundo caderno, cujo D23
+   é "representação algébrica", consulta o banco, encontra "gráfico", acha
+   que bate com a matriz oficial e conclui que não há nada a trocar. O
+   erro fica invisível exatamente onde estava.
+
+   A correção é tirar a fotografia do banco ANTES de mexer em qualquer
+   coisa, decidir todas as trocas contra essa fotografia, e só então
+   aplicar. */
+function renumerarGrupo(sims, comp){
+  const antes=Object.assign({}, ((E.descritores||{})[comp]||{}));
+  const guarda=(E.descritores||{})[comp];
+  const planos=[];
+  sims.forEach(sm=>{
+    const pr=provaDoSim(sm); if(!pr) return;
+    E.descritores[comp]=antes;                 // conferir contra a fotografia
+    planos.push({pr, trocas:conferirNumeracao(pr,comp,sm.etapa)});
+  });
+  E.descritores[comp]=guarda;
+  let itens=0, cadernos=0;
+  planos.forEach(pl=>{
+    const n=renumerarDescritores(pl.pr,comp,pl.trocas);
+    if(n){ itens+=n; cadernos++; }
+  });
+  return {itens, cadernos};
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -6702,6 +6769,196 @@ function sugerirProximos(sims, comp, quantos){
     naMatriz:Object.keys(oficial).length,
     jaCobrados:Object.keys(jaCobrados).length,
     teto:T, etapa};
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   POR QUE 5 ACERTOS PODEM VALER MAIS QUE 7
+
+   Com a escala ancorada, a proficiência não sai de QUANTOS itens o
+   estudante acertou, e sim de QUAIS. Um item posicionado em 425 pontos e
+   outro em 350 não valem a mesma coisa: acertar o de 425 é evidência de
+   estar perto dos 425.
+
+   Isso produz, e é o esperado, casos que parecem erro:
+
+     • quem acertou 5 itens difíceis fica acima de quem acertou 7 fáceis;
+     • quem acertou 4 dos mais difíceis pode passar de quem acertou 3
+       deles mais 3 fáceis.
+
+   O professor vai ser perguntado sobre isso pela gestão e pela família, e
+   uma frase genérica não basta. Estas funções procuram o caso REAL na
+   turma — dois estudantes de verdade, com a inversão de fato — para o
+   relatório mostrar com nome, número de acertos e a dificuldade dos itens
+   que cada um acertou.
+   ══════════════════════════════════════════════════════════════════ */
+
+/* os pontos dos itens que este estudante acertou */
+function pontosAcertados(A,L){
+  const out=[];
+  (A.ordem||[]).forEach((o,j)=>{
+    if(o.ponto==null) return;
+    if(L.marc && L.marc[j]===1) out.push(o.ponto);
+  });
+  return out.sort((a,b)=>b-a);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   OS CADERNOS DESTE RECORTE ESTÃO FALANDO A MESMA LÍNGUA?
+
+   A análise de série soma os acertos de várias turmas por DESCRITOR. Isso
+   só significa alguma coisa se o mesmo código quiser dizer a mesma
+   habilidade em todos os cadernos.
+
+   No relatório do professor não queria. Quatro turmas, uma renumerada
+   para o SAEPE e três ainda no SAEB, e o resultado foi:
+
+     D23 = "gráfico de função afim" (turma renumerada)
+         + "representação algébrica" (três turmas não renumeradas)
+
+   Dois descritores diferentes somados no mesmo código, com um percentual
+   de acerto que não é de habilidade nenhuma. Pior que não ter renumerado:
+   parecia certo.
+
+   Esta conferência roda ANTES de apresentar qualquer percentual. Ela não
+   conserta nada — avisa, e diz o que fazer. ══════════════════════════ */
+function conferirCoerencia(sims,comp){
+  const textos={}, niveis={}, semNivel={}, provas=[];
+  sims.forEach(sm=>{
+    const pr=provaDoSim(sm); if(!pr) return;
+    const t=turmaDe(sm.turma);
+    let faltando=0;
+    itensDe(pr,comp).forEach(i=>{
+      const cod=codDesc((pr.desc||[])[i]||"");
+      if(!cod) return;
+      const txt=((E.descritores||{})[comp]||{})[cod]||textoDesc(comp,cod)||"";
+      (textos[cod]=textos[cod]||{})[normDesc(txt)]=txt;
+      const nv=(pr.niv||[])[i];
+      if(nv==null) faltando++;
+      else (niveis[cod]=niveis[cod]||{})[nv]=1;
+    });
+    if(faltando) semNivel[(t&&t.nome)||sm.turma]=faltando;
+    provas.push({sm, pr, turma:(t&&t.nome)||sm.turma});
+  });
+
+  /* Numeração fora da matriz, caderno a caderno. Guardar POR CADERNO é o
+     que permite descobrir a mistura — o banco de textos é global e não
+     enxerga que o mesmo código quer dizer coisas diferentes em cadernos
+     diferentes. */
+  const foraDaMatriz=[], porCaderno=[];
+  provas.forEach(x=>{
+    const tr=conferirNumeracao(x.pr,comp,x.sm.etapa);
+    porCaderno.push({turma:x.turma, trocas:tr.length});
+    tr.forEach(t=>{
+      if(!foraDaMatriz.some(y=>y.de===t.de && y.para===t.para))
+        foraDaMatriz.push(Object.assign({turma:x.turma},t));
+    });
+  });
+
+  /* ── A MISTURA ─────────────────────────────────────────────────────
+     Uns cadernos já renumerados, outros não. É o pior estado possível, e
+     é invisível olhando um caderno de cada vez: cada um, isolado, está
+     coerente consigo. Só o CONJUNTO revela que o D23 quer dizer "gráfico
+     de função afim" num caderno e "representação algébrica" noutro — e
+     que o percentual de acerto do D23 está somando os dois. */
+  const comTroca=porCaderno.filter(x=>x.trocas>0);
+  const semTroca=porCaderno.filter(x=>x.trocas===0);
+  const misturado=(comTroca.length>0 && semTroca.length>0);
+
+  /* mesmo código com textos diferentes no banco (raro, mas possível) */
+  const ambiguos=Object.keys(textos)
+    .filter(c=>Object.keys(textos[c]).length>1)
+    .map(c=>({cod:c, textos:Object.keys(textos[c]).map(k=>textos[c][k])}));
+
+  return {ambiguos, foraDaMatriz, misturado, porCaderno,
+    numerados:semTroca.length, aNumerar:comTroca.length,
+    semNivel:Object.keys(semNivel).map(k=>({turma:k, itens:semNivel[k]})),
+    cadernos:provas.length,
+    ok:!ambiguos.length && !foraDaMatriz.length && !misturado};
+}
+
+/* o aviso, em HTML, para a tela da Análise */
+function avisoCoerencia(sims,comp){
+  const C=conferirCoerencia(sims,comp);
+  if(C.ok && !C.semNivel.length) return "";
+  const c=COMPONENTES.find(x=>x.id===comp)||{nome:comp};
+  let h=`<div class="aviso" style="margin:10px 0;border-left:3px solid var(--coral)">
+    <b>Confira antes de usar estes percentuais — ${esc(c.nome)}</b>`;
+  if(C.ambiguos.length)
+    h+=`<br><br><b>${C.ambiguos.length} código${C.ambiguos.length===1?"":"s"}
+      agrupando habilidades diferentes.</b> O percentual de acerto
+      ${C.ambiguos.length===1?"dele":"deles"} soma questões que não medem a
+      mesma coisa:` +
+      C.ambiguos.map(a=>`<div style="margin-top:6px">
+        <span style="font-family:var(--mono);font-weight:700">${esc(a.cod)}</span>
+        ${a.textos.map(t=>`<div class="hint" style="margin-left:10px">• ${esc(t)}</div>`).join("")}
+      </div>`).join("");
+  if(C.misturado)
+    h+=`<br><br><b>Os cadernos deste recorte não estão com a mesma
+      numeração.</b> ${C.numerados} de ${C.cadernos} já usam a numeração do
+      SAEPE e ${C.aNumerar} ainda usam a do SAEB — então o MESMO código quer
+      dizer habilidades diferentes de uma turma para outra, e o percentual
+      de acerto por descritor está somando questões que não medem a mesma
+      coisa.
+      <div class="hint">Não use estes percentuais até uniformizar. Abra o
+        simulado e use “Corrigir a numeração”: ela alcança todos os cadernos
+        de uma vez.</div>`;
+  else if(C.foraDaMatriz.length)
+    h+=`<br><br><b>${C.foraDaMatriz.length} código${C.foraDaMatriz.length===1?"":"s"}
+      com a numeração do SAEB.</b> ${C.foraDaMatriz.map(t=>
+      `<span style="font-family:var(--mono)">${esc(t.de)}→${esc(t.para)}</span>`).join(" · ")}
+      <div class="hint">A habilidade está certa; o número é o do SAEB. Abra o
+        simulado e use “Corrigir a numeração” antes de levar isto para a
+        rede.</div>`;
+  if(C.semNivel.length)
+    h+=`<br><br><b>Itens sem o nível da escala:</b> ${C.semNivel.map(x=>
+      esc(x.turma)+" ("+x.itens+")").join(" · ")}.
+      <div class="hint">Use “Completar os níveis pelo arquivo” no simulado.</div>`;
+  return h+`</div>`;
+}
+
+/* Quanto vale cada número de acertos, NESTA turma. É a tabela que
+   responde à pergunta do professor sem teoria nenhuma: olhando a faixa,
+   vê-se de uma vez que 5 acertos podem cair dos dois lados do corte. */
+function dispersaoPorAcertos(A){
+  const por={};
+  (A.linhas||[]).forEach(L=>{
+    if(L.prof==null) return;
+    const k=L.acertos;
+    if(!por[k]) por[k]={acertos:k, n:0, min:Infinity, max:-Infinity, padroes:{}};
+    const x=por[k];
+    x.n++; x.min=Math.min(x.min,L.prof); x.max=Math.max(x.max,L.prof);
+    if(L.padrao) x.padroes[L.padrao.nome]=1;
+  });
+  return Object.keys(por).map(k=>por[k])
+    .sort((a,b)=>a.acertos-b.acertos)
+    .map(x=>Object.assign(x,{padroes:Object.keys(x.padroes),
+      variacao:Math.round(x.max-x.min)}));
+}
+
+/* Procura a inversão mais eloquente: alguém com MAIS acertos e MENOS
+   proficiência que outro. Devolve null quando não existe — e aí o
+   relatório não inventa exemplo. */
+function inversaoNaTurma(A){
+  if(!A || !A.ancorado) return null;
+  const L=(A.linhas||[]).filter(x=>x.prof!=null && !x.semEvidencia);
+  let par=null, forca=0;
+  L.forEach(a=>L.forEach(b=>{
+    if(a.acertos<=b.acertos) return;       // `a` acertou MAIS
+    if(a.prof>=b.prof) return;             // e mesmo assim vale MENOS
+    const f=(a.acertos-b.acertos)*10+(b.prof-a.prof);
+    if(f>forca){ forca=f; par={mais:a, menos:b}; }
+  }));
+  if(!par) return null;
+  return {
+    mais:{nome:par.mais.res.nome, numero:par.mais.res.numero,
+          acertos:par.mais.acertos, total:par.mais.total,
+          prof:par.mais.prof, padrao:par.mais.padrao,
+          pontos:pontosAcertados(A,par.mais)},
+    menos:{nome:par.menos.res.nome, numero:par.menos.res.numero,
+           acertos:par.menos.acertos, total:par.menos.total,
+           prof:par.menos.prof, padrao:par.menos.padrao,
+           pontos:pontosAcertados(A,par.menos)}
+  };
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -6923,6 +7180,42 @@ function pdfAnalise(escopo){
       if(porN.length) tabela([{t:"NÍVEL DA ESCALA",w:40},{t:"ITENS NO CADERNO",w:UTIL-40}],porN);
     }
 
+    /* o mesmo aviso, no relatório: o percentual por descritor vem logo
+       abaixo, e ele é exatamente o número que a incoerência estraga */
+    const C=conferirCoerencia(escopo.sims,c.id);
+    if(!C.ok){
+      sub("Antes de usar os percentuais por descritor");
+      if(C.ambiguos.length){
+        par("ATENÇÃO: "+C.ambiguos.length+" código"+
+            (C.ambiguos.length===1?"":"s")+" está agrupando habilidades "+
+            "DIFERENTES entre os cadernos deste recorte. O percentual de "+
+            "acerto desses códigos soma questões que não medem a mesma "+
+            "coisa, e não deve ser usado até a numeração ser uniformizada.",
+            CORPAD[0],8);
+        C.ambiguos.forEach(a2=>{
+          par(a2.cod+":",ESC,8);
+          a2.textos.forEach(t=>par("   • "+t,CINZA,7.5));
+        });
+      }
+      if(C.misturado)
+        par("ATENÇÃO: os cadernos deste recorte não estão com a mesma "+
+            "numeração. "+C.numerados+" de "+C.cadernos+" já usam a do SAEPE "+
+            "e "+C.aNumerar+" ainda usam a do SAEB — o MESMO código quer dizer "+
+            "habilidades diferentes de uma turma para outra, e o percentual "+
+            "por descritor abaixo está somando questões que não medem a mesma "+
+            "coisa. Uniformize antes de usar.",CORPAD[0],8);
+      if(C.foraDaMatriz.length)
+        par(C.foraDaMatriz.length+" código"+(C.foraDaMatriz.length===1?"":"s")+
+            " com a numeração do SAEB: "+
+            C.foraDaMatriz.map(t=>t.de+" → "+t.para).join(", ")+
+            ". A habilidade está certa; o número é o do SAEB. Corrija no "+
+            "simulado antes de levar este relatório para a rede.",CORPAD[1],8);
+      if(C.semNivel.length)
+        par("Itens sem o nível da escala: "+
+            C.semNivel.map(x=>x.turma+" ("+x.itens+")").join(", ")+".",
+            CORPAD[1],8);
+    }
+
     sub("Habilidades observadas");
     par("Cada linha é um descritor cobrado pelo simulado, com o percentual de "+
         "acerto. Percentuais baixos apontam o que retomar primeiro.",CINZA,7.5);
@@ -7018,6 +7311,79 @@ function pdfAnalise(escopo){
         "grande — ela vale para agrupar estudantes por necessidade, não para "+
         "classificar um estudante isoladamente. O número de acertos, ao lado, "+
         "é o dado direto e sem estimativa.",CINZA,7.5);
+    /* ── por que o número de acertos não manda ── */
+    COMPONENTES.forEach(c=>{
+      const A=apurarConjunto(bloco.sims,c.id);
+      if(!A || !A.ancorado) return;
+      const inv=inversaoNaTurma(A);
+      sub("Por que os acertos e o padrão não andam juntos — "+c.nome);
+      par("Nesta escala a proficiência não sai de QUANTOS itens o estudante "+
+          "acertou, e sim de QUAIS. Os itens deste caderno não valem a mesma "+
+          "coisa: cada um está posicionado num ponto da escala do SAEPE, e "+
+          "acertar um item de 425 pontos é evidência de estar perto dos 425. "+
+          "Acertar três itens de 350 não é.");
+      par("É o mesmo princípio do SAEPE e do SAEB. Se o número de acertos "+
+          "mandasse, uma prova fácil e uma difícil dariam a mesma nota para o "+
+          "mesmo estudante — e não daria para comparar turmas, anos ou "+
+          "edições.",CINZA,8);
+      /* a tabela que responde sem teoria: quanto valeu cada nº de acertos */
+      const D=dispersaoPorAcertos(A);
+      const cortes=etapaDe(A.etapa).cortes[c.id]||[];
+      if(D.length){
+        par("Nesta turma, cada número de acertos valeu isto:",ESC,8);
+        tabela([{t:"ACERTOS",w:24,al:"r",b:true},{t:"ESTUDANTES",w:28,al:"r"},
+                {t:"PROFICIÊNCIA",w:40,al:"r"},
+                {t:"PADRÃO",w:UTIL-24-28-40}],
+          D.map(x=>[x.acertos, x.n,
+                    Math.round(x.min)===Math.round(x.max)
+                      ? vg(x.min,0)
+                      : vg(x.min,0)+" a "+vg(x.max,0),
+                    x.padroes.join(" / ")]),
+          {cor:(L,k)=>k===3 && String(L[3]).indexOf("/")>=0 ? CORPAD[1] : null});
+        const duplos=D.filter(x=>x.padroes.length>1);
+        if(duplos.length)
+          par("Repare nas linhas destacadas: "+duplos.map(x=>x.acertos).join(" e ")+
+              " acertos caíram em DOIS padrões diferentes. Não é erro — é o "+
+              "corte do padrão passando no meio da faixa. O "+PADROES[3].nome+
+              " começa em "+(cortes[2]!=null?cortes[2]:"—")+" pontos, e quem "+
+              "acertou "+duplos[0].acertos+" ficou entre "+
+              Math.round(duplos[0].min)+" e "+Math.round(duplos[0].max)+
+              ": uns de um lado da linha, outros do outro.",ESC,8);
+        const varia=D.filter(x=>x.n>1 && x.variacao>=3);
+        if(varia.length)
+          par("E veja a coluna da proficiência: o mesmo número de acertos não "+
+              "dá o mesmo resultado. Quem acertou "+varia[0].acertos+
+              " variou "+varia[0].variacao+" pontos entre si — porque não "+
+              "acertaram os MESMOS itens.",CINZA,8);
+      }
+      if(inv){
+        par("Nesta turma houve até um caso de inversão. Dois estudantes reais:",ESC,8);
+        const pt=v=>v.pontos.length
+          ? v.pontos.map(p=>Math.round(p)).join(", ")
+          : "nenhum item ancorado";
+        tabela([{t:"ESTUDANTE",w:UTIL-30-34-46,b:true},{t:"ACERTOS",w:30,al:"r"},
+                {t:"PROFICIÊNCIA",w:34,al:"r",b:true},
+                {t:"PONTOS DOS ITENS QUE ACERTOU",w:46}],
+          [[encurtarNome(inv.mais.nome,30)+" (nº "+inv.mais.numero+")",
+            inv.mais.acertos+"/"+inv.mais.total, vg(inv.mais.prof,0)+
+            (inv.mais.padrao?" · "+inv.mais.padrao.nome:""), pt(inv.mais)],
+           [encurtarNome(inv.menos.nome,30)+" (nº "+inv.menos.numero+")",
+            inv.menos.acertos+"/"+inv.menos.total, vg(inv.menos.prof,0)+
+            (inv.menos.padrao?" · "+inv.menos.padrao.nome:""), pt(inv.menos)]]);
+        par("O primeiro acertou "+inv.mais.acertos+" e o segundo "+
+            inv.menos.acertos+" — e mesmo assim o segundo ficou "+
+            Math.round(inv.menos.prof-inv.mais.prof)+" pontos acima. "+
+            "Olhe a última coluna: os itens que o segundo acertou estão "+
+            "posicionados mais alto na escala. Não é erro de conta; é o "+
+            "que a medida significa.",ESC,8);
+      }else{
+        par("Nesta turma ninguém com MENOS acertos ficou acima de quem teve "+
+            "mais — mas isso pode acontecer, e quando acontecer não será "+
+            "erro: quem acerta os itens difíceis e erra os fáceis é "+
+            "posicionado pelo que acertou.",CINZA,8);
+      }
+    });
+
     const compsAqui=COMPONENTES.filter(c=>lista.some(L=>L.comp[c.id]));
     const semEv=lista.filter(L=>compsAqui.some(c=>L.comp[c.id]&&L.comp[c.id].semEvidencia));
     if(semEv.length)
