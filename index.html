@@ -4865,10 +4865,25 @@ function telaSimulado(box){
 
   /* 4 — gabarito e descritores */
   const nDesc=(pr.desc||[]).filter(Boolean).length;
+  /* Diagnóstico do NÍVEL DA ESCALA. É o dado que alimenta o "até onde este
+     simulado consegue medir" no relatório, e o único que um caderno
+     importado por uma versão antiga do app pode não ter. Melhor descobrir
+     aqui do que pelo relatório, na véspera do conselho de classe. */
+  const nNiv=(pr.niv||[]).filter(x=>x!=null).length;
   h+=passo(4,"Gabarito e descritores",
       {ok:!f.gab&&nDesc===pr.nq&&pr.nq>0, txt:(pr.nq-f.gab)+" gab · "+nDesc+" desc"})+
     `<p class="hint" style="margin-top:-4px">Vêm prontos do arquivo. Confira ou ajuste
       item a item se precisar.</p>
+    ${pr.nq?`<div class="hint" style="margin:8px 0 10px;${
+      nNiv===pr.nq?"":"color:var(--amber)"}">
+      <b>Nível da escala:</b> ${nNiv} de ${pr.nq} ${nNiv===1?"item":"itens"}.
+      ${nNiv===pr.nq
+        ? "O relatório de análise consegue dizer até onde este simulado mede."
+        : "Sem isso, o relatório não consegue dizer até onde este simulado mede. "+
+          "Use “Completar os níveis pelo arquivo” — ele preenche só o nível e "+
+          "não toca nas questões nem nos cartões já corrigidos."}</div>
+      ${nNiv===pr.nq?"":`<button class="btn sec" id="bNiveis">Completar os níveis pelo arquivo</button>
+      <input type="file" id="arqNiv" accept=".docx,.pdf,.txt" style="display:none">`}`:""}
     <button class="btn gho" id="bItens">Conferir os ${pr.nq} itens</button>
     <button class="btn${alertasDoCaderno(pr).lista.length?"":" gho"}" id="bConferir"
       style="margin-top:8px">Conferir o gabarito item a item${
@@ -5068,6 +5083,68 @@ function telaSimulado(box){
     if(idsProva.includes(E.ativa)){ E.ativa=null; refletirBarra(); }
     salvar(); pintarResultados(); pintarDesempenho();
     casaNivel="simulados"; montarCasa(); };
+
+  /* ── completar SÓ os níveis ──────────────────────────────────────
+     Um caderno importado por uma versão anterior do app pode não ter o
+     nível da escala em `pr.niv`. Reimportar resolveria, mas reimportar
+     TROCA as questões e invalida os cartões já corrigidos — não é opção
+     para um simulado já aplicado.
+
+     Esta importação lê o mesmo arquivo, casa cada questão do caderno com
+     a do arquivo e preenche APENAS `pr.niv`. Não toca em enunciado,
+     gabarito, descritor nem resultado. O casamento é pelo DESCRITOR mais
+     a posição dentro dele: a ordem das questões no caderno pode não ser a
+     do arquivo, mas o descritor de cada item foi gravado na importação
+     original e é o que amarra os dois. */
+  if($("#bNiveis")) $("#bNiveis").onclick=()=>$("#arqNiv").click();
+  if($("#arqNiv")) $("#arqNiv").onchange=async ev=>{
+    const arq=ev.target.files&&ev.target.files[0]; ev.target.value="";
+    if(!arq) return;
+    const aviso=t=>{ const el=$("#impInfo"); if(el) el.innerHTML=t; };
+    try{
+      aviso(`<div class="hint" style="margin-top:10px">Lendo ${esc(arq.name)}…</div>`);
+      let txt="";
+      if(/\.docx$/i.test(arq.name))     txt=await textoDeDocx(arq);
+      else if(/\.pdf$/i.test(arq.name)) txt=(await textoEFigurasDePdf(arq)).txt;
+      else                              txt=await arq.text();
+      const lido=lerSimuladoDoc(txt,null);
+      if(!lido.itens.length) throw new Error("não encontrei questões numeradas");
+
+      /* fila de níveis por descritor, na ordem do arquivo */
+      const fila={};
+      lido.itens.forEach(x=>{
+        if(x.niv==null) return;
+        const k=codDesc(x.desc||"");
+        (fila[k]=fila[k]||[]).push(x.niv);
+      });
+      const semDesc=lido.itens.filter(x=>x.niv!=null && !codDesc(x.desc||""));
+      pr.niv=(pr.niv||[]).slice();
+      while(pr.niv.length<pr.nq) pr.niv.push(null);
+      let preenchidos=0, faltaram=0;
+      for(let i=0;i<pr.nq;i++){
+        if(pr.niv[i]!=null) continue;
+        const k=codDesc((pr.desc||[])[i]||"");
+        if(k && fila[k] && fila[k].length){ pr.niv[i]=fila[k].shift(); preenchidos++; }
+        else faltaram++;
+      }
+      /* sobrou nível sem par? avisa em vez de espalhar por aí */
+      const sobraram=Object.keys(fila).reduce((n,k)=>n+fila[k].length,0);
+      salvar(); montarCasa();
+      const el=$("#impInfo");
+      if(el) el.innerHTML=`<div class="aviso" style="margin-top:10px">
+        ${preenchidos} ${preenchidos===1?"item recebeu":"itens receberam"} o nível
+        da escala.${faltaram?` ${faltaram} ficaram sem — o descritor deles não
+        aparece no arquivo com nível informado.`:""}${sobraram?` ${sobraram}
+        ${sobraram===1?"nível do arquivo não encontrou par":"níveis do arquivo não encontraram par"}
+        no caderno.`:""}${semDesc.length?` (${semDesc.length} ${semDesc.length===1
+        ?"questão do arquivo tem nível mas não tem descritor":"questões do arquivo têm nível mas não têm descritor"}.)`:""}
+        <br>Nenhuma questão, gabarito ou cartão corrigido foi alterado.</div>`;
+    }catch(e){
+      const el=$("#impInfo");
+      if(el) el.innerHTML=`<div class="aviso" style="margin-top:10px">Não consegui ler
+        o arquivo: ${esc(e.message)}</div>`;
+    }
+  };
 
   /* ── envio de arquivo, ali mesmo ────────────────────────────────── */
   box.querySelectorAll("[data-arq]").forEach(b=>b.onclick=()=>{

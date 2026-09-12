@@ -3426,3 +3426,63 @@ colunas, 5 descritores, 9 níveis), a costura nas quatro linhas quebradas,
 o texto da habilidade saindo limpo (sem `400)` perdido dentro e sem o
 padrão vazando), a linha sem quebra continuando igual, o caminho até
 `pr.niv` e até `tetoDoSimulado`, e o relatório sendo gerado.
+
+---
+
+## v70 — completar os níveis sem reimportar
+
+O professor perguntou o óbvio: *"as atualizações conseguem pegar a prova
+que já subi? Não vou subir de novo."*
+
+### O que alcança o que já existe, e o que não
+
+Quase tudo é **cálculo, não dado guardado**: toda a diagramação, a
+correção, a análise, a participação. São refeitos na hora, a partir das
+questões, do gabarito e dos resultados que já estão salvos.
+
+A exceção é **`pr.niv`** — o nível da escala de cada item. Ele é lido do
+arquivo na importação. Um caderno importado antes de o app gravar esse
+campo simplesmente não o tem, e não há como inventar.
+
+### Por que reimportar não resolvia
+
+Reimportar TROCA as questões e invalida todos os cartões já corrigidos —
+o app já avisava isso. Para um simulado aplicado, não é opção.
+
+### A operação nova
+
+"Completar os níveis pelo arquivo" lê o mesmo arquivo e preenche
+**apenas** `pr.niv`. Não toca em enunciado, gabarito, descritor nem
+resultado.
+
+O casamento é pelo **descritor mais a posição dentro dele**: a ordem das
+questões no caderno não é a do arquivo (o caderno é sorteado e
+embaralhado), mas o descritor de cada item foi gravado na importação
+original e é o que amarra os dois. Para cada descritor, os níveis do
+arquivo entram na ordem em que aparecem.
+
+Três garantias que o `teste65` fixa:
+
+- **só preenche o que está vazio.** Um nível ajustado à mão pelo
+  professor não é sobrescrito, e rodar duas vezes não muda nada;
+- **sobra e falta são declaradas.** Se um descritor do caderno não
+  aparece no arquivo, ou se sobra nível sem par, a tela diz quantos — em
+  vez de espalhar valores a esmo;
+- **os cartões corrigidos continuam com as mesmas notas.** É o teste que
+  importa: era exatamente isso que reimportar destruiria.
+
+### Diagnóstico na tela
+
+O passo "Gabarito e descritores" agora mostra **"Nível da escala: N de M
+itens"**. Completo, diz que o relatório consegue medir o teto; incompleto,
+fica âmbar e oferece o botão. Melhor descobrir ali do que pelo relatório,
+na véspera do conselho de classe.
+
+### Suíte nova
+
+`teste65` — reconstrói o cenário real: importa o arquivo de verdade,
+corrige a turma, apaga os níveis (o "caderno antigo"), confirma que o teto
+some, roda a operação e confere que os níveis voltam idênticos aos da
+importação original, que enunciados, gabarito, descritores e as seis notas
+seguem intactos, que o teto volta (níveis 6 a 9), que rodar de novo não
+mexe em nada e que um nível posto à mão sobrevive.
