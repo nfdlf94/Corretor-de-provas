@@ -582,6 +582,17 @@ const guarda=(()=>{ let mem={},ok=false;
   return {ler:k=>{try{return ok?localStorage.getItem(k):mem[k];}catch(e){return mem[k];}},
           esc:(k,v)=>{try{ok?localStorage.setItem(k,v):(mem[k]=v);}catch(e){mem[k]=v;}}};})();
 
+/* A versão do app, em texto, na própria página.
+
+   Estava sendo referenciada (na planilha de gabaritos) e NUNCA declarada
+   — a planilha saía com "—" e ninguém, nem o professor nem eu, tinha como
+   saber qual versão estava rodando. Num app que vive em cache de service
+   worker isso não é detalhe: metade das conversas de "não atualizou"
+   morre aqui.
+
+   TEM DE CASAR com o VERSAO do sw.js. */
+const VERSAO_APP="v74";
+
 const $=s=>document.querySelector(s);
 /* `esc` também resolve as marcas de expoente e índice: nas telas elas
    viram <sup>/<sub>, no papel quem desenha é o gerador. Sem isto, os
@@ -3604,6 +3615,14 @@ function juntarBackup(E2){
 function telaConfig(box){
   box.innerHTML=`<div class="migalha"><button id="mVolta">‹ Voltar</button></div>
     <h2>Configurações</h2>
+    <div class="aviso" style="margin-bottom:14px">
+      <b>Versão do app:</b> <span style="font-family:var(--mono)">${VERSAO_APP}</span>
+      <div class="hint" style="margin-top:6px">O app guarda uma cópia de si mesmo
+        para abrir sem internet. Depois de uma atualização, pode ser preciso
+        forçar a troca — e confira aqui se o número mudou.</div>
+      <div class="linha" style="margin-top:10px">
+        <button class="btn sec" id="cfAtualizar">Buscar atualização</button></div>
+    </div>
     <label>Seu nome (sai impresso no cabeçalho das provas)</label>
     <input id="cfProf" placeholder="Natanael Filho" value="${esc(lerProfessor())}">
     <button class="item" id="cfCadastro" style="margin-top:14px"><div class="cor">
@@ -3645,9 +3664,19 @@ function telaConfig(box){
     <p class="hint">A cobrança da API é separada do plano do aplicativo Claude.
       Você cria a chave e coloca crédito em console.anthropic.com.</p>`;
   $("#cfModelo").value=lerModelo();
-  montarBackup();
-  $("#mVolta").onclick=()=>{casaNivel=casaProva?"ler":"turmas";montarCasa();};
-  $("#cfCadastro").onclick=()=>{
+  montarBackup();  if($("#cfAtualizar")) $("#cfAtualizar").onclick=async ()=>{
+    const el=$("#cfAtualizar");
+    el.textContent="Procurando…"; el.disabled=true;
+    try{
+      if(navigator.serviceWorker){
+        const regs=await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r=>r.update()));
+      }
+    }catch(e){}
+    /* recarrega sem cache: se veio versão nova, é agora que ela entra */
+    setTimeout(()=>location.reload(true),600);
+  };
+  $("#mVolta").onclick=()=>{casaNivel=casaProva?"ler":"turmas";montarCasa();};  $("#cfCadastro").onclick=()=>{
     guarda.esc(NOME_PROF,$("#cfProf").value.trim());
     voltaPara.cadastro="config"; casaNivel="cadastro"; montarCasa(); };
   $("#cfSalvar").onclick=()=>{

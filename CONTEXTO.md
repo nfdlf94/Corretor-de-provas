@@ -3671,3 +3671,42 @@ PDF.
 
 O comentário no código registra o MOTIVO, para ninguém "consertar" isso de
 volta achando que é um bug de arredondamento.
+
+---
+
+## v74 — o app não dizia quem era
+
+Relato: "as análises da turma e por série ainda não atualizaram; as notas
+individuais estão ok".
+
+### O que eu não conseguia responder
+
+Nada, porque **`VERSAO_APP` era referenciada e nunca foi declarada**. A
+planilha de gabaritos escrevia "—" no lugar da versão desde a v52, e não
+havia nenhum outro lugar no app onde a versão aparecesse.
+
+Num app que vive em cache de service worker isso não é detalhe. As
+últimas entregas foram quase diárias; quando o professor diz "não
+atualizou", as hipóteses são duas — o código não faz o que eu penso, ou
+ele está rodando outra versão — e eu não tinha como separar as duas.
+
+Sintoma diagnóstico útil, para a próxima vez: a v72 acrescentou **blocos
+novos** na tela da Análise (o teto e a sugestão do próximo simulado). Se
+eles não aparecem, não é a análise que está errada — é a versão.
+
+### O que entrou
+
+- `VERSAO_APP` declarada no `index.html`, **casada com o `VERSAO` do
+  sw.js**. Divergir significaria invalidar o cache por um número e mostrar
+  outro na tela;
+- a versão aparece em **Configurações**, com o botão **"Buscar
+  atualização"**, que chama `registration.update()` de verdade e recarrega
+  — sem isso, a única saída era desinstalar o app;
+- a planilha de gabaritos voltou a sair carimbada.
+
+### Suíte nova
+
+`teste68` — a versão declarada, no formato do projeto, **idêntica à do
+sw.js**, visível na tela, com o botão que fala com o service worker, e a
+planilha carimbada. A asserção de sincronia é a que importa: ela quebra na
+próxima vez que alguém subir o número num arquivo e esquecer o outro.
