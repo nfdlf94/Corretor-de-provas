@@ -3922,3 +3922,68 @@ texto do D22 preservado enquanto três cadernos o usam e NÃO virando
 P.A./P.G.; a renumeração do grupo mexendo nos 21 itens; o conjunto ficando
 coerente com só os códigos do SAEPE; e os avisos presentes na tela e no
 PDF.
+
+---
+
+## v78 — a numeração é acertada na IMPORTAÇÃO
+
+Pedido do professor, depois de conferirmos juntos que o arquivo dele está
+com a numeração deslocada: que o app leia o nome completo de cada
+descritor, compare com a matriz do SAEPE e ajuste sozinho.
+
+É o lugar certo, e a v72 fez no lugar errado. Corrigir DEPOIS, caderno a
+caderno, produziu quatro turmas com numerações diferentes e um relatório
+somando habilidades distintas sob o mesmo código (v77). Normalizando na
+entrada, **o problema não chega a existir**: todo caderno nasce com a
+numeração da matriz.
+
+### Como funciona
+
+`normalizarDescritores(lido, comp, etapa)` roda logo depois de
+`lerSimuladoDoc` e antes de qualquer gravação. Ela casa o TEXTO COMPLETO
+de cada descritor com a matriz oficial daquela etapa, normalizado — sem
+acento, sem pontuação, sem caixa — e ajusta o código.
+
+No arquivo real do professor:
+
+```
+arquivo : D22, D17, D31, D17, D23, D31, D23, D22, D24
+app     : D23, D17, D32, D17, D24, D32, D24, D23, D25
+trocas  : D22→D23, D23→D24, D24→D25, D31→D32   (7 dos 9 itens)
+```
+
+O D17 não é mexido: no arquivo e na matriz ele é o mesmo.
+
+### O que ela NÃO faz
+
+**Não adivinha por proximidade de número.** Texto que não bate com nada na
+matriz fica com o código do arquivo, e a tela diz quais ficaram de fora.
+Um "D99 — uma habilidade que não existe na matriz" continua D99.
+
+### O professor é avisado
+
+A importação passa a dizer, em primeiro lugar: *"numeração ajustada à
+matriz do SAEPE em 7 itens: D22 → D23, D23 → D24, D24 → D25, D31 → D32 — o
+texto da habilidade é o que manda, e ele bate com a matriz"*. Ele escreveu
+D22 no arquivo e vai ver D23 na tela; isso precisa estar explicado no
+momento em que acontece.
+
+### O que sobra da v72 e da v77
+
+A conferência e a renumeração posteriores continuam, para os cadernos que
+já estão no app — mas a partir daqui nenhum caderno novo vai precisar
+delas. `conferirCoerencia` segue como rede: se um caderno antigo e um novo
+conviverem no mesmo recorte, o aviso aparece.
+
+### Dois testes meus que estavam errados
+
+`teste72` falhou em dois pontos, e os dois eram do teste:
+
+- a "variação sem acento" trocava TODO caractere acentuado por "a",
+  produzindo "funaao" — outra palavra, que deve mesmo falhar. O correto é
+  NFD, que é o que o normalizador usa;
+- a asserção do texto do D23 comparava contra uma fatia de 40 caracteres
+  que cortava a palavra "polinomial" no meio.
+
+Vale registrar: quando um teste novo falha, a primeira suspeita tem de ser
+o teste.

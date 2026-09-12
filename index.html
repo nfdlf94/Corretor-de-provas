@@ -591,7 +591,7 @@ const guarda=(()=>{ let mem={},ok=false;
    morre aqui.
 
    TEM DE CASAR com o VERSAO do sw.js. */
-const VERSAO_APP="v77";
+const VERSAO_APP="v78";
 
 const $=s=>document.querySelector(s);
 /* `esc` também resolve as marcas de expoente e índice: nas telas elas
@@ -5293,6 +5293,8 @@ function telaSimulado(box){
       if(!txt.trim()) throw new Error("o arquivo não devolveu texto");
       const lido=lerSimuladoDoc(txt, figuras);
       if(!lido.itens.length) throw new Error("não encontrei questões numeradas");
+      /* a numeração é acertada AQUI, antes de qualquer coisa ser gravada */
+      const norm=normalizarDescritores(lido, comp, sm.etapa);
       const sel=selecionarItens(sm,comp,lido.itens);
       /* guarda TODAS as questões do arquivo. Se depois o caderno não
          couber nas páginas, dá para trocar uma questão comprida por
@@ -5308,6 +5310,7 @@ function telaSimulado(box){
       E.descritores=E.descritores||{LP:{},MAT:{}};
       E.descritores[comp]=E.descritores[comp]||{};
       lido.descritores.forEach(d=>{ if(d.texto) E.descritores[comp][d.cod]=d.texto; });
+      window.__ultimaNormalizacao=norm;
       aplicarImportacao(sm,comp,sel.itens);
       sm.fontes=sm.fontes||{};
       sm.fontes[comp]={nome:arq.name, encontradas:sel.encontradas,
@@ -5322,6 +5325,18 @@ function telaSimulado(box){
       const curtas=sel.itens.filter(x=>
         (x.questao.alternativas||[]).filter(a=>String(a).trim()).length<SAEPE_NO).length;
       const alertas=[];
+      /* a numeração ajustada é a primeira coisa a dizer: o professor
+         escreveu D22 no arquivo e vai ver D23 na tela */
+      if(norm.trocas.length)
+        alertas.push("numeração ajustada à matriz do SAEPE em "+norm.itens+
+          " "+(norm.itens===1?"item":"itens")+": "+
+          norm.trocas.map(t=>t.de+" → "+t.para).join(", ")+
+          " — o texto da habilidade é o que manda, e ele bate com a matriz");
+      if(norm.semPar.length)
+        alertas.push(norm.semPar.length+" descritor"+
+          (norm.semPar.length===1?"":"es")+" cujo texto não foi encontrado na "+
+          "matriz ("+norm.semPar.map(x=>x.cod).join(", ")+") — ficaram com o "+
+          "código do arquivo");
       if(semGab)  alertas.push(semGab+" sem letra no gabarito");
       if(semDesc) alertas.push(semDesc+" sem descritor — confira se o arquivo tem o bloco DESCRITORES");
       const semNivel=sel.itens.filter(x=>!x.niv).length;
@@ -6538,6 +6553,49 @@ function analiseSerie(){
 const normDesc=t=>String(t||"").toLowerCase()
   .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
   .replace(/[^a-z0-9]+/g," ").trim();
+
+/* ── CONFERÊNCIA NA IMPORTAÇÃO ─────────────────────────────────────
+   Feita ANTES de qualquer coisa ser gravada, sobre o que o arquivo
+   declara: o TEXTO de cada descritor é casado com a matriz oficial do
+   SAEPE daquela etapa, e o código é ajustado para o que a matriz diz.
+
+   É o lugar certo para isso, e a v72 fez no lugar errado — corrigir
+   depois, caderno a caderno, deixou quatro turmas com numerações
+   diferentes e o relatório somando habilidades distintas sob o mesmo
+   código. Aqui o arquivo entra já normalizado, e o problema não chega a
+   existir.
+
+   O casamento é pelo texto completo, normalizado (sem acento, sem
+   pontuação, sem caixa). Texto que não bate com nada na matriz fica como
+   está — o app não adivinha por proximidade de número, e diz quais
+   ficaram de fora. */
+function normalizarDescritores(lido, comp, etapa){
+  const oficial=(typeof matrizDe==="function")?matrizDe(comp, etapa):{};
+  const porTexto={};
+  Object.keys(oficial).forEach(k=>{ porTexto[normDesc(oficial[k])]=k; });
+
+  const mapa={}, trocas=[], semPar=[];
+  (lido.descritores||[]).forEach(d=>{
+    const cod=codDesc(d.cod||"");
+    if(!cod) return;
+    const certo=d.texto?porTexto[normDesc(d.texto)]:null;
+    if(!certo){ if(d.texto) semPar.push({cod, texto:d.texto}); return; }
+    if(certo!==cod){ mapa[cod]=certo; trocas.push({de:cod, para:certo, texto:d.texto}); }
+  });
+  if(!trocas.length) return {trocas, semPar, itens:0};
+
+  /* aplica no que foi lido: nos itens e na lista de descritores */
+  let itens=0;
+  (lido.itens||[]).forEach(x=>{
+    const c=codDesc(x.desc||"");
+    if(mapa[c]){ x.desc=mapa[c]; itens++; }
+  });
+  (lido.descritores||[]).forEach(d=>{
+    const c=codDesc(d.cod||"");
+    if(mapa[c]) d.cod=mapa[c];
+  });
+  return {trocas, semPar, itens};
+}
 
 /* O que mudaria, sem mudar nada. Devolve uma lista de {de, para, texto}. */
 function conferirNumeracao(pr, comp, etapa){
