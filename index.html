@@ -4884,6 +4884,21 @@ function telaSimulado(box){
           "não toca nas questões nem nos cartões já corrigidos."}</div>
       ${nNiv===pr.nq?"":`<button class="btn sec" id="bNiveis">Completar os níveis pelo arquivo</button>
       <input type="file" id="arqNiv" accept=".docx,.pdf,.txt" style="display:none">`}`:""}
+    ${(()=>{
+      /* numeração SAEB × SAEPE: o texto da habilidade é que decide */
+      const t=COMPONENTES.map(c=>({c, tr:conferirNumeracao(pr,c.id,sm.etapa)}))
+        .filter(x=>x.tr.length);
+      if(!t.length) return "";
+      const n=t.reduce((a,x)=>a+x.tr.length,0);
+      return `<div class="aviso" style="margin:10px 0">
+        <b>Numeração dos descritores:</b> ${n} ${n===1?"código não bate":"códigos não batem"}
+        com a matriz do SAEPE desta etapa. A habilidade está certa; o número é o
+        do SAEB.<br>${t.map(x=>x.tr.map(r=>
+          `<span style="font-family:var(--mono);font-size:12px">${esc(r.de)} → ${esc(r.para)}</span>`
+          ).join(" · ")).join(" · ")}
+        <div class="linha" style="margin-top:10px">
+          <button class="btn sec" id="bRenum">Corrigir a numeração</button></div></div>`;
+    })()}
     <button class="btn gho" id="bItens">Conferir os ${pr.nq} itens</button>
     <button class="btn${alertasDoCaderno(pr).lista.length?"":" gho"}" id="bConferir"
       style="margin-top:8px">Conferir o gabarito item a item${
@@ -5096,6 +5111,24 @@ function telaSimulado(box){
      a posição dentro dele: a ordem das questões no caderno pode não ser a
      do arquivo, mas o descritor de cada item foi gravado na importação
      original e é o que amarra os dois. */
+  if($("#bRenum")) $("#bRenum").onclick=()=>{
+    /* vale para as turmas irmãs também: é o mesmo caderno */
+    let n=0, cadernos=0;
+    [sm].concat(irmaosDaMatriz(sm)).forEach(s2=>{
+      const p2=provaDoSim(s2); if(!p2) return;
+      let m=0;
+      COMPONENTES.forEach(c=>{
+        m+=renumerarDescritores(p2,c.id,conferirNumeracao(p2,c.id,s2.etapa));
+      });
+      if(m){ n+=m; cadernos++; }
+    });
+    salvar(); montarCasa();
+    const el=$("#impInfo");
+    if(el) el.innerHTML=`<div class="aviso" style="margin-top:10px">
+      ${n} ${n===1?"item renumerado":"itens renumerados"} em ${cadernos}
+      ${cadernos===1?"caderno":"cadernos"}. Questões, gabarito, níveis e cartões
+      corrigidos não foram tocados — só o código do descritor e o texto dele.</div>`;
+  };
   if($("#bNiveis")) $("#bNiveis").onclick=()=>$("#arqNiv").click();
   if($("#arqNiv")) $("#arqNiv").onchange=async ev=>{
     const arq=ev.target.files&&ev.target.files[0]; ev.target.value="";
@@ -5129,6 +5162,29 @@ function telaSimulado(box){
       }
       /* sobrou nível sem par? avisa em vez de espalhar por aí */
       const sobraram=Object.keys(fila).reduce((n,k)=>n+fila[k].length,0);
+
+      /* O MESMO simulado aplicado em três turmas são TRÊS provas
+         separadas, cada uma com o seu `pr.niv`. Preencher só a que está
+         aberta deixaria as irmãs sem teto, e o relatório da SÉRIE — que
+         reúne as três — continuaria mudo. A propagação refaz o mesmo
+         casamento por descritor em cada irmã. */
+      let irmasOk=0;
+      irmaosDaMatriz(sm).forEach(outro=>{
+        const po=provaDoSim(outro); if(!po) return;
+        const f2={};
+        lido.itens.forEach(x=>{ if(x.niv==null) return;
+          const k=codDesc(x.desc||""); (f2[k]=f2[k]||[]).push(x.niv); });
+        po.niv=(po.niv||[]).slice();
+        while(po.niv.length<po.nq) po.niv.push(null);
+        let n=0;
+        for(let i=0;i<po.nq;i++){
+          if(po.niv[i]!=null) continue;
+          const k=codDesc((po.desc||[])[i]||"");
+          if(k && f2[k] && f2[k].length){ po.niv[i]=f2[k].shift(); n++; }
+        }
+        if(n) irmasOk++;
+      });
+
       salvar(); montarCasa();
       const el=$("#impInfo");
       if(el) el.innerHTML=`<div class="aviso" style="margin-top:10px">
@@ -5138,6 +5194,9 @@ function telaSimulado(box){
         ${sobraram===1?"nível do arquivo não encontrou par":"níveis do arquivo não encontraram par"}
         no caderno.`:""}${semDesc.length?` (${semDesc.length} ${semDesc.length===1
         ?"questão do arquivo tem nível mas não tem descritor":"questões do arquivo têm nível mas não têm descritor"}.)`:""}
+        ${irmasOk?`<br>O mesmo foi aplicado a ${irmasOk} ${irmasOk===1
+          ?"turma irmã deste simulado":"turmas irmãs deste simulado"} — o relatório
+          da série precisa de todas.`:""}
         <br>Nenhuma questão, gabarito ou cartão corrigido foi alterado.</div>`;
     }catch(e){
       const el=$("#impInfo");
@@ -6112,6 +6171,45 @@ function apurarConjunto(sims,comp){
 }
 
 /* ── um componente, desenhado igual na turma e na série ─────────── */
+/* O teto, na TELA. Antes ele só aparecia dentro do PDF, e o professor
+   precisava gerar o relatório para descobrir se o dado estava lá. */
+function tetoNaTela(sims,comp){
+  const T=tetoDoSimulado(sims,comp);
+  if(T.maxNivel==null)
+    return `<p class="hint" style="margin:6px 0 10px;color:var(--amber)">
+      <b>Até onde este simulado mede:</b> não dá para dizer — ${T.total}
+      ${T.total===1?"item está":"itens estão"} sem o nível da escala. Abra o
+      simulado e use “Completar os níveis pelo arquivo”.</p>`;
+  const fx=T.faixaTeto||{};
+  const faixa=fx.de==null?("até "+fx.ate):(fx.ate==null?("acima de "+fx.de)
+    :(fx.de+" a "+fx.ate));
+  return `<p class="hint" style="margin:6px 0 10px">
+    <b>Até onde este simulado mede:</b> níveis ${T.minNivel} a ${T.maxNivel}
+    da escala (o mais difícil vale ${faixa} pontos${T.padraoTeto
+      ?", padrão "+esc(T.padraoTeto.nome):""}).${
+    T.ultimoDaEscala && T.maxNivel<T.ultimoDaEscala
+      ? ` Os níveis ${T.maxNivel+1} a ${T.ultimoDaEscala} não foram observados.`
+      : " Alcança o topo da escala desta etapa."}${
+    T.comNivel<T.total?` (${T.total-T.comNivel} de ${T.total} itens sem nível.)`:""}</p>`;
+}
+
+/* A sugestão para o próximo simulado, na tela. */
+function sugestaoNaTela(sims,comp){
+  const S=sugerirProximos(sims,comp,7);
+  if(!S.lista.length) return "";
+  const c=COMPONENTES.find(x=>x.id===comp)||{nome:comp};
+  return `<div class="rot" style="margin-top:6px">Próximo simulado · ${esc(c.nome)}</div>
+    <p class="hint" style="margin:0 0 8px">Sete descritores sugeridos, na ordem da
+      urgência. ${S.jaCobrados} dos ${S.naMatriz} descritores da matriz já foram
+      cobrados nesta turma.</p>
+    ${S.lista.map(d=>`<div class="aluno" style="cursor:default;align-items:flex-start">
+      <div style="flex:0 0 42px;font-family:var(--mono);font-weight:700">${esc(d.cod)}</div>
+      <div style="flex:1;min-width:0">
+        <div class="nm" style="font-weight:400">${esc(d.texto||"(sem descrição na matriz)")}</div>
+        <div class="rs">${esc(d.motivo)}${d.extra?" · "+esc(d.extra):""}</div>
+      </div></div>`).join("")}`;
+}
+
 function blocoComponente(A,comp,opt){
   const c=COMPONENTES.find(x=>x.id===comp)||{nome:comp,curto:comp};
   if(!A) return `<div class="rot">${esc(c.nome)}</div>
@@ -6218,7 +6316,9 @@ function analiseTurma(){
   $("#desSub").textContent=`${t.nome} · ${sm.titulo} · ${et.nome}`;
   sel.innerHTML=`<div class="migalha"><button id="anVolta">‹ ${esc(t.nome)}</button></div>`;
   /* as duas disciplinas, sempre juntas */
-  corpo.innerHTML=COMPONENTES.map(c=>blocoComponente(apurarConjunto([sm],c.id),c.id)).join("")
+  corpo.innerHTML=COMPONENTES.map(c=>
+      blocoComponente(apurarConjunto([sm],c.id),c.id)+tetoNaTela([sm],c.id)
+      +sugestaoNaTela([sm],c.id)).join("")
     +`<button class="btn" id="anPdf" style="margin-top:14px">Relatório completo em PDF</button>
       <p class="hint">Turma, habilidades observadas, até onde o simulado mede e o
         desempenho de cada estudante — com as explicações, para qualquer pessoa
@@ -6280,7 +6380,8 @@ function analiseSerie(){
   $("#desSub").textContent=`${serie.nome} · ${grupo.titulo} · ${turmas.join(", ")}`;
   sel.innerHTML=`<div class="migalha"><button id="anVolta">‹ ${esc(serie.nome)}</button></div>`;
   corpo.innerHTML=COMPONENTES.map(c=>
-      blocoComponente(apurarConjunto(grupo.sims,c.id),c.id,{turmas:true})).join("")
+      blocoComponente(apurarConjunto(grupo.sims,c.id),c.id,{turmas:true})
+      +tetoNaTela(grupo.sims,c.id)+sugestaoNaTela(grupo.sims,c.id)).join("")
     +`<button class="btn" id="anPdf" style="margin-top:14px">Relatório completo em PDF</button>
       <p class="hint">A série inteira, a comparação entre as turmas, as habilidades
         observadas, até onde o simulado mede e o desempenho individual de cada
@@ -6299,6 +6400,72 @@ function analiseSerie(){
         .filter(x=>x.turma)});
     doc.save("analise-"+String(serie.nome).replace(/[^\w-]+/g,"-")+".pdf");
   };
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   NUMERAÇÃO DOS DESCRITORES: SAEB → SAEPE
+
+   As habilidades das duas matrizes são quase as mesmas; a NUMERAÇÃO não
+   é. Um arquivo montado a partir de material do SAEB traz, por exemplo,
+   "D22 — Reconhecer o gráfico de uma função polinomial de 1º grau" —
+   mas no SAEPE essa habilidade é o D23, e o D22 é P.A./P.G.
+
+   Para a análise interna dá no mesmo: o que importa é agrupar as
+   questões da mesma habilidade. Para conversar com a REDE, muda tudo —
+   o relatório diz "D22 com 40% de acerto" e a escola vai procurar
+   progressões quando o que foi cobrado era função afim.
+
+   A conferência casa o TEXTO do descritor (que veio do arquivo) com a
+   matriz oficial da etapa. Texto igual, código diferente → renumera.
+   Nada de adivinhar por proximidade: ou o texto bate, ou fica como
+   está e o professor decide.
+   ══════════════════════════════════════════════════════════════════ */
+const normDesc=t=>String(t||"").toLowerCase()
+  .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+  .replace(/[^a-z0-9]+/g," ").trim();
+
+/* O que mudaria, sem mudar nada. Devolve uma lista de {de, para, texto}. */
+function conferirNumeracao(pr, comp, etapa){
+  const oficial=(typeof matrizDe==="function")?matrizDe(comp, etapa):{};
+  const porTexto={};
+  Object.keys(oficial).forEach(k=>{ porTexto[normDesc(oficial[k])]=k; });
+  const banco=(E.descritores||{})[comp]||{};
+  const vistos={}, out=[];
+  itensDe(pr,comp).forEach(i=>{
+    const cod=codDesc((pr.desc||[])[i]||"");
+    if(!cod || vistos[cod]) return;
+    vistos[cod]=1;
+    const texto=banco[cod]||"";
+    if(!texto) return;                       // sem texto não há como casar
+    const certo=porTexto[normDesc(texto)];
+    if(certo && certo!==cod) out.push({de:cod, para:certo, texto});
+  });
+  return out;
+}
+
+/* Aplica. Mexe SÓ em `pr.desc` e no banco de textos — nunca em questão,
+   gabarito, nível ou cartão corrigido. */
+function renumerarDescritores(pr, comp, trocas){
+  if(!trocas.length) return 0;
+  const mapa={}; trocas.forEach(t=>mapa[t.de]=t.para);
+  let n=0;
+  pr.desc=(pr.desc||[]).slice();
+  itensDe(pr,comp).forEach(i=>{
+    const cod=codDesc(pr.desc[i]||"");
+    if(mapa[cod]){ pr.desc[i]=mapa[cod]; n++; }
+  });
+  /* o texto acompanha o código novo; o antigo sai do banco para não
+     ficar um D22 órfão apontando para função afim */
+  E.descritores=E.descritores||{LP:{},MAT:{}};
+  E.descritores[comp]=E.descritores[comp]||{};
+  trocas.forEach(t=>{
+    E.descritores[comp][t.para]=t.texto;
+    if(E.descritores[comp][t.de]===t.texto) delete E.descritores[comp][t.de];
+  });
+  /* habs é derivado do desc: refaz */
+  if(pr.habs) pr.habs=(pr.desc||[]).map((cod,i)=>
+    cod?curtoComp((pr.comps||[])[i])+" "+rotuloDesc((pr.comps||[])[i],cod):"");
+  return n;
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -6354,6 +6521,86 @@ function tetoDoSimulado(sims,comp){
     habilidades:Object.keys(habs).map(k=>habs[k]).sort((a,b)=>
       (a.nivel==null?99:a.nivel)-(b.nivel==null?99:b.nivel) ||
       String(a.cod).localeCompare(String(b.cod)))};
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   O QUE COBRAR NO PRÓXIMO SIMULADO
+
+   Três perguntas, nesta ordem de urgência:
+
+   1. O que foi cobrado e a turma NÃO domina? Descritor com acerto baixo
+      volta — é a razão de existir um segundo simulado.
+   2. O que a escala pede e este caderno não alcançou? Se os itens
+      pararam no nível 6 e a escala vai ao 9, os níveis de cima nunca
+      foram observados: quem já domina o que foi cobrado não teve como
+      mostrar mais do que isso.
+   3. O que a matriz tem e nunca foi cobrado em simulado nenhum? É o
+      buraco de cobertura, e ele só aparece olhando o histórico.
+
+   A sugestão sai com o MOTIVO de cada descritor. Uma lista de códigos
+   sem justificativa é um palpite; com o motivo, o professor discorda
+   quando quiser.
+   ══════════════════════════════════════════════════════════════════ */
+function sugerirProximos(sims, comp, quantos){
+  const n=quantos||7;
+  const A=apurarConjunto(sims,comp);
+  const T=tetoDoSimulado(sims,comp);
+  const etapa=(sims[0]&&sims[0].etapa)||"3EM";
+  const oficial=(typeof matrizDe==="function")?matrizDe(comp,etapa):{};
+
+  /* tudo o que JÁ foi cobrado, em qualquer simulado da mesma turma */
+  const jaCobrados={};
+  const turmas={}; sims.forEach(sm=>turmas[sm.turma]=1);
+  (E.simulados||[]).filter(sm=>turmas[sm.turma]).forEach(sm=>{
+    const pr=provaDoSim(sm); if(!pr) return;
+    itensDe(pr,comp).forEach(i=>{
+      const c=codDesc((pr.desc||[])[i]||""); if(c) jaCobrados[c]=(jaCobrados[c]||0)+1;
+    });
+  });
+
+  const sug=[], usado={};
+  const por=(cod,motivo,peso,extra)=>{
+    if(!cod || usado[cod]) return;
+    usado[cod]=1;
+    sug.push({cod, motivo, peso, extra:extra||"",
+              texto:oficial[cod]||textoDesc(comp,cod)||""});
+  };
+
+  /* 1 — desempenho baixo no que foi cobrado */
+  ((A&&A.descritores)||[]).slice()
+    .sort((a,b)=>a.pct-b.pct)
+    .forEach(d=>{ if(d.pct<50)
+      por(codDesc(d.cod), "acerto baixo neste simulado", 1,
+          Math.round(d.pct)+"% de acerto em "+d.itens+
+          (d.itens===1?" item":" itens")); });
+
+  /* 2 — níveis da escala que o caderno não alcançou */
+  if(T.maxNivel!=null && T.ultimoDaEscala && T.maxNivel<T.ultimoDaEscala){
+    const acima=habilidadesDe(comp,etapa)
+      .filter(h=>h.nivel>T.maxNivel);
+    /* dos descritores da matriz ainda não cobrados, os que puxam a
+       escala para cima entram aqui; sem mapa descritor→nível, usamos os
+       não cobrados como proxy e dizemos isso */
+    acima.slice(0,0);   // marcador: a escala informa o nível, não o código
+  }
+
+  /* 3 — o que a matriz tem e nunca foi cobrado */
+  Object.keys(oficial).forEach(cod=>{
+    if(jaCobrados[cod]) return;
+    por(cod, "nunca cobrado nesta turma", 2, "");
+  });
+
+  /* 4 — se ainda falta, os cobrados só uma vez, do menor acerto ao maior */
+  ((A&&A.descritores)||[]).slice().sort((a,b)=>a.pct-b.pct).forEach(d=>{
+    if(sug.length>=n) return;
+    por(codDesc(d.cod), "reforço", 3, Math.round(d.pct)+"% de acerto");
+  });
+
+  sug.sort((a,b)=>a.peso-b.peso);
+  return {lista:sug.slice(0,n), total:sug.length,
+    naMatriz:Object.keys(oficial).length,
+    jaCobrados:Object.keys(jaCobrados).length,
+    teto:T, etapa};
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -6595,6 +6842,38 @@ function pdfAnalise(escopo){
         if(isNaN(v)) return null;
         return v>=70?CORPAD[3]:v>=50?CORPAD[2]:v>=30?CORPAD[1]:CORPAD[0];
       }});
+
+    /* ── o que cobrar no próximo simulado ── */
+    const S=sugerirProximos(escopo.sims,c.id,7);
+    if(S.lista.length){
+      sub("O que cobrar no próximo simulado");
+      par("Sete descritores, na ordem da urgência. A regra é: primeiro o que "+
+          "foi cobrado e a turma não domina; depois o que a matriz tem e nunca "+
+          "foi cobrado nesta turma. "+S.jaCobrados+" dos "+S.naMatriz+
+          " descritores da matriz já apareceram em algum simulado.",CINZA,7.5);
+      tabela([{t:"DESCRITOR",w:20,b:true},{t:"HABILIDADE",w:UTIL-20-46-24},
+              {t:"POR QUÊ",w:46},{t:"",w:24,al:"r"}],
+        S.lista.map(d=>[d.cod, d.texto||"(sem descrição na matriz)",
+                        d.motivo, d.extra]));
+      if(T.maxNivel!=null && T.ultimoDaEscala && T.maxNivel<T.ultimoDaEscala)
+        par("E vale equilibrar a dificuldade: este caderno parou no nível "+
+            T.maxNivel+" de "+T.ultimoDaEscala+". Itens nos níveis de baixo "+
+            "permitem distinguir quem está no começo da escala; sem eles, "+
+            "esses estudantes erram tudo igual e a prova não os separa.",
+            CORPAD[1],8);
+      const corte=(etapaDe(T.etapa).cortes[c.id]||[])[2];
+      if(corte!=null && T.faixaTeto && T.minNivel!=null){
+        const h0=SAEPE_NIVEIS.find(x=>x.comp===c.id&&x.etapa===T.etapa&&
+                                      x.nivel===T.minNivel);
+        const pisoItem=h0?(h0.de==null?h0.ate:h0.de):null;
+        if(pisoItem!=null && pisoItem>=corte)
+          par("ATENÇÃO: o item mais FÁCIL deste caderno já está acima do corte "+
+              "do padrão "+PADROES[3].nome+" ("+corte+" pontos). Não há item "+
+              "algum na faixa onde a maior parte dos estudantes se posiciona — "+
+              "a prova mede bem quem já está no topo e não distingue os demais "+
+              "entre si.",CORPAD[0],8);
+      }
+    }
 
     if(escopo.nivel==="série" && A.turmas && A.turmas.length>1){
       sub("Comparação entre as turmas");

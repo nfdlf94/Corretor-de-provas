@@ -165,6 +165,84 @@ setTimeout(() => {
   ok(preserva.segundo != null,
      "e o que faltava foi preenchido (" + preserva.segundo + ")");
 
+  /* ── 2. o mesmo simulado em três turmas são TRÊS provas ── */
+  /* Foi o que faltava: preencher só a prova aberta deixava as irmãs sem
+     teto, e o relatório da SÉRIE — que reúne as três — continuava mudo. */
+  const serie = J(`(function(){
+    var sm=E.simulados[0], pr=provaDoSim(sm), t=E.turmas[0];
+    sm.matriz="m1";
+    /* duas turmas irmãs com a MESMA matriz */
+    var irmas=[];
+    ["B","C"].forEach(function(L,k){
+      var t2={id:"t"+(k+2), escola:t.escola, nome:"3º Ano "+L, serie:t.serie,
+        ativa:true, disciplina:t.disciplina, disciplinas:t.disciplinas,
+        periodo:t.periodo, alunos:t.alunos.slice(0,4).map(function(a){
+          return {numero:a.numero, nome:a.nome+" "+L, desde:1, ate:null};})};
+      E.turmas.push(t2);
+      var p2=JSON.parse(JSON.stringify(pr));
+      p2.id="p"+(k+2); p2.turma=t2.id;
+      p2.niv=new Array(p2.nq).fill(null);      // irmã SEM níveis
+      E.provas.push(p2);
+      var s2=JSON.parse(JSON.stringify(sm));
+      s2.id="s"+(k+2); s2.turma=t2.id; s2.prova=p2.id; s2.matriz="m1";
+      E.simulados.push(s2); irmas.push(s2);
+    });
+    var antes=irmas.map(function(s2){
+      return provaDoSim(s2).niv.filter(function(x){return x!=null;}).length;});
+
+    /* a propagação, como o botão faz */
+    var lido=lerSimuladoDoc(window.__T,null);
+    var aplicadas=0;
+    irmaosDaMatriz(sm).forEach(function(outro){
+      var po=provaDoSim(outro); if(!po) return;
+      var f2={};
+      lido.itens.forEach(function(x){ if(x.niv==null) return;
+        var k=codDesc(x.desc||""); (f2[k]=f2[k]||[]).push(x.niv); });
+      po.niv=(po.niv||[]).slice();
+      var n=0;
+      for(var i=0;i<po.nq;i++){
+        if(po.niv[i]!=null) continue;
+        var k=codDesc((po.desc||[])[i]||"");
+        if(k && f2[k] && f2[k].length){ po.niv[i]=f2[k].shift(); n++; }
+      }
+      if(n) aplicadas++;
+    });
+    var depois=irmas.map(function(s2){
+      return provaDoSim(s2).niv.filter(function(x){return x!=null;}).length;});
+    var T=tetoDoSimulado([sm].concat(irmas),"MAT");
+    return {antes:antes, depois:depois, aplicadas:aplicadas,
+      irmas:irmaosDaMatriz(sm).length,
+      teto:{min:T.minNivel, max:T.maxNivel, comNivel:T.comNivel, total:T.total}};
+  })()`);
+  ok(serie.irmas === 2, "o simulado tem duas turmas irmãs na mesma matriz");
+  ok(serie.antes.join(",") === "0,0",
+     "que estavam sem nível nenhum — é o caso do relatório de série mudo");
+  ok(serie.aplicadas === 2, "a propagação alcançou as duas");
+  ok(serie.depois.join(",") === "9,9",
+     "e as duas ficaram com os nove níveis (" + serie.depois.join(", ") + ")");
+  ok(serie.teto.comNivel === serie.teto.total && serie.teto.max === 9,
+     "o teto da SÉRIE agora fecha: " + serie.teto.comNivel + " de " +
+     serie.teto.total + " itens, até o nível " + serie.teto.max);
+
+  /* ── 3. o teto aparece na tela, não só no PDF ── */
+  const tela = J(`(function(){
+    var sm=E.simulados[0], pr=provaDoSim(sm);
+    var comNiv=tetoNaTela([sm],"MAT");
+    var guarda=pr.niv.slice();
+    pr.niv=new Array(pr.nq).fill(null);
+    var semNiv=tetoNaTela([sm],"MAT");
+    pr.niv=guarda;
+    return {com:comNiv, sem:semNiv};
+  })()`);
+  ok(/Até onde este simulado mede/.test(tela.com) &&
+     /da escala/.test(tela.com) && !/não dá para dizer/.test(tela.com),
+     "a tela da análise mostra o teto sem precisar gerar o PDF: " +
+     tela.com.replace(/<[^>]+>/g,"").replace(/\s+/g," ").trim().slice(0,90));
+  ok(/topo da escala/.test(tela.com),
+     "e diz que este caderno alcança o topo da escala");
+  ok(/sem o nível da escala/.test(tela.sem) && /Completar os níveis/.test(tela.sem),
+     "sem os níveis, ela diz o que fazer em vez de ficar calada");
+
   console.log(falhas ? "\nteste65: " + falhas + " FALHA(S)" : "\nteste65: tudo certo");
   process.exit(falhas ? 1 : 0);
 }, 1200);

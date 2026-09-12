@@ -3486,3 +3486,124 @@ some, roda a operação e confere que os níveis voltam idênticos aos da
 importação original, que enunciados, gabarito, descritores e as seis notas
 seguem intactos, que o teto volta (níveis 6 a 9), que rodar de novo não
 mexe em nada e que um nível posto à mão sobrevive.
+
+---
+
+## v71 — o mesmo simulado em três turmas são TRÊS provas
+
+Relato: os níveis foram preenchidos, a tela do simulado confirmou — e o
+relatório continuou dizendo que não dava para medir o teto.
+
+### A causa
+
+`irmaosDaMatriz` existe desde a v45 e eu esqueci dele. O mesmo simulado
+aplicado em três turmas são **três registros de prova separados**, cada
+um com o seu `pr.niv`. "Completar os níveis" preenchia só a prova aberta;
+as irmãs continuavam vazias, e o relatório da SÉRIE — que reúne as três —
+continuava mudo.
+
+A operação passou a refazer o mesmo casamento por descritor em cada irmã
+da matriz, e a tela informa quantas foram alcançadas.
+
+### O erro por trás do erro
+
+Eu tinha construído todo o diagnóstico dentro do PDF. Para saber se o
+dado estava lá, o professor precisava **gerar o relatório** — que é
+justamente a coisa demorada. Diagnóstico escondido atrás do artefato
+final é diagnóstico que chega tarde.
+
+`tetoNaTela(sims, comp)` mostra o teto na própria aba Análise, na turma e
+na série, com o mesmo texto do relatório:
+
+> **Até onde este simulado mede:** níveis 6 a 9 da escala (o mais difícil
+> vale acima de 425 pontos, padrão Desejável). Alcança o topo da escala
+> desta etapa.
+
+E, quando falta nível, diz o que fazer em vez de ficar calada.
+
+### Suíte
+
+`teste65` ganhou dois blocos: a propagação para as turmas irmãs (duas
+irmãs sem nível nenhum, as duas preenchidas, o teto da série fechando 27
+de 27 itens) e o teto na tela, com e sem os níveis.
+
+Um detalhe de método: a asserção original casava com `/níveis 6 a 9/` e
+falhou porque um bloco anterior do próprio teste tinha posto `pr.niv[0]=3`
+à mão. O teste estava certo e a expectativa é que era frágil — passou a
+exigir a propriedade (o teto aparece e não diz "não dá para dizer") em vez
+do texto exato.
+
+---
+
+## v72 — o simulado está alinhado ao SAEPE? Duas respostas
+
+O professor perguntou se os simulados dele servem ao que se propõem ou
+estão à margem do SAEPE. Conferi o arquivo real contra a matriz oficial
+que já está no app, em vez de opinar. Achei duas coisas.
+
+### 1. A numeração é do SAEB, não do SAEPE
+
+As HABILIDADES são as do SAEPE. Os CÓDIGOS estão um número abaixo:
+
+| no arquivo | habilidade | código SAEPE |
+|---|---|---|
+| D17 | equação do 2º grau | **D17** ✓ |
+| D22 | gráfico da função do 1º grau pelos coeficientes | **D23** |
+| D23 | representação algébrica dado o gráfico | **D24** |
+| D24 | máximo/mínimo da função do 2º grau | **D25** |
+| D31 | contagem / princípio multiplicativo | **D32** |
+
+Para a análise interna dá no mesmo — o que importa é agrupar as questões
+da mesma habilidade. Para conversar com a REDE, muda tudo: o relatório
+diz "D22 com 40% de acerto" e a escola vai procurar P.A./P.G.
+
+`conferirNumeracao(pr, comp, etapa)` casa o TEXTO do descritor com a
+matriz oficial da etapa. Texto igual, código diferente → renumera. **Nada
+de adivinhar por proximidade de número**: ou o texto bate, ou fica como
+está e o professor decide.
+
+`renumerarDescritores` mexe só em `pr.desc` e no banco de textos — nunca
+em questão, gabarito, nível ou cartão corrigido. E vale para as turmas
+irmãs, que são o mesmo caderno.
+
+### 2. O caderno mede só o topo da escala
+
+Este é o achado sério. Os nove itens estão nos níveis 6 a 9. O corte do
+Desejável em Matemática 3EM é **325 pontos**, e o item **mais fácil** do
+caderno começa em **350**.
+
+Não há um único item abaixo do Desejável — que é onde a maior parte dos
+estudantes de 3º ano está. Um estudante de 250 pontos e outro de 300
+tendem a errar tudo igual, e a prova não os separa.
+
+O simulado não está à margem da MATRIZ; está à margem da POPULAÇÃO. O
+relatório passa a dizer isso em vermelho, em vez de deixar o professor
+concluir pela nota baixa de todo mundo.
+
+### 3. O que cobrar no próximo simulado
+
+`sugerirProximos(sims, comp, 7)` — sete descritores, na ordem da urgência:
+
+1. **acerto baixo neste simulado** (< 50%) — é a razão de existir um
+   segundo simulado;
+2. **nunca cobrado nesta turma** — o buraco de cobertura, que só aparece
+   olhando o histórico de todos os simulados daquela turma;
+3. **reforço** — os cobrados, do menor acerto ao maior, se ainda faltar.
+
+Cada sugestão sai com o MOTIVO e o texto da habilidade. Lista de códigos
+sem justificativa é palpite; com o motivo, o professor discorda quando
+quiser.
+
+Aparece na tela da Análise (turma e série) e no relatório em PDF, junto
+com o aviso de equilibrar a dificuldade quando o caderno não alcança os
+níveis de baixo.
+
+### Suíte nova
+
+`teste66` — as quatro trocas encontradas no arquivo real e o D17 intocado;
+a renumeração mexendo em 7 itens sem tocar em níveis, gabarito, enunciados
+nem nas seis notas; o texto acompanhando o código novo e o antigo saindo
+do banco; a conferência não achando mais nada na segunda passada; o item
+mais fácil acima do corte do Desejável; e a sugestão com sete descritores,
+motivo, texto, e o que a turma não domina vindo antes do que nunca foi
+cobrado.
