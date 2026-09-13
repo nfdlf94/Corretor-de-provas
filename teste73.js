@@ -203,6 +203,55 @@ setTimeout(() => {
      "e o casamento por POSIÇÃO erraria (" + embaralhado.porPosicao + " de " +
      embaralhado.total + ") — por isso o par é o texto da questão");
 
+  /* ── 7b. "Completar os níveis" também casa por enunciado ── */
+  /* A v70 casava por DESCRITOR, e isso ruiu quando a v78 passou a
+     normalizar a numeração na importação: o caderno fica com D23 e o
+     arquivo com D22, nenhum código bate, e a tela dizia "9 níveis do
+     arquivo não encontraram par no caderno". A operação que existia para
+     consertar os dados dependia justamente do dado que estava errado. */
+  const niveis = J(`(function(){
+    var sm=E.simulados[0], pr=provaDoSim(sm);
+    pr.niv=new Array(pr.nq).fill(null);
+    /* o arquivo ORIGINAL, sem normalizar — é o que o professor sobe */
+    var arq=lerSimuladoDoc(window.__T,null);
+    /* como era: por descritor */
+    var fila={};
+    arq.itens.forEach(function(x){ if(x.niv==null) return;
+      var k=codDesc(x.desc||""); (fila[k]=fila[k]||[]).push(x.niv); });
+    var porDesc=0;
+    for(var i=0;i<pr.nq;i++){
+      var k=codDesc(pr.desc[i]||"");
+      if(k && fila[k] && fila[k].length){ fila[k].shift(); porDesc++; }
+    }
+    /* como é: por enunciado */
+    var chave=function(t){ return normDesc(String(t||"")).slice(0,90); };
+    var porTexto={};
+    arq.itens.forEach(function(x){
+      var k=chave(x.questao&&x.questao.enunciado);
+      if(k && !porTexto[k]) porTexto[k]=x; });
+    var porEnun=0;
+    for(var i=0;i<pr.nq;i++){
+      var alvo=porTexto[chave(pr.questoes[i].enunciado)];
+      if(alvo && alvo.niv!=null){ pr.niv[i]=alvo.niv; porEnun++; }
+    }
+    return {caderno:pr.desc.join(","),
+      arquivo:arq.itens.map(function(x){return x.desc;}).join(","),
+      porDesc:porDesc, porEnun:porEnun, total:pr.nq, niv:pr.niv};
+  })()`);
+  ok(niveis.caderno !== niveis.arquivo,
+     "o caderno está no SAEPE e o arquivo no formato antigo — é o estado " +
+     "que a captura mostrava");
+  ok(niveis.porDesc < niveis.total,
+     "casando por DESCRITOR: só " + niveis.porDesc + " de " + niveis.total +
+     " — era daí que saía o \"0 itens receberam o nível\"");
+  ok(niveis.porEnun === niveis.total,
+     "casando por ENUNCIADO: " + niveis.porEnun + " de " + niveis.total);
+  ok(niveis.niv.join(",") === "7,6,9,6,7,9,8,8,8",
+     "com os níveis certos: [" + niveis.niv + "]");
+  ok(/Mesma máquina do "Atualizar descritores": o par é o ENUNCIADO/.test(
+       fs.readFileSync(__dirname + "/index.html","utf8")),
+     "e as duas operações passam a usar a mesma máquina");
+
   /* ── 8. a tela existe ── */
   const fonte = fs.readFileSync(__dirname + "/index.html", "utf8");
   ok(/Atualizar descritores pelo arquivo/.test(fonte),

@@ -591,7 +591,7 @@ const guarda=(()=>{ let mem={},ok=false;
    morre aqui.
 
    TEM DE CASAR com o VERSAO do sw.js. */
-const VERSAO_APP="v79";
+const VERSAO_APP="v81";
 
 const $=s=>document.querySelector(s);
 /* `esc` também resolve as marcas de expoente e índice: nas telas elas
@@ -5274,36 +5274,19 @@ function telaSimulado(box){
   };
 
   /* ── completar SÓ os níveis ──────────────────────────────────────
-     Um caderno importado por uma versão anterior do app pode não ter o
-     nível da escala em `pr.niv`. Reimportar resolveria, mas reimportar
-     TROCA as questões e invalida os cartões já corrigidos — não é opção
-     para um simulado já aplicado.
+     Mesma máquina do "Atualizar descritores": o par é o ENUNCIADO.
 
-     Esta importação lê o mesmo arquivo, casa cada questão do caderno com
-     a do arquivo e preenche APENAS `pr.niv`. Não toca em enunciado,
-     gabarito, descritor nem resultado. O casamento é pelo DESCRITOR mais
-     a posição dentro dele: a ordem das questões no caderno pode não ser a
-     do arquivo, mas o descritor de cada item foi gravado na importação
-     original e é o que amarra os dois. */
-  if($("#bRenum")) $("#bRenum").onclick=()=>{
-    /* TODOS os cadernos do mesmo simulado, não só os irmãos de matriz.
-       As quatro turmas do professor não compartilhavam `matriz`, e o
-       resultado de renumerar só uma foi o pior dos mundos: metade dos
-       cadernos com a numeração do SAEB, metade com a do SAEPE, e o
-       relatório somando habilidades diferentes sob o mesmo código. */
-    const grupo=[sm].concat(cadernosDoMesmoSimulado(sm));
-    let n=0, cadernos=0;
-    COMPONENTES.forEach(c=>{
-      const r=renumerarGrupo(grupo,c.id);
-      n+=r.itens; cadernos=Math.max(cadernos,r.cadernos);
-    });
-    salvar(); montarCasa();
-    const el=$("#impInfo");
-    if(el) el.innerHTML=`<div class="aviso" style="margin-top:10px">
-      ${n} ${n===1?"item renumerado":"itens renumerados"} em ${cadernos}
-      ${cadernos===1?"caderno":"cadernos"}. Questões, gabarito, níveis e cartões
-      corrigidos não foram tocados — só o código do descritor e o texto dele.</div>`;
-  };
+     A primeira versão (v70) casava por DESCRITOR, e isso ruiu assim que a
+     numeração passou a ser normalizada na importação: o caderno ficava com
+     D23 e o arquivo com D22, nenhum código batia, e a tela dizia "9 níveis
+     do arquivo não encontraram par no caderno". A operação que existia
+     para consertar os dados dependia justamente do dado que estava errado.
+
+     O enunciado não tem esse problema: é o mesmo texto nos dois lados,
+     independente de numeração.
+
+     A diferença para a outra operação é só o alcance: esta preenche
+     APENAS níveis vazios e não toca em descritor. */
   if($("#bNiveis")) $("#bNiveis").onclick=()=>$("#arqNiv").click();
   if($("#arqNiv")) $("#arqNiv").onchange=async ev=>{
     const arq=ev.target.files&&ev.target.files[0]; ev.target.value="";
@@ -5318,65 +5301,51 @@ function telaSimulado(box){
       const lido=lerSimuladoDoc(txt,null);
       if(!lido.itens.length) throw new Error("não encontrei questões numeradas");
 
-      /* fila de níveis por descritor, na ordem do arquivo */
-      const fila={};
+      const porTexto={};
       lido.itens.forEach(x=>{
-        if(x.niv==null) return;
-        const k=codDesc(x.desc||"");
-        (fila[k]=fila[k]||[]).push(x.niv);
+        const k=chaveEnun(x.questao&&x.questao.enunciado);
+        if(k && !porTexto[k]) porTexto[k]=x;
       });
-      const semDesc=lido.itens.filter(x=>x.niv!=null && !codDesc(x.desc||""));
-      pr.niv=(pr.niv||[]).slice();
-      while(pr.niv.length<pr.nq) pr.niv.push(null);
-      let preenchidos=0, faltaram=0;
-      for(let i=0;i<pr.nq;i++){
-        if(pr.niv[i]!=null) continue;
-        const k=codDesc((pr.desc||[])[i]||"");
-        if(k && fila[k] && fila[k].length){ pr.niv[i]=fila[k].shift(); preenchidos++; }
-        else faltaram++;
-      }
-      /* sobrou nível sem par? avisa em vez de espalhar por aí */
-      const sobraram=Object.keys(fila).reduce((n,k)=>n+fila[k].length,0);
-
-      /* O MESMO simulado aplicado em três turmas são TRÊS provas
-         separadas, cada uma com o seu `pr.niv`. Preencher só a que está
-         aberta deixaria as irmãs sem teto, e o relatório da SÉRIE — que
-         reúne as três — continuaria mudo. A propagação refaz o mesmo
-         casamento por descritor em cada irmã. */
-      let irmasOk=0;
-      irmaosDaMatriz(sm).forEach(outro=>{
-        const po=provaDoSim(outro); if(!po) return;
-        const f2={};
-        lido.itens.forEach(x=>{ if(x.niv==null) return;
-          const k=codDesc(x.desc||""); (f2[k]=f2[k]||[]).push(x.niv); });
-        po.niv=(po.niv||[]).slice();
-        while(po.niv.length<po.nq) po.niv.push(null);
+      const grupo=[sm].concat(cadernosDoMesmoSimulado(sm));
+      let preenchidos=0, casados=0, jaTinham=0, semNivelNoArquivo=0, cadernos=0;
+      grupo.forEach(s2=>{
+        const p2=provaDoSim(s2); if(!p2) return;
+        p2.niv=(p2.niv||[]).slice();
+        while(p2.niv.length<p2.nq) p2.niv.push(null);
         let n=0;
-        for(let i=0;i<po.nq;i++){
-          if(po.niv[i]!=null) continue;
-          const k=codDesc((po.desc||[])[i]||"");
-          if(k && f2[k] && f2[k].length){ po.niv[i]=f2[k].shift(); n++; }
+        for(let i=0;i<p2.nq;i++){
+          const alvo=porTexto[chaveEnun((p2.questoes||[])[i]&&p2.questoes[i].enunciado)];
+          if(!alvo) continue;
+          casados++; n++;
+          if(p2.niv[i]!=null){ jaTinham++; continue; }
+          if(alvo.niv==null){ semNivelNoArquivo++; continue; }
+          p2.niv[i]=alvo.niv; preenchidos++;
         }
-        if(n) irmasOk++;
+        if(n) cadernos++;
       });
-
       salvar(); montarCasa();
       const el=$("#impInfo");
+      if(!casados){
+        if(el) el.innerHTML=`<div class="aviso" style="margin-top:10px">
+          Nenhuma questão do arquivo casou com as do caderno. Confira se é o
+          arquivo deste mesmo simulado — e lembre que cada componente tem o
+          seu arquivo: suba o de Português e o de Matemática separadamente.</div>`;
+        return;
+      }
       if(el) el.innerHTML=`<div class="aviso" style="margin-top:10px">
-        ${preenchidos} ${preenchidos===1?"item recebeu":"itens receberam"} o nível
-        da escala.${faltaram?` ${faltaram} ficaram sem — o descritor deles não
-        aparece no arquivo com nível informado.`:""}${sobraram?` ${sobraram}
-        ${sobraram===1?"nível do arquivo não encontrou par":"níveis do arquivo não encontraram par"}
-        no caderno.`:""}${semDesc.length?` (${semDesc.length} ${semDesc.length===1
-        ?"questão do arquivo tem nível mas não tem descritor":"questões do arquivo têm nível mas não têm descritor"}.)`:""}
-        ${irmasOk?`<br>O mesmo foi aplicado a ${irmasOk} ${irmasOk===1
-          ?"turma irmã deste simulado":"turmas irmãs deste simulado"} — o relatório
-          da série precisa de todas.`:""}
+        ${casados} ${casados===1?"questão casada":"questões casadas"} pelo
+        enunciado em ${cadernos} ${cadernos===1?"caderno":"cadernos"}.
+        <b>${preenchidos} ${preenchidos===1?"item recebeu":"itens receberam"}
+        o nível da escala.</b>${jaTinham?` ${jaTinham} já tinham.`:""}${
+        semNivelNoArquivo?` ${semNivelNoArquivo} continuam sem, porque o
+        arquivo não informa o nível deles.`:""}
+        <br>Se o outro componente ainda estiver incompleto, suba o arquivo
+        dele também.
         <br>Nenhuma questão, gabarito ou cartão corrigido foi alterado.</div>`;
     }catch(e){
       const el=$("#impInfo");
-      if(el) el.innerHTML=`<div class="aviso" style="margin-top:10px">Não consegui ler
-        o arquivo: ${esc(e.message)}</div>`;
+      if(el) el.innerHTML=`<div class="aviso" style="margin-top:10px">Não consegui
+        ler o arquivo: ${esc(e.message)}</div>`;
     }
   };
 
@@ -6483,7 +6452,12 @@ function tetoNaTela(sims,comp){
     T.ultimoDaEscala && T.maxNivel<T.ultimoDaEscala
       ? ` Os níveis ${T.maxNivel+1} a ${T.ultimoDaEscala} não foram observados.`
       : " Alcança o topo da escala desta etapa."}${
-    T.comNivel<T.total?` (${T.total-T.comNivel} de ${T.total} itens sem nível.)`:""}</p>`;
+    T.comNivel<T.total?` (${T.total-T.comNivel} de ${T.total} itens sem nível.)`:""}${
+    T.nivelDivergente?`<br><span style="color:var(--coral)"><b>${T.nivelDivergente}
+      ${T.nivelDivergente===1?"item está":"itens estão"} com níveis diferentes
+      entre os cadernos das turmas</b> — é a mesma questão, e ela não pode estar
+      em dois lugares da escala. Use “Completar os níveis pelo arquivo”.</span>`
+    :""}</p>`;
 }
 
 /* A sugestão para o próximo simulado, na tela. */
@@ -6880,13 +6854,30 @@ function tetoDoSimulado(sims,comp){
   const porNivel={}, habs={};
   let total=0, comNivel=0;
   /* CUIDADO: `itensDe(prova, comp)` devolve os ÍNDICES das questões daquele
-     componente, não objetos. É a mesma função que `apurarConjunto` usa. */
+     componente, não objetos. É a mesma função que `apurarConjunto` usa.
+
+     E a contagem é por ITEM DISTINTO, não por cópia. Quatro turmas fazem
+     o MESMO caderno: a questão 1 da 3ª A e a questão 1 da 3ª B são o
+     mesmo item. Somando as cópias, um simulado de 9 questões aparecia no
+     relatório com 36 itens, e um descritor com 2 questões aparecia com 8.
+     `chaveItem` é a mesma identidade que `apurarConjunto` usa para montar
+     as colunas — é ela que diz quando dois itens são o mesmo. */
+  const vistos={}, nivelPorItem={}, divergentes={};
   sims.forEach(sm=>{
     const pr=provaDoSim(sm); if(!pr) return;
     itensDe(pr,comp).forEach(i=>{
-      total++;
+      const id=chaveItem(pr,i);
       const niv=(pr.niv||[])[i];
       const cod=codDesc((pr.desc||[])[i]||"");
+      /* item já contado noutro caderno: só confere se o nível bate */
+      if(vistos[id]){
+        if(niv!=null && nivelPorItem[id]!=null && niv!==nivelPorItem[id])
+          divergentes[id]=1;
+        return;
+      }
+      vistos[id]=1;
+      if(niv!=null) nivelPorItem[id]=niv;
+      total++;
       const k=cod+"|"+(niv==null?"":niv);
       if(!habs[k]) habs[k]={cod, nivel:(niv==null?null:niv), itens:0,
                             texto:textoDesc(comp,cod)};
@@ -6894,6 +6885,7 @@ function tetoDoSimulado(sims,comp){
       if(niv!=null){ comNivel++; porNivel[niv]=(porNivel[niv]||0)+1; }
     });
   });
+  const nivelDivergente=Object.keys(divergentes).length;
   const niveis=Object.keys(porNivel).map(Number).sort((a,b)=>a-b);
   const daEscala=n=>SAEPE_NIVEIS.find(x=>x.comp===comp&&x.etapa===etapa&&x.nivel===n)||null;
   const maxNivel=niveis.length?niveis[niveis.length-1]:null;
@@ -6903,7 +6895,7 @@ function tetoDoSimulado(sims,comp){
   const ponto=h?(h.ate!=null?h.ate:h.de):null;
   const escala=habilidadesDe(comp,etapa);
   const ultimo=escala.length?escala[escala.length-1].nivel:null;
-  return {etapa, total, comNivel, niveis,
+  return {etapa, total, comNivel, niveis, nivelDivergente,
     minNivel:niveis.length?niveis[0]:null, maxNivel,
     faixaTeto:h?{de:h.de,ate:h.ate}:null, pontoTeto:ponto,
     padraoTeto:ponto!=null?padraoDe(ponto,etapa,comp):null,
@@ -7397,6 +7389,13 @@ function pdfAnalise(escopo){
       if(T.comNivel<T.total)
         par("("+(T.total-T.comNivel)+" de "+T.total+" itens estão sem nível "+
             "informado e não entraram nesta conta.)",CINZA,7.5);
+      if(T.nivelDivergente)
+        par("ATENÇÃO: "+T.nivelDivergente+" "+(T.nivelDivergente===1
+            ?"item está":"itens estão")+" com NÍVEIS DIFERENTES entre os "+
+            "cadernos das turmas. É a mesma questão, e ela não pode estar em "+
+            "dois lugares da escala — algum caderno recebeu o nível errado. "+
+            "Use “Completar os níveis pelo arquivo” no simulado, que aplica "+
+            "o mesmo arquivo a todos.",CORPAD[0],8);
       const porN=[];
       T.niveis.forEach(n=>porN.push(["Nível "+n, T.porNivel[n]+" "+
         (T.porNivel[n]===1?"item":"itens")]));

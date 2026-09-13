@@ -4042,3 +4042,125 @@ diverge; a limpeza devolvendo o texto oficial; o cenário completo do
 professor (8 cartões corrigidos, numeração do arquivo, sem níveis); a
 atualização mudando 7 descritores e 9 níveis sem tocar em gabarito,
 enunciados nem nas 8 notas; e a comparação enunciado × posição.
+
+---
+
+## v80 — a ferramenta de conserto dependia do dado quebrado
+
+A tela dizia: *"0 itens receberam o nível da escala. 7 ficaram sem. 9
+níveis do arquivo não encontraram par no caderno."*
+
+### A causa
+
+"Completar os níveis pelo arquivo" (v70) casava por **DESCRITOR**. Isso
+funcionava quando o caderno e o arquivo usavam a mesma numeração — e
+deixou de funcionar exatamente quando a v78 passou a **normalizar a
+numeração na importação**:
+
+```
+caderno : D23, D17, D32, D17, D24, D32, D24, D23, D25   (normalizado)
+arquivo : D22, D17, D31, D17, D23, D31, D23, D22, D24   (original)
+```
+
+Nenhum código bate. **A operação que existia para consertar os dados
+dependia justamente do dado que estava errado.**
+
+Medido com o arquivo real: casando por descritor, 5 de 9; casando por
+enunciado, 9 de 9.
+
+### A correção
+
+As duas operações passaram a usar a mesma máquina: o par é o **ENUNCIADO**
+(v79). O texto da questão é o mesmo nos dois lados, independente de
+numeração e de ordem.
+
+A diferença entre elas ficou só no alcance: "Completar os níveis" preenche
+apenas níveis vazios e não toca em descritor; "Atualizar descritores" traz
+os dois.
+
+### A mensagem também estava ruim
+
+"9 níveis do arquivo não encontraram par no caderno" descreve o sintoma
+sem dizer nada acionável. A nova diz quantas questões casaram, quantos
+níveis entraram, quantas já tinham, e lembra que **cada componente tem o
+seu arquivo** — a dúvida do professor era se precisava juntar Português e
+Matemática num arquivo só. Não precisa: sobe-se um de cada vez, e o app
+casa por componente.
+
+### Lição
+
+É a terceira vez que uma ferramenta de correção falha por depender do
+campo que ela deveria corrigir (a v53 com o gabarito do QR, a v77 com o
+banco de textos global). O par tem de ser algo que o defeito não alcança —
+aqui, o enunciado da questão.
+
+### Suíte
+
+`teste73` ganhou o bloco 7b: o estado da captura reproduzido, o casamento
+por descritor falhando em 4 dos 9, o casamento por enunciado acertando os
+9, e os níveis certos no fim.
+
+---
+
+## v81 — um item é UM item, mesmo em quatro turmas
+
+O professor: *"lá colocam como se tivesse mais questões do que realmente
+teve. Não sei se isso impacta no resultado."*
+
+Ele estava certo, e a resposta à dúvida é: **não impacta o resultado, mas
+impacta a confiança** — que é pior.
+
+### A contagem
+
+O simulado tem 9 questões de Matemática. Quatro turmas fazem o MESMO
+caderno, e `tetoDoSimulado` somava as cópias:
+
+```
+antes : 36 itens · nível 6: 8, nível 7: 8, nível 8: 12, nível 9: 8
+        D17 com 8 itens (o simulado tem 2 questões de D17)
+depois:  9 itens · nível 6: 2, nível 7: 2, nível 8: 3, nível 9: 2
+        D17 com 2
+```
+
+`apurarConjunto` sempre deduplicou — é de lá que sai a proficiência, e ela
+estava certa. Só a tabela do teto contava cópias. Mas o professor abre a
+prova, conta 9 questões, lê 36 no relatório e — com razão — para de
+confiar no resto.
+
+A identidade é `chaveItem`, a mesma que `apurarConjunto` usa para montar
+as colunas. Era só não ter usado duas contagens diferentes para a mesma
+coisa.
+
+### O que a deduplicação revelou
+
+No relatório de Português apareciam linhas como:
+
+```
+D2  nível 4  …  4 itens  54%
+D2  nível 8  …  4 itens  54%
+```
+
+O mesmo descritor em dois níveis, com percentual de acerto **idêntico**.
+Não é coincidência: é a MESMA questão contada duas vezes, com níveis
+diferentes em cadernos diferentes.
+
+Uma questão não pode estar em dois lugares da escala. Se está, algum
+caderno recebeu o nível errado — provavelmente de uma execução parcial de
+"Completar os níveis", antes de a operação alcançar todos os cadernos.
+
+`tetoDoSimulado` passou a contar esses casos em `nivelDivergente`, e o
+aviso aparece na tela e no relatório dizendo o que é e o que fazer.
+
+### Lição
+
+Duas contagens da mesma grandeza, de novo — é a quarta vez neste projeto
+(v53, v63, v75, agora). O padrão é sempre o mesmo: duas funções escritas
+em momentos diferentes, cada uma coerente consigo, divergindo no que
+importa. Quando existe uma identidade canônica (`chaveItem`), toda
+contagem tem de passar por ela.
+
+### Suíte
+
+`teste64` ganhou dois blocos: quatro turmas com o mesmo caderno contando 9
+itens e não 36, com cada descritor no número de questões que tem de
+verdade; e a detecção de níveis divergentes entre cadernos.

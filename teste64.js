@@ -116,6 +116,72 @@ setTimeout(() => {
      "as habilidades observadas são SETE para cinco descritores (" +
      fim.teto.habs + "): D22 e D23 aparecem em dois níveis cada");
 
+  /* ── 3b. um item é UM item, mesmo em quatro turmas ── */
+  /* O simulado tem 9 questões de Matemática. Quatro turmas fazem o MESMO
+     caderno, e o relatório mostrava 36 itens — contava cada cópia. Um
+     descritor com 2 questões aparecia com 8. Não afeta a proficiência
+     (que vem de `apurarConjunto`, e essa sempre deduplicou), mas destrói
+     a confiança de quem lê: o número não bate com a prova na mão. */
+  const varias = J(`(function(){
+    var sm=E.simulados[0], pr=provaDoSim(sm), t=turmaDe(sm.turma);
+    sm.titulo="1º Simulado SAEPE";
+    ["B","C","D"].forEach(function(L,k){
+      var t2={id:"t"+(k+2),escola:t.escola,nome:"3º Ano "+L,serie:t.serie,
+        ativa:true,disciplina:t.disciplina,disciplinas:t.disciplinas,
+        periodo:t.periodo,alunos:t.alunos.slice(0,4).map(function(a){
+          return {numero:a.numero,nome:a.nome+L,desde:1,ate:null};})};
+      E.turmas.push(t2);
+      var p2=JSON.parse(JSON.stringify(pr)); p2.id="p"+(k+2); p2.turma=t2.id;
+      E.provas.push(p2);
+      var s2=JSON.parse(JSON.stringify(sm)); s2.id="s"+(k+2); s2.turma=t2.id;
+      s2.prova=p2.id; E.simulados.push(s2);
+    });
+    var todos=[sm].concat(cadernosDoMesmoSimulado(sm));
+    var T=tetoDoSimulado(todos,"MAT");
+    return {cadernos:todos.length, total:T.total, nq:pr.nq,
+      porNivel:T.porNivel, divergente:T.nivelDivergente,
+      habs:T.habilidades.map(function(h){return h.cod+"/"+h.nivel+"="+h.itens;})};
+  })()`);
+  ok(varias.cadernos === 4, "quatro turmas com o mesmo caderno");
+  ok(varias.total === varias.nq,
+     "e o teto conta " + varias.total + " itens — os " + varias.nq +
+     " do simulado, não " + (varias.nq*4) + " cópias");
+  /* este teste importa SEM normalizar a numeração, de propósito: o que
+     está em jogo aqui é a CONTAGEM, não o código. Os números por descritor
+     são os do arquivo: 2 questões de equação do 2º grau, 2 de contagem,
+     1 de cada uma das outras. */
+  ok(varias.habs.join(", ") === "D17/6=2, D22/7=1, D23/7=1, D22/8=1, D23/8=1, D24/8=1, D31/9=2",
+     "e cada descritor com o número de questões que tem de verdade: " +
+     varias.habs.join(", "));
+  ok(Object.keys(varias.porNivel).reduce((a,k)=>a+varias.porNivel[k],0) === varias.nq,
+     "a tabela por nível também soma " + varias.nq);
+  ok(varias.divergente === 0, "e nenhum nível divergente entre os cadernos");
+
+  /* ── 3c. nível diferente para a MESMA questão é denunciado ── */
+  /* É a mesma questão em quatro cadernos: ela não pode estar em dois
+     lugares da escala. Se estiver, algum caderno recebeu o nível errado —
+     e antes da deduplicação isso aparecia como duas linhas do mesmo
+     descritor com percentuais de acerto idênticos, que foi o que o
+     professor estranhou no relatório de Português. */
+  const divergente = J(`(function(){
+    var pB=provaDoSim(E.simulados[1]);
+    pB.niv=pB.niv.slice(); pB.niv[0]=4; pB.niv[4]=5;
+    var sm=E.simulados[0];
+    var T=tetoDoSimulado([sm].concat(cadernosDoMesmoSimulado(sm)),"MAT");
+    var r={divergente:T.nivelDivergente, total:T.total};
+    pB.niv[0]=7; pB.niv[4]=7;
+    return r;
+  })()`);
+  ok(divergente.divergente === 2,
+     "dois itens com nível diferente entre cadernos são detectados");
+  ok(divergente.total === varias.nq,
+     "e a contagem de itens não muda por causa disso (" +
+     divergente.total + ")");
+
+  const fonteIdx = fs.readFileSync(__dirname + "/index.html", "utf8");
+  ok(/não pode estar em\s*"\+\s*"dois lugares da escala|dois lugares da escala/.test(fonteIdx),
+     "e o relatório explica por que isso é um erro, não uma curiosidade");
+
   /* ── 4. o relatório sai com o teto preenchido ── */
   const pdf = J(`(function(){
     var sm=E.simulados[0], t=turmaDe(sm.turma);
