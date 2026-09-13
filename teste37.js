@@ -16,14 +16,24 @@ console.log("teste37 — matriz de referência e níveis de desempenho");
 /* ── matriz de referência ── */
 const mat3 = S.matrizDe("MAT", "3EM"), lp3 = S.matrizDe("LP", "3EM");
 ok(Object.keys(mat3).length === 35, "Matemática 3º EM tem 35 descritores");
-ok(Object.keys(lp3).length === 21, "Língua Portuguesa 3º EM tem 21 descritores");
+/* LP do 3º EM foi substituída na v82 pela lista que o professor forneceu:
+   a que estava aqui era a matriz do SAEB (D1–D21, "D6 = identificar o
+   tema"), e o SAEPE usa outra numeração e outra redação. */
+ok(Object.keys(lp3).length === 20, "Língua Portuguesa 3º EM tem 20 descritores");
 const semBuraco = d => {
   const n = Object.keys(d).map(k => +k.slice(1)).sort((a,b)=>a-b);
   return n.every((v,i) => v === i+1);
 };
-ok(semBuraco(mat3) && semBuraco(lp3), "a numeração vai de D1 até o fim, sem furos");
+ok(semBuraco(mat3), "a numeração de Matemática vai de D1 ao fim, sem furos");
+/* LP do 3º EM começa no D6 e pula D15 e D20 — é assim na matriz, e
+   inventar texto para os que faltam seria pior que a ausência */
+const codsLp = Object.keys(lp3).map(k => +k.slice(1)).sort((a,b)=>a-b);
+ok(codsLp[0] === 6 && codsLp[codsLp.length-1] === 27,
+   "LP do 3º EM vai do D" + codsLp[0] + " ao D" + codsLp[codsLp.length-1]);
+ok(!lp3.D15 && !lp3.D20, "com D15 e D20 ausentes, como na matriz");
 ok(mat3.D16 === "Resolver problema que envolva porcentagem.", "MAT D16: " + mat3.D16);
-ok(/tese de um texto/.test(lp3.D7), "LP D7 é a tese: " + lp3.D7);
+ok(/tese de um texto/.test(lp3.D19), "LP D19 é a tese: " + lp3.D19);
+ok(/Localizar informação explícita/.test(lp3.D6), "e o D6 localiza: " + lp3.D6);
 ok(Object.keys(S.matrizDe("MAT","9EF")).length === 37, "9º EF em Matemática: 37 descritores");
 ok(Object.keys(S.matrizDe("LP","2EF")).length === 10, "2º EF em Português: 10 descritores");
 ok(Object.values(mat3).every(t => t.length > 15 && /\.$/.test(t)),

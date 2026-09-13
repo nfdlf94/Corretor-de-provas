@@ -4164,3 +4164,55 @@ contagem tem de passar por ela.
 `teste64` ganhou dois blocos: quatro turmas com o mesmo caderno contando 9
 itens e não 36, com cada descritor no número de questões que tem de
 verdade; e a detecção de níveis divergentes entre cadernos.
+
+---
+
+## v82 — a matriz de Português era do SAEB
+
+O professor mandou a lista dos descritores do SAEPE para Língua
+Portuguesa. Não era a que o app tinha.
+
+| | app (até a v81) | SAEPE (a lista do professor) |
+|---|---|---|
+| D6 | Identificar o tema de um texto. | Localizar informação explícita em um texto. |
+| D7 | Identificar a tese de um texto. | Inferir informação em um texto. |
+| D19 | Reconhecer o efeito de recursos ortográficos… | Identificar a tese de um texto. |
+
+O app trazia a **matriz do SAEB** — 21 descritores de D1 a D21. O SAEPE
+usa outra numeração (começa no D6, vai ao D27, sem D15 e D20) e outra
+redação.
+
+Matemática **não** foi tocada: aquela foi conferida contra o `Caderno.pdf`
+oficial na v72 e estava certa. O 9º EF também não — a lista recebida é do
+3º EM, e supor que vale para as outras etapas seria inventar.
+
+### O que quase aconteceu
+
+A normalização da v78 casa o TEXTO do arquivo com a matriz. Com a matriz
+errada no lugar, ela teria remapeado os códigos **corretos** do professor
+para os do SAEB — corrompendo Português exatamente como a numeração
+deslocada corrompeu Matemática, só que ao contrário.
+
+Não aconteceu, e a razão está escrita na v78: **o app não adivinha por
+proximidade de número.** As redações do SAEPE e do SAEB são diferentes o
+bastante para nenhum texto casar, então nada foi remapeado e tudo ficou
+declarado como "sem par". Uma regra escrita por cautela evitou um estrago
+que eu não tinha previsto.
+
+### Detalhes da lista
+
+- **D24 aparecia duas vezes** na mensagem — linha duplicada, entrou uma
+  vez só.
+- **D15 e D20 não existem** nesta etapa. O app não os inventa; o
+  `teste37` passou a exigir essa ausência em vez de exigir numeração
+  contínua.
+
+### Suítes
+
+`teste74` (nova) — os 20 textos conferidos palavra por palavra, os buracos
+de numeração, Matemática e 9º EF intocados, o casamento por texto
+funcionando com a matriz nova, e a prova de que texto sem par não é
+remapeado.
+
+`teste37` exigia 21 descritores em LP e numeração sem furos. Passou a
+exigir os 20, a faixa D6–D27 e a ausência do D15 e do D20.
