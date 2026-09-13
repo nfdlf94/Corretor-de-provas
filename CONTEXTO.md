@@ -3987,3 +3987,58 @@ conviverem no mesmo recorte, o aviso aparece.
 
 Vale registrar: quando um teste novo falha, a primeira suspeita tem de ser
 o teste.
+
+---
+
+## v79 — o banco poluído e a atualização não destrutiva
+
+O professor achou a causa que faltava, e ela é anterior a tudo o que eu
+vinha investigando.
+
+### O banco de descritores estava por cima da matriz
+
+`bancoDesc(comp)` faz `Object.assign({}, oficial, E.descritores[comp])` —
+o banco do professor **sobrepõe** a matriz oficial. Um texto errado
+gravado ali mascara a matriz em todo o app, inclusive no relatório.
+
+E o banco foi somando. Cada importação grava os textos do arquivo com os
+códigos do arquivo, e nada nunca limpava: o banco de Matemática dele
+chegou a **44 descritores**, sendo que a matriz do 3º EM tem **35**. Era
+daí que saía o "D22 — P.A./P.G." aparecendo com percentual de acerto de
+questões de gráfico.
+
+A tela do banco agora confere contra a matriz e separa dois casos:
+
+- **códigos que não existem na matriz** (o excedente das importações);
+- **códigos com texto diferente do oficial** (a numeração deslocada).
+
+Com o botão **"Voltar à matriz oficial"**, que apaga só essas entradas.
+Simulados, gabaritos e notas não são tocados — só o texto que o app mostra
+para cada código.
+
+### Subir o arquivo corrigido sem perder as correções
+
+O professor corrigiu a numeração no arquivo e quer subir de novo, mas o
+simulado já foi aplicado: reimportar trocaria as questões e invalidaria
+todos os cartões.
+
+**"Atualizar descritores pelo arquivo"** lê o arquivo, normaliza a
+numeração contra a matriz (v78) e traz de cada questão apenas o
+**descritor** e o **nível**.
+
+O par é o **ENUNCIADO**, e essa é a decisão que sustenta tudo: a ordem do
+caderno é sorteada e não é a do arquivo, mas o texto da questão é o mesmo
+nos dois. Medido no teste: com o arquivo em outra ordem, o casamento por
+enunciado acerta 9 de 9 e o casamento por posição acerta 1 de 9.
+
+Vale para todos os cadernos do mesmo simulado, e não toca em enunciado,
+alternativas, gabarito nem resultado.
+
+### Suíte nova
+
+`teste73` — o banco mascarando a matriz (o app mostrando "gráfico" onde a
+matriz diz "P.A./P.G."); a conferência separando o que sobra do que
+diverge; a limpeza devolvendo o texto oficial; o cenário completo do
+professor (8 cartões corrigidos, numeração do arquivo, sem níveis); a
+atualização mudando 7 descritores e 9 níveis sem tocar em gabarito,
+enunciados nem nas 8 notas; e a comparação enunciado × posição.

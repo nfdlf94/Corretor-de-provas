@@ -591,7 +591,7 @@ const guarda=(()=>{ let mem={},ok=false;
    morre aqui.
 
    TEM DE CASAR com o VERSAO do sw.js. */
-const VERSAO_APP="v78";
+const VERSAO_APP="v79";
 
 const $=s=>document.querySelector(s);
 /* `esc` também resolve as marcas de expoente e índice: nas telas elas
@@ -4948,6 +4948,12 @@ function telaSimulado(box){
           "não toca nas questões nem nos cartões já corrigidos."}</div>
       ${nNiv===pr.nq?"":`<button class="btn sec" id="bNiveis">Completar os níveis pelo arquivo</button>
       <input type="file" id="arqNiv" accept=".docx,.pdf,.txt" style="display:none">`}`:""}
+    ${pr.nq?`<div class="hint" style="margin:10px 0 6px">
+      Corrigiu os descritores no arquivo do simulado? Suba de novo aqui: o app
+      lê só o descritor e o nível, casando cada questão pelo enunciado. Nada
+      de questão, gabarito ou cartão corrigido é alterado.</div>
+      <button class="btn sec" id="bRotulos">Atualizar descritores pelo arquivo</button>
+      <input type="file" id="arqRot" accept=".docx,.pdf,.txt" style="display:none">`:""}
     ${(()=>{
       /* numeração SAEB × SAEPE: o texto da habilidade é que decide */
       const t=COMPONENTES.map(c=>({c, tr:conferirNumeracao(pr,c.id,sm.etapa)}))
@@ -5162,6 +5168,110 @@ function telaSimulado(box){
     if(idsProva.includes(E.ativa)){ E.ativa=null; refletirBarra(); }
     salvar(); pintarResultados(); pintarDesempenho();
     casaNivel="simulados"; montarCasa(); };
+
+  /* ── atualizar SÓ descritores e níveis, pelo arquivo ─────────────
+     O professor corrigiu a numeração no arquivo do simulado e quer subir
+     de novo — mas o simulado já foi aplicado e corrigido. Reimportar
+     trocaria as questões e invalidaria todos os cartões.
+
+     Esta operação lê o arquivo, normaliza a numeração contra a matriz, e
+     casa cada questão do caderno com a do arquivo PELO ENUNCIADO. É o
+     único par confiável: a ordem do caderno é sorteada e não é a do
+     arquivo, mas o texto da questão é o mesmo nos dois. De cada par ela
+     traz apenas o DESCRITOR e o NÍVEL.
+
+     Não toca em enunciado, alternativas, gabarito nem resultado. */
+  const chaveEnun=t=>normDesc(String(t||"")).slice(0,90);
+
+  function atualizarRotulos(arquivo, comp, grupo){
+    const porTexto={};
+    (arquivo.itens||[]).forEach(x=>{
+      const k=chaveEnun(x.questao&&x.questao.enunciado);
+      if(k && !porTexto[k]) porTexto[k]=x;
+    });
+    let casados=0, semPar=0, mudouDesc=0, mudouNiv=0, cadernos=0;
+    grupo.forEach(s2=>{
+      const p2=provaDoSim(s2); if(!p2) return;
+      let n=0;
+      p2.desc=(p2.desc||[]).slice();
+      p2.niv=(p2.niv||[]).slice();
+      while(p2.desc.length<p2.nq) p2.desc.push("");
+      while(p2.niv.length<p2.nq) p2.niv.push(null);
+      itensDe(p2,comp).forEach(i=>{
+        const q=(p2.questoes||[])[i];
+        const alvo=porTexto[chaveEnun(q&&q.enunciado)];
+        if(!alvo){ semPar++; return; }
+        casados++; n++;
+        const cod=codDesc(alvo.desc||"");
+        if(cod && codDesc(p2.desc[i]||"")!==cod){ p2.desc[i]=cod; mudouDesc++; }
+        if(alvo.niv!=null && p2.niv[i]!==alvo.niv){ p2.niv[i]=alvo.niv; mudouNiv++; }
+      });
+      if(n){
+        cadernos++;
+        p2.habs=(p2.desc||[]).map((cod,k)=>{ const c=(p2.comps||[])[k]||comp;
+          return cod?curtoComp(c)+" "+rotuloDesc(c,cod):""; });
+      }
+    });
+    return {casados, semPar, mudouDesc, mudouNiv, cadernos};
+  }
+
+  if($("#bRotulos")) $("#bRotulos").onclick=()=>$("#arqRot").click();
+  if($("#arqRot")) $("#arqRot").onchange=async ev=>{
+    const arq=ev.target.files&&ev.target.files[0]; ev.target.value="";
+    if(!arq) return;
+    const aviso=t=>{ const el=$("#impInfo"); if(el) el.innerHTML=t; };
+    try{
+      aviso(`<div class="hint" style="margin-top:10px">Lendo ${esc(arq.name)}…</div>`);
+      let txt="";
+      if(/\.docx$/i.test(arq.name))     txt=await textoDeDocx(arq);
+      else if(/\.pdf$/i.test(arq.name)) txt=(await textoEFigurasDePdf(arq)).txt;
+      else                              txt=await arq.text();
+      const lido=lerSimuladoDoc(txt,null);
+      if(!lido.itens.length) throw new Error("não encontrei questões numeradas");
+
+      const grupo=[sm].concat(cadernosDoMesmoSimulado(sm));
+      const partes=[];
+      COMPONENTES.forEach(c=>{
+        const copia=JSON.parse(JSON.stringify({itens:lido.itens,
+          descritores:lido.descritores}));
+        const norm=normalizarDescritores(copia,c.id,sm.etapa);
+        const r=atualizarRotulos(copia,c.id,grupo);
+        if(!r.casados) return;
+        /* o texto da habilidade acompanha, já normalizado */
+        E.descritores=E.descritores||{LP:{},MAT:{}};
+        E.descritores[c.id]=E.descritores[c.id]||{};
+        copia.descritores.forEach(d=>{ if(d.texto) E.descritores[c.id][d.cod]=d.texto; });
+        partes.push({comp:c.id, norm, r});
+      });
+      salvar(); montarCasa();
+      const el=$("#impInfo");
+      if(!partes.length){
+        if(el) el.innerHTML=`<div class="aviso" style="margin-top:10px">
+          Não consegui casar nenhuma questão do arquivo com as do caderno.
+          Confira se é o arquivo deste mesmo simulado.</div>`;
+        return;
+      }
+      if(el) el.innerHTML=`<div class="aviso" style="margin-top:10px">`+
+        partes.map(x=>{
+          const c=COMPONENTES.find(y=>y.id===x.comp)||{nome:x.comp};
+          return `<b>${esc(c.nome)}:</b> ${x.r.casados} ${x.r.casados===1
+            ?"questão casada":"questões casadas"} pelo enunciado em
+            ${x.r.cadernos} ${x.r.cadernos===1?"caderno":"cadernos"}.
+            ${x.r.mudouDesc} descritor${x.r.mudouDesc===1?"":"es"} e
+            ${x.r.mudouNiv} nível${x.r.mudouNiv===1?"":"eis"} atualizados.
+            ${x.norm.trocas.length?`<br>Numeração do arquivo ajustada à matriz:
+              ${x.norm.trocas.map(t=>esc(t.de)+" → "+esc(t.para)).join(", ")}.`:""}
+            ${x.r.semPar?`<br>${x.r.semPar} questão(ões) do caderno sem par no
+              arquivo — ficaram como estavam.`:""}`;
+        }).join("<br><br>")+
+        `<br><br>Questões, alternativas, gabarito e cartões corrigidos não
+        foram alterados.</div>`;
+    }catch(e){
+      const el=$("#impInfo");
+      if(el) el.innerHTML=`<div class="aviso" style="margin-top:10px">Não consegui
+        ler o arquivo: ${esc(e.message)}</div>`;
+    }
+  };
 
   /* ── completar SÓ os níveis ──────────────────────────────────────
      Um caderno importado por uma versão anterior do app pode não ter o
@@ -5830,10 +5940,46 @@ function telaBanco(box){
   const linhas=Object.keys(banco).sort((a,b)=>
     (parseInt(a.replace(/\D/g,""),10)||0)-(parseInt(b.replace(/\D/g,""),10)||0))
     .map(k=>k+" - "+banco[k]).join("\n");
+  /* ── o banco contra a matriz oficial ────────────────────────────
+     `bancoDesc` sobrepõe o banco do professor à matriz oficial. Um texto
+     errado gravado aqui MASCARA a matriz em todo o app — e foi assim que
+     o banco de Matemática chegou a 44 descritores, sendo que a matriz do
+     3º EM tem 35. O excedente veio de importações antigas, com a
+     numeração do arquivo, somando sem nunca limpar. */
+  const oficialAqui=(typeof matrizDe==="function")
+    ? matrizDe(comp, etapaDoBanco()) : {};
+  const meu=(E.descritores||{})[comp]||{};
+  const foraDaMatriz=Object.keys(meu).filter(k=>!oficialAqui[k]);
+  const divergentes=Object.keys(meu).filter(k=>oficialAqui[k] &&
+    normDesc(meu[k])!==normDesc(oficialAqui[k]));
+  const sujo=foraDaMatriz.length+divergentes.length;
+
   box.innerHTML=`<div class="migalha"><button id="mVolta">‹ Voltar</button></div>
     <h2>Banco de descritores</h2>
     <p class="sub">Uma linha por descritor, no formato <b>D3 - texto da habilidade</b>.
       Vale para todos os simulados.</p>
+    ${sujo?`<div class="aviso" style="margin-bottom:12px;border-left:3px solid var(--coral)">
+      <b>Este banco está por cima da matriz oficial.</b>
+      A matriz do SAEPE para ${esc(etapaDe(etapaDoBanco()).nome)} tem
+      ${Object.keys(oficialAqui).length} descritores de ${esc(
+        (COMPONENTES.find(c=>c.id===comp)||{}).nome||comp)}; o seu banco tem
+      ${Object.keys(meu).length}.
+      ${foraDaMatriz.length?`<br><br><b>${foraDaMatriz.length} código${
+        foraDaMatriz.length===1?"":"s"} que não existe${foraDaMatriz.length===1?"":"m"}
+        na matriz:</b> <span style="font-family:var(--mono);font-size:12px">${
+        foraDaMatriz.slice(0,24).map(esc).join(" · ")}${
+        foraDaMatriz.length>24?" …":""}</span>`:""}
+      ${divergentes.length?`<br><br><b>${divergentes.length} código${
+        divergentes.length===1?"":"s"} com texto diferente do oficial:</b>
+        <span style="font-family:var(--mono);font-size:12px">${
+        divergentes.slice(0,24).map(esc).join(" · ")}</span>`:""}
+      <div class="hint" style="margin-top:8px">Enquanto essas entradas
+        existirem, o app mostra o texto DELAS no lugar do texto da matriz —
+        inclusive no relatório.</div>
+      <div class="linha" style="margin-top:10px">
+        <button class="btn sec" id="bkLimpar">Voltar à matriz oficial</button></div>
+    </div>`:`<div class="hint" style="margin-bottom:12px">Confere com a matriz
+      oficial do SAEPE (${Object.keys(oficialAqui).length} descritores).</div>`}
     <div class="esco">${COMPONENTES.map(c=>`<button data-c="${c.id}"
       class="${c.id===comp?"sel":""}"><div class="t">${esc(c.nome)}</div>
       <div class="s">${Object.keys(bancoDesc(c.id)).length} descritores</div></button>`).join("")}</div>
@@ -5845,6 +5991,25 @@ function telaBanco(box){
   $("#mVolta").onclick=()=>{casaNivel="simulados";montarCasa();};
   box.querySelectorAll("[data-c]").forEach(b=>b.onclick=()=>{
     casaComp=b.dataset.c; montarCasa(); });
+  if($("#bkLimpar")) $("#bkLimpar").onclick=()=>{
+    if(!confirm("Apagar as "+sujo+" entradas que divergem da matriz oficial?\n\n"+
+      "Os simulados, os gabaritos e as notas não são tocados — só o texto "+
+      "que o app mostra para cada código.")) return;
+    E.descritores=E.descritores||{LP:{},MAT:{}};
+    const limpo={};
+    Object.keys(meu).forEach(k=>{
+      if(oficialAqui[k] && normDesc(meu[k])!==normDesc(oficialAqui[k])) return;
+      if(!oficialAqui[k]) return;
+      limpo[k]=meu[k];
+    });
+    E.descritores[comp]=limpo;
+    /* os rótulos derivados precisam ser refeitos */
+    (E.provas||[]).filter(ehCaderno).forEach(p=>{
+      p.habs=(p.desc||[]).map((cod,i)=>{ const c=(p.comps||[])[i]||"LP";
+        return cod?curtoComp(c)+" "+rotuloDesc(c,cod):""; });
+    });
+    salvar(); montarCasa();
+  };
   $("#bkSalvar").onclick=()=>{
     const mapa={};
     $("#bkTxt").value.split(/\r?\n/).forEach(l=>{
