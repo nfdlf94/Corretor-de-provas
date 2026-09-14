@@ -591,7 +591,7 @@ const guarda=(()=>{ let mem={},ok=false;
    morre aqui.
 
    TEM DE CASAR com o VERSAO do sw.js. */
-const VERSAO_APP="v82";
+const VERSAO_APP="v83";
 
 const $=s=>document.querySelector(s);
 /* `esc` também resolve as marcas de expoente e índice: nas telas elas
@@ -714,6 +714,106 @@ let E=(()=>{
   }catch(e){ console.warn("nada a migrar",e); }
   return migrarV6(base);
 })();
+/* ══════════════════════════════════════════════════════════════════
+   AS FIGURAS SAEM DO localStorage
+
+   O localStorage tem ~5 MB. Uma figura recortada de PDF pesa uns 80 KB em
+   base64, e o app guardava o base64 DENTRO de cada prova — inclusive
+   repetido, porque as quatro turmas de uma série recebem cópias do mesmo
+   caderno. Vinte questões com figura em quatro turmas eram 80 cópias de
+   dados idênticos. O armazenamento enchia, e o app avisava que o trabalho
+   não seria salvo.
+
+   Agora as figuras vivem num POÇO no IndexedDB, endereçadas pelo conteúdo:
+   figuras iguais ocupam um lugar só, quantas vezes apareçam. A prova
+   guarda apenas `{ref, w, h}` — umas 60 letras.
+
+   O IndexedDB é assíncrono e o desenho do PDF é síncrono, então o poço é
+   carregado inteiro para a memória na abertura do app (`FIGS`). São dezenas
+   de figuras de ~80 KB: alguns megabytes de RAM, que o navegador tem de
+   sobra e o localStorage não tinha.
+
+   `dadosFig(img)` é o único jeito de ler o conteúdo, e ele aceita os dois
+   formatos: `{dados}` (provas antigas, ainda não migradas) e `{ref}`. */
+const FIGS=new Map();
+let BD=null;
+
+function abrirBD(){
+  return new Promise(res=>{
+    if(BD) return res(BD);
+    if(!window.indexedDB) return res(null);
+    let req;
+    try{ req=indexedDB.open("dbm_figs",1); }catch(e){ return res(null); }
+    req.onupgradeneeded=()=>{ try{ req.result.createObjectStore("figs"); }catch(e){} };
+    req.onsuccess=()=>{ BD=req.result; res(BD); };
+    req.onerror=()=>res(null);
+  });
+}
+function figsDoBanco(){
+  return abrirBD().then(db=>new Promise(res=>{
+    if(!db) return res(0);
+    let n=0;
+    try{
+      const tx=db.transaction("figs","readonly").objectStore("figs").openCursor();
+      tx.onsuccess=ev=>{ const c=ev.target.result;
+        if(!c) return res(n);
+        FIGS.set(c.key, c.value); n++; c.continue(); };
+      tx.onerror=()=>res(n);
+    }catch(e){ res(0); }
+  }));
+}
+function gravarFig(ref, dados){
+  FIGS.set(ref, dados);
+  return abrirBD().then(db=>{
+    if(!db) return false;
+    try{ db.transaction("figs","readwrite").objectStore("figs").put(dados, ref); }
+    catch(e){}
+    return true;
+  });
+}
+/* endereço pelo conteúdo: figuras iguais caem na mesma chave */
+function refDaFig(dados){
+  let h1=0x811c9dc5, h2=0x01000193;
+  const s=String(dados);
+  for(let i=0;i<s.length;i++){
+    h1=(h1^s.charCodeAt(i))>>>0; h1=(h1*16777619)>>>0;
+    if(i%3===0){ h2=(h2^s.charCodeAt(i))>>>0; h2=(h2*2166136261)>>>0; }
+  }
+  return "f"+h1.toString(36)+h2.toString(36)+"_"+s.length.toString(36);
+}
+/* guarda uma figura e devolve a referência leve para a prova */
+function poeFig(img){
+  if(!img) return null;
+  if(img.ref) return img;
+  if(!img.dados) return null;
+  const ref=refDaFig(img.dados);
+  gravarFig(ref, img.dados);
+  return {ref, w:img.w, h:img.h};
+}
+/* ÚNICO jeito de ler o conteúdo de uma figura */
+function dadosFig(img){
+  if(!img) return null;
+  if(img.dados) return img.dados;                 // prova antiga
+  return img.ref ? (FIGS.get(img.ref)||null) : null;
+}
+window.dadosFig=dadosFig;
+
+/* Provas antigas: tira o base64 de dentro do estado e manda para o poço.
+   Roda uma vez, na abertura, depois que o poço foi carregado. */
+async function migrarFigsParaOBanco(){
+  let movidas=0;
+  (E.provas||[]).forEach(p=>{
+    (p.questoes||[]).forEach(q=>{
+      if(q.imagem && q.imagem.dados && !q.imagem.ref){
+        const r=poeFig(q.imagem);
+        if(r){ q.imagem=r; movidas++; }
+      }
+    });
+  });
+  if(movidas){ salvar(); }
+  return movidas;
+}
+
 let avisouEspaco=false;
 function salvar(){
   const txt=JSON.stringify(E);
@@ -4165,7 +4265,7 @@ E) conjunto vazio
     p.questoes=questoes.map((q,i)=>({enunciado:q.enunciado,
       alternativas:q.alternativas.slice(0,p.no),correta:q.correta,
       // a figura fica presa à posição da questão: reeditar o texto não a perde
-      imagem:(antigas[i]&&antigas[i].imagem)||(iaFiguradas&&iaFiguradas[i])||null}));
+      imagem:poeFig((antigas[i]&&antigas[i].imagem)||(iaFiguradas&&iaFiguradas[i])||null)}));
     iaFiguradas=null;
     if(!semMarca && gabarito.length===p.nq) p.gabC=gabarito;
     salvar(); casaNivel="prova"; montarCasa(); };
@@ -8403,7 +8503,7 @@ Volume do prisma">${esc(F.habs)}</textarea>
       const lidas=lerQuestoes(iaTexto);
       p.questoes=lidas.questoes.slice(0,p.nq).map((q,i)=>({enunciado:q.enunciado,
         alternativas:(q.alternativas||[]).slice(0,p.no),correta:q.correta,
-        imagem:(iaFiguradas&&iaFiguradas[i])||null}));
+        imagem:poeFig((iaFiguradas&&iaFiguradas[i])||null)}));
       iaFiguradas=null;
       descartarLeitura();
     }
@@ -9501,6 +9601,21 @@ if(E.ativa && provaDe(E.ativa)) ativar(E.ativa); else refletirBarra();
 if(E.turmas.length) guarda.esc(SETUP_FEITO,"1");
 if(precisaAssistente()) casaNivel="assistente";
 montarCasa(); pintarResultados(); pintarDesempenho(); montarManual(); pintarSeletores();
+
+/* O poço de figuras é carregado DEPOIS da primeira pintura: nada na tela
+   inicial depende dele, e o app abre na mesma velocidade. Quando termina,
+   migra as provas antigas (tirando o base64 de dentro do estado) e
+   repinta, para que qualquer figura já apareça. */
+(async function(){
+  try{
+    await figsDoBanco();
+    const movidas=await migrarFigsParaOBanco();
+    if(movidas){
+      console.info(movidas+" figura(s) movidas para o banco");
+      montarCasa();
+    }
+  }catch(e){ console.warn("poço de figuras indisponível",e); }
+})();
 faixa("Toque em iniciar câmera",
   provaAtiva()?resDa(E.ativa).length+" cartões salvos":"Escolha a prova na aba Turmas");
 </script>

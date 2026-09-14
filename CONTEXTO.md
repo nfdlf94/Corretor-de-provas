@@ -4216,3 +4216,54 @@ remapeado.
 
 `teste37` exigia 21 descritores em LP e numeração sem furos. Passou a
 exigir os 20, a faixa D6–D27 e a ausência do D15 e do D20.
+
+---
+
+## v83 — as figuras saem do localStorage
+
+O app avisou ao professor: *"O armazenamento do navegador encheu —
+provavelmente por causa das figuras."* Estava certo, e o aviso descrevia o
+sintoma sem que nada no app pudesse resolver.
+
+### A conta
+
+O localStorage tem ~5 MB. Uma figura recortada de PDF pesa uns 80 KB em
+base64, e o app guardava o base64 **dentro de cada prova**. Pior: as
+quatro turmas de uma série recebem cópias do mesmo caderno, então vinte
+questões com figura viravam **oitenta cópias de dados idênticos**.
+
+### O poço
+
+As figuras passaram a viver num store do **IndexedDB**, endereçadas pelo
+CONTEÚDO (`refDaFig`, um FNV duplo + tamanho). Figuras iguais ocupam um
+lugar só, quantas vezes apareçam. A prova guarda `{ref, w, h}`.
+
+Medido no teste: a referência pesa **43 bytes contra 4 050** do original —
+94× menor. E vinte figuras iguais de quatro turmas viram **uma** no poço.
+
+### O detalhe que decidiu a arquitetura
+
+O IndexedDB é assíncrono; o desenho do PDF é síncrono. Por isso o poço é
+carregado INTEIRO para um `Map` em memória (`FIGS`) na abertura, depois da
+primeira pintura — nada da tela inicial depende dele. São dezenas de
+figuras de ~80 KB: alguns megabytes de RAM, que o navegador tem de sobra e
+o localStorage não tinha.
+
+`dadosFig(img)` é o único jeito de ler o conteúdo, e aceita os dois
+formatos: `{dados}` das provas antigas e `{ref}` das novas. No gerador o
+acessor é `dadosDaFigura`, e o `teste75` confere, lendo o arquivo, que
+**nenhum lugar lê `.dados` por fora dele** — foi assim que descobri que
+três substituições minhas não tinham sido gravadas.
+
+### Migração
+
+Provas antigas são migradas na abertura, depois que o poço carrega: o
+base64 sai de dentro do estado e vai para o banco. Até isso acontecer elas
+continuam funcionando, porque o acessor aceita o formato antigo. Nenhuma
+prova precisa ser reimportada.
+
+### O que ainda não foi feito
+
+Uma tela mostrando o espaço em uso e permitindo remover figuras de provas
+antigas. Com o poço, o problema deve desaparecer na prática — mas se
+voltar, é lá que se olha.

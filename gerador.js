@@ -118,7 +118,7 @@ const NOME_COMP = {LP: "LÍNGUA PORTUGUESA", MAT: "MATEMÁTICA"};
       mal corrigida — em silêncio. Nestas questões a ordem das
       alternativas fica travada na original. */
 function alternativasNaFigura(q){
-  if(!q || !q.imagem || !q.imagem.dados) return false;
+  if(!q || !q.imagem || !dadosDaFigura(q.imagem)) return false;
   const alts = q.alternativas || [];
   /* Duas formas de a MESMA coisa chegar aqui, e a segunda passava batido:
 
@@ -406,8 +406,19 @@ function cabecalho(doc, cfg, aluno, dry){
 
 /* figura: nunca mais larga que a coluna nem mais alta que meia página */
 const FIG_MAX_H = 52;
+/* A figura pode estar guardada de dois jeitos: `{dados}` nas provas
+   antigas e `{ref}` depois que o conteúdo foi para o poço no IndexedDB
+   (v83). O gerador não precisa saber de qual se trata. */
+function dadosDaFigura(img){
+  if(!img) return null;
+  if(img.dados) return img.dados;
+  if(typeof window!=="undefined" && typeof window.dadosFig==="function")
+    return window.dadosFig(img);
+  return null;
+}
+
 function medirFigura(img, larguraDisponivel){
-  if(!img || !img.dados) return null;
+  if(!img || !dadosDaFigura(img)) return null;
   const pw = img.w || 400, ph = img.h || 300;
   const teto = larguraDisponivel || 78;
   let w = Math.min(teto, pw * 0.2646);          // px -> mm a ~96 dpi
@@ -996,7 +1007,7 @@ function unidadesQuestao(doc, n, item, larg, fs, opcoes, m, rotuloBloco){
   const desenharFig = (x, y) => {
     if(!m.fig) return y;
     const xf = x + Math.max(0, (larg - m.fig.w) / 2);
-    try{ doc.addImage(item.imagem.dados, "JPEG", xf, y + 1.5, m.fig.w, m.fig.h); }catch(e){}
+    try{ doc.addImage(dadosDaFigura(item.imagem), "JPEG", xf, y + 1.5, m.fig.w, m.fig.h); }catch(e){}
     return y + figH;
   };
 
@@ -2001,4 +2012,4 @@ if(typeof module !== "undefined") module.exports =
    pedacosDeNivel, remarcar, semMarcas, temMarcas, medidasQuestao, desenharQuestaoCol, prepararFontes, medirFigura,
    segmentarEnunciado, classificarCorpo, pareceFormula, unidadesQuestao, melhorCorte,
    grupoColado, empacotar, distribuirPagina, encherColuna, molduraDaPagina, fundoUtil, RODAPE, unidadesNaOrdem, paginasDaTurma, paginasNoPior, preFlightCheck, alternativasNaFigura, indicesFixos, ordemDaProva, paresDeOrdem, chavesDaTurma, charsDeNivel, cabecalho, larguraComNiveis,
-   AR_QUESTAO, AR_ALT, REGRA_GABARITO, alturaFaixaCabecalho, comTempero, TEMPEROS};
+   AR_QUESTAO, AR_ALT, dadosDaFigura, REGRA_GABARITO, alturaFaixaCabecalho, comTempero, TEMPEROS};
