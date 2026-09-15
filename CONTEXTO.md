@@ -4267,3 +4267,53 @@ prova precisa ser reimportada.
 Uma tela mostrando o espaço em uso e permitindo remover figuras de provas
 antigas. Com o poço, o problema deve desaparecer na prática — mas se
 voltar, é lá que se olha.
+
+---
+
+## v84 — o caminho de subir a prova, e a prova de recuperação
+
+Dois relatos na mesma mensagem, e os dois são de CAMINHO, não de cálculo.
+
+### "A função de subir a prova simplesmente sumiu"
+
+Ela nunca sumiu. Mas só era alcançável de DENTRO de uma prova já criada —
+"Subir a prova pronta", em `telaProva`. Quem estava criando uma prova via
+apenas os campos manuais (título, nº de questões, gabarito canônico,
+habilidades) e concluía, com razão, que a função não existia mais.
+
+`telaLerArquivo` já sabia funcionar sem prova — o comentário dela diz
+"sem prova = está criando uma". O que faltava era o botão.
+
+A tela de criar prova ganhou **"Já tenho a prova num arquivo"** no topo,
+com a linha "Ou preencha à mão os campos abaixo" — os campos manuais como
+alternativa, não como único caminho.
+
+### A prova de recuperação
+
+A seleção de estudantes (v67) restringe a prova ATUAL, e isso resolve o
+caso de reaplicar a mesma prova. Mas uma recuperação normalmente tem
+OUTRAS questões — e aí restringir a original significaria mexer numa prova
+já aplicada e corrigida.
+
+Faltava criar uma prova NOVA já restrita a eles. O botão **"Criar prova de
+recuperação"** aparece na tela de seleção quando a prova já tem cartão
+corrigido (antes disso, restringir a própria prova é legítimo e mais
+simples). Ele herda o que faz sentido — período, disciplina, alternativas,
+pontuação — e nada das questões, que é justamente o que muda.
+
+### Um defeito que só apareceu montando o caminho
+
+`casaForm` era REFEITO a partir do arquivo lido, apagando o que o professor
+já tinha decidido antes de subir. Para a recuperação seria fatal: ela chega
+ali já sabendo quem vai fazê-la, e essa escolha sumiria na leitura.
+
+Agora a regra é explícita: **o que vem do arquivo manda no que é do
+arquivo** (nº de questões, gabarito); o que é decisão do professor
+(código, período, pontuação, quem está em recuperação) sobrevive.
+
+### Suíte nova
+
+`teste76` — os dois caminhos de subir arquivo presentes; o formulário
+sobrevivendo à leitura com a seleção e a ligação à prova original intactas,
+enquanto nº de questões e gabarito vêm do arquivo; a prova nova nascendo
+restrita a 3 de 10 estudantes; e o botão aparecendo só quando há correção.

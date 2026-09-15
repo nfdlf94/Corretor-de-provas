@@ -591,7 +591,7 @@ const guarda=(()=>{ let mem={},ok=false;
    morre aqui.
 
    TEM DE CASAR com o VERSAO do sw.js. */
-const VERSAO_APP="v83";
+const VERSAO_APP="v84";
 
 const $=s=>document.querySelector(s);
 /* `esc` também resolve as marcas de expoente e índice: nas telas elas
@@ -3185,13 +3185,21 @@ function entregarLeitura(texto,p,no){
   if(p && !substituindo){ casaNivel="questoes"; montarCasa(); return; }
   const lidas=lerQuestoes(texto);
   const velha=substituindo?provaDe(substituindo):null;
-  casaForm={codigo:velha?velha.codigo:"", titulo:velha?velha.titulo:"",
+  /* O formulário é REFEITO a partir do arquivo, e isso apagaria o que o
+     professor já tinha decidido antes de subir — o caso que importa é a
+     prova de recuperação, que chega aqui já sabendo quem vai fazê-la.
+     Essas escolhas são dele, não do arquivo: sobrevivem à leitura. */
+  const antes=casaForm||{};
+  casaForm={codigo:velha?velha.codigo:(antes.codigo||""),
+    titulo:velha?velha.titulo:(antes.titulo||""),
     nq:Math.max(5,Math.min(30,lidas.questoes.length||10)),
     no:no||5, gab:lidas.gabarito.indexOf("?")<0?lidas.gabarito:"",
-    habs:velha?(velha.habs||[]).join("\n"):"",
-    po:velha?pontosObj(velha):10, pd:velha?pontosDisc(velha):0,
-    per:velha?(velha.periodo||1):ultimoPeriodo, vindoDeArquivo:true,
-    substitui:substituindo||null};
+    habs:velha?(velha.habs||[]).join("\n"):(antes.habs||""),
+    po:velha?pontosObj(velha):(antes.po!=null?antes.po:10),
+    pd:velha?pontosDisc(velha):(antes.pd!=null?antes.pd:0),
+    per:velha?(velha.periodo||1):(antes.per||ultimoPeriodo),
+    vindoDeArquivo:true, substitui:substituindo||null,
+    recuperacao:antes.recuperacao||null, recuperacaoDe:antes.recuperacaoDe||null};
   iaTextoPara="novo";
   casaNivel="nova"; montarCasa();
 }
@@ -3305,6 +3313,12 @@ function telaRecuperacao(box){
         <div class="l">${marcados?"em recuperação":"turma inteira"}</div></div>
       <div><div class="v">${todos.length}</div><div class="l">na turma</div></div></div>
     <button class="btn" id="rSalvar" style="margin-top:16px">Salvar</button>
+    ${travado?`<div class="rot" style="margin-top:18px">Ou crie uma prova nova</div>
+      <p class="hint" style="margin:0 0 8px">Restringir ESTA prova muda a prova que
+        já foi aplicada. Se a recuperação tem outras questões — que é o normal —,
+        crie uma prova separada para ela: os cadernos e as notas da original
+        ficam intactos, e você sobe o arquivo da recuperação na nova.</p>
+      <button class="btn sec" id="rNova">Criar prova de recuperação</button>`:""}
     <button class="btn gho" id="rVolta" style="margin-top:9px">Voltar</button>`;
 
   const caixas=()=>Array.from(box.querySelectorAll("[data-rec]"));
@@ -3314,6 +3328,21 @@ function telaRecuperacao(box){
   $("#rTodos").onclick=()=>{ caixas().forEach(c=>c.checked=true); recontar(); };
   $("#rNinguem").onclick=()=>{
     delete p.recuperacao; salvar(); casaNivel="prova"; montarCasa(); };
+  if($("#rNova")) $("#rNova").onclick=()=>{
+    /* Uma prova de recuperação é uma prova NOVA que já nasce restrita aos
+       estudantes marcados. Herda o que faz sentido herdar — período,
+       disciplina, número de alternativas, pontuação — e nada mais: as
+       questões são outras, e é por isso que ela existe. */
+    const marcados=caixas().filter(c=>c.checked).map(c=>c.dataset.rec);
+    if(!marcados.length){
+      alert("Marque primeiro quem está em recuperação."); return; }
+    casaDisc=p.disciplina||casaDisc;
+    casaForm={codigo:"", titulo:(p.titulo||"Avaliação")+" — Recuperação",
+      nq:p.nq, no:p.no, gab:"", habs:"", po:p.pontosObjetiva||10,
+      pd:p.pontosDiscursivas||0, per:p.periodo||1,
+      recuperacaoDe:p.id, recuperacao:marcados};
+    casaProva=null; casaNivel="nova"; montarCasa();
+  };
   $("#rVolta").onclick=()=>{ casaNivel="prova"; montarCasa(); };
   $("#rSalvar").onclick=()=>{
     const escolhidos=caixas().filter(c=>c.checked).map(c=>c.dataset.rec);
@@ -8426,6 +8455,16 @@ function telaNovaProva(box){
       `. Não achei o gabarito no arquivo — digite abaixo`}.
       ${F.substitui?"Confirme para substituir a prova antiga — código, período e pontuação foram mantidos."
         :"Dê um código à prova e confirme; as questões já entram junto."}</div>`:""}
+    ${(Array.isArray(F.recuperacao)&&F.recuperacao.length)?`<div class="diag">
+      <b>Prova de recuperação</b> — já nasce restrita aos ${F.recuperacao.length}
+      estudantes que você marcou. Suba o arquivo dela abaixo ou preencha à mão;
+      a prova original e as notas dela não são tocadas.</div>`:""}
+    ${(F.vindoDeArquivo||F.substitui)?"":`
+    <button class="item" id="bDeArquivo" style="margin-bottom:6px"><div class="cor">
+      <div class="t1">Já tenho a prova num arquivo</div>
+      <div class="t2">Foto, PDF ou Word — o app lê as questões e o gabarito e
+        traz tudo preenchido para cá</div></div><span class="ch">›</span></button>
+    <p class="hint" style="margin:0 0 14px">Ou preencha à mão os campos abaixo.</p>`}
     <label>Código da prova</label>
     <input id="fCod" class="mono" placeholder="3A-AV2" value="${esc(F.codigo)}">
     <label>Título</label>
@@ -8481,6 +8520,13 @@ Volume do prisma">${esc(F.habs)}</textarea>
     const el=$("#"+id); el.oninput=sinc; el.onchange=sinc; });
   sinc();
   $("#mVolta").onclick=()=>{ if(F.vindoDeArquivo) descartarLeitura();
+  if($("#bDeArquivo")) $("#bDeArquivo").onclick=()=>{
+    /* `telaLerArquivo` já sabe funcionar sem prova ("sem prova = está
+       criando uma") e devolve para cá com os campos preenchidos. O que
+       faltava era ESTE caminho: a leitura só era alcançável de dentro de
+       uma prova que já existisse, e quem estava criando concluía, com
+       razão, que a função tinha sumido. */
+    descartarLeitura(); casaProva=null; casaNivel="ler"; montarCasa(); };
     const volta=F.substitui; substituindo=null; casaForm=null;
     if(volta){ casaProva=volta; casaNivel="prova"; } else casaNivel="provas";
     montarCasa(); };
@@ -8499,6 +8545,12 @@ Volume do prisma">${esc(F.habs)}</textarea>
     const p={id:uid("p"),turma:t.id,disciplina:casaDisc,codigo:F.codigo,titulo:F.titulo,
       nq:F.nq,no:F.no,gabC:F.gab,habs,pontosObj:F.po,pontosDisc:F.pd,periodo:F.per||1,
       questoes:[],discursivas:[],criada:Date.now()};
+    /* prova de recuperação: já nasce restrita a quem foi marcado na prova
+       original, para o professor não ter de repetir a seleção */
+    if(Array.isArray(F.recuperacao) && F.recuperacao.length){
+      p.recuperacao=F.recuperacao.slice();
+      if(F.recuperacaoDe) p.recuperacaoDe=F.recuperacaoDe;
+    }
     if(F.vindoDeArquivo && iaTexto){
       const lidas=lerQuestoes(iaTexto);
       p.questoes=lidas.questoes.slice(0,p.nq).map((q,i)=>({enunciado:q.enunciado,
