@@ -31,7 +31,45 @@ setTimeout(() => {
   /* ── 1. o caminho de subir arquivo na CRIAÇÃO ── */
   ok(/Já tenho a prova num arquivo/.test(fonte),
      "a tela de criar prova oferece subir o arquivo");
-  ok(/bDeArquivo/.test(fonte), "com o gancho ligado");
+  /* ── O BOTÃO TEM DE FUNCIONAR, não só existir ──────────────────────
+     A primeira versão deste teste só procurava o texto no arquivo, e
+     passou com o botão MORTO: a inserção do handler tinha caído no meio
+     do handler do "Voltar", partindo os dois. Procurar texto no fonte
+     prova que o botão foi desenhado, não que ele faz alguma coisa. */
+  const clique = J(`(function(){
+    var t=E.turmas[0];
+    casaTurma=t.id;
+    casaForm={codigo:"3C-REC", titulo:"Rec", nq:10, no:5, gab:"", habs:"",
+      po:10, pd:0, per:2, recuperacao:["01","02"], recuperacaoDe:"pX"};
+    casaNivel="nova"; montarCasa();
+    var b=document.querySelector("#bDeArquivo");
+    if(!b) return {erro:"botão não existe no DOM"};
+    if(typeof b.onclick!=="function") return {erro:"botão sem handler"};
+    b.onclick();
+    return {nivel:casaNivel, rec:casaForm&&casaForm.recuperacao,
+            de:casaForm&&casaForm.recuperacaoDe};
+  })()`);
+  ok(!clique.erro, "o botão existe e TEM handler" + (clique.erro?": "+clique.erro:""));
+  ok(clique.nivel === "ler",
+     "clicar leva à tela de ler arquivo (casaNivel=" + clique.nivel + ")");
+  ok(String(clique.rec) === "01,02" && clique.de === "pX",
+     "e a seleção da recuperação sobrevive ao clique — este botão, ao " +
+     "contrário do \"Usar outro arquivo\", não zera o formulário");
+
+  /* o "Voltar" da mesma tela precisa continuar funcionando: foi ele que
+     a inserção errada tinha partido */
+  const voltar = J(`(function(){
+    casaForm={codigo:"X", titulo:"T", nq:10, no:5, gab:"", habs:"",
+      po:10, pd:0, per:1};
+    casaNivel="nova"; montarCasa();
+    var v=document.querySelector("#mVolta");
+    if(typeof v.onclick!=="function") return {erro:"Voltar sem handler"};
+    v.onclick();
+    return {nivel:casaNivel, form:casaForm};
+  })()`);
+  ok(!voltar.erro, "o \"Voltar\" da mesma tela segue funcionando");
+  ok(voltar.nivel === "provas" && voltar.form === null,
+     "levando à lista de provas e limpando o formulário");
   ok(/Ou preencha à mão os campos abaixo/.test(fonte),
      "e deixa claro que os campos manuais são a alternativa, não o " +
      "único caminho");

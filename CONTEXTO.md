@@ -4317,3 +4317,51 @@ arquivo** (nº de questões, gabarito); o que é decisão do professor
 sobrevivendo à leitura com a seleção e a ligação à prova original intactas,
 enquanto nº de questões e gabarito vêm do arquivo; a prova nova nascendo
 restrita a 3 de 10 estudantes; e o botão aparecendo só quando há correção.
+
+---
+
+## v85 — o botão estava morto, e o teste dizia que estava bom
+
+O professor: "eu clico para subir a prova, mas está travado. Não pega."
+
+### O defeito
+
+Ao inserir o handler do `#bDeArquivo`, o script de edição casou com a
+PRIMEIRA linha do handler do `#mVolta` — que ocupa duas linhas — e emendou
+o código novo no meio dele:
+
+```js
+$("#mVolta").onclick=()=>{ if(F.vindoDeArquivo) descartarLeitura();
+if($("#bDeArquivo")) $("#bDeArquivo").onclick=()=>{ … };     // ← enxertado aqui
+  const volta=F.substitui; …
+  montarCasa(); };
+```
+
+O `bDeArquivo` passou a ser atribuído **dentro** do clique do Voltar: só
+existiria depois de o professor clicar em Voltar, e aí a tela já teria
+mudado. Na prática, o botão nascia com `onclick === null` e o clique não
+fazia nada. O Voltar continuou funcionando por acidente — o enxerto era
+sintaticamente válido.
+
+### Por que o teste não pegou
+
+Porque ele procurava **texto no arquivo**:
+
+```js
+ok(/bDeArquivo/.test(fonte), "com o gancho ligado");
+```
+
+Isso prova que o botão foi desenhado, não que ele faz alguma coisa. O
+teste passou com o botão morto.
+
+Agora o `teste76` monta a tela, procura o elemento no DOM, confere que
+`onclick` é uma FUNÇÃO, clica, e verifica que a tela mudou e que a seleção
+da recuperação sobreviveu. E confere que o "Voltar" da mesma tela continua
+funcionando — que foi exatamente o que a inserção errada partiu.
+
+### A lição, e ela vale para trás
+
+Várias suítes deste projeto verificam comportamento lendo o `index.html`
+com expressão regular. Serve para garantir que uma frase de explicação
+está lá; **não serve para garantir que um controle funciona**. Onde há
+interação, o teste tem de montar a tela e clicar.
