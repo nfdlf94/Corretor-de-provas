@@ -591,7 +591,7 @@ const guarda=(()=>{ let mem={},ok=false;
    morre aqui.
 
    TEM DE CASAR com o VERSAO do sw.js. */
-const VERSAO_APP="v85";
+const VERSAO_APP="v86";
 
 const $=s=>document.querySelector(s);
 /* `esc` também resolve as marcas de expoente e índice: nas telas elas
@@ -2048,13 +2048,58 @@ const ordemDe=(p,turma,numero)=>{
    correta. O QR fica como o que sempre foi — a saída para quando não há
    prova cadastrada. E a divergência é dita em voz alta, porque significa
    que o papel na mão foi impresso com uma versão anterior. */
+/* ══════════════════════════════════════════════════════════════════
+   QR IMPRESSO × CÁLCULO ATUAL — QUEM MANDA
+
+   A v53 decidiu que o cálculo atual manda. Estava ERRADO, e o professor
+   pegou o erro com as provas já impressas na mão.
+
+   O QR é impresso NA MESMA FOLHA das questões, no mesmo instante, pela
+   mesma versão do app. Ele não pode estar dessincronizado com o papel que
+   o estudante respondeu: se o cálculo de hoje dá outra permutação, é o
+   cálculo de hoje que está errado PARA AQUELA FOLHA. Corrigir pelo
+   cálculo novo significa comparar as marcações com um gabarito de uma
+   prova que ninguém recebeu.
+
+   Existe UM caso em que o cálculo deve mandar: o professor consertou o
+   gabarito CANÔNICO depois de imprimir (achou uma resposta errada). Aí a
+   permutação é a mesma e só as letras mudaram — e a correção nova é a
+   desejada.
+
+   Dá para distinguir os dois: aplicando a permutação de hoje de volta no
+   gabarito do QR, chega-se ao canônico que gerou aquele QR. Se esse
+   canônico reconstruído bate com o canônico de hoje, a permutação é a
+   mesma e não há divergência nenhuma. Se não bate, a diferença está no
+   canônico (poucas posições, e o app tem o registro da impressão) ou na
+   permutação (e aí o QR manda).
+   ══════════════════════════════════════════════════════════════════ */
 function gabaritoVigente(nomeTurma,numero,gabQR){
   const calc=gabaritoDe(nomeTurma,numero);
   if(!calc) return {gab:gabQR||"", origem:"qr", divergem:[]};
   if(!gabQR) return {gab:calc, origem:"app", divergem:[]};
   const divergem=[];
   for(let i=0;i<calc.length;i++) if(calc[i]!==gabQR[i]) divergem.push(i+1);
-  return {gab:calc, origem:divergem.length?"app-diverge":"app", divergem};
+  if(!divergem.length) return {gab:calc, origem:"app", divergem:[]};
+
+  const p=provaAtiva();
+  /* o canônico que teria gerado ESTE QR, pela permutação de hoje */
+  const reconst=(canonizar(String(gabQR).split(""),nomeTurma,numero)||[])
+    .map(x=>x||"?").join("");
+  const impresso=p&&p.impressao;
+  const mesmaRegra=impresso&&impresso.regra===REGRA_GABARITO;
+  const canonicoMudou=impresso&&impresso.gabC&&p&&impresso.gabC!==p.gabC;
+
+  /* Caso legítimo do cálculo mandar: a permutação é a mesma (o canônico
+     reconstruído do QR é o canônico da impressão) e o professor corrigiu
+     o canônico depois. */
+  if(mesmaRegra && canonicoMudou && reconst===impresso.gabC)
+    return {gab:calc, origem:"app-corrigido", divergem,
+            motivo:"o gabarito oficial foi corrigido depois da impressão"};
+
+  /* Todo o resto: a FOLHA manda. */
+  return {gab:gabQR, origem:"qr-impresso", divergem, reconst,
+          motivo:"a permutação impressa nesta folha não é a que o app "+
+                 "calcula hoje"};
 }
 
 function gabaritoDe(nomeTurma,numero){
@@ -4329,6 +4374,13 @@ function gerarPDF(p,t,modo){
     if(f.gab){ dizer("aviso",`Faltam ${f.gab} letras no gabarito. O gabarito vai dentro do
       QR de cada cartão — sem ele a correção sai errada.`); return; }
   }
+  /* Registro da IMPRESSÃO: o gabarito canônico e a regra em vigor no
+     momento em que o papel saiu. É o que permite, depois, distinguir "o
+     professor corrigiu o gabarito" de "a regra de embaralhamento mudou" —
+     sem isso, a única saída segura é confiar no QR. */
+  p.impressao={gabC:p.gabC, regra:REGRA_GABARITO, quando:Date.now(),
+               versao:VERSAO_APP};
+  salvar();
   dizer("diag","Montando "+quem.length+" prova"+(quem.length===1?"":"s")+"…");
   setTimeout(()=>{
     try{
@@ -8858,11 +8910,18 @@ function montarPainel(){
   const amb=atual.mark.map((m,i)=>m!=="OK"?i+1:0).filter(Boolean);
   const recados=[];
   if(amb.length) recados.push(`Questão ${amb.join(", ")}: sem marcação clara. Confira no papel.`);
-  if(vig.divergem.length)
-    recados.push(`O gabarito impresso no QR deste caderno é de uma versão `+
-      `anterior do app e diverge na${vig.divergem.length===1?"":"s"} `+
-      `questã${vig.divergem.length===1?"o":"es"} ${vig.divergem.join(", ")}. `+
-      `Estou usando o gabarito atual, que é o mesmo da planilha.`);
+  if(vig.divergem.length){
+    const qs=`questã${vig.divergem.length===1?"o":"es"} ${vig.divergem.join(", ")}`;
+    if(vig.origem==="qr-impresso")
+      recados.push(`O gabarito que o app calcula HOJE diverge do que está `+
+        `impresso no QR deste caderno (${qs}) — ${vig.motivo}. `+
+        `Estou corrigindo pelo QR, que é o gabarito da folha que este `+
+        `estudante respondeu. Baixe a planilha de gabaritos de novo: a `+
+        `antiga pode ter saído com a outra ordem.`);
+    else
+      recados.push(`O QR deste caderno traz o gabarito anterior `+
+        `(${qs}) porque ${vig.motivo}. Estou usando o corrigido.`);
+  }
   $("#avAmb").hidden=!recados.length;
   $("#avAmb").textContent=recados.join(" ");
   $("#conf").innerHTML=atual.R.map((r,i)=>{

@@ -66,14 +66,23 @@ setTimeout(() => {
      "o QR de um caderno antigo diverge do cálculo de hoje: " +
      dados.qrVelho + " × " + dados.atual);
 
-  /* ── 1. quem manda é o cálculo de agora ── */
+  /* ── 1. quem manda é a FOLHA IMPRESSA ────────────────────────────
+     Esta suíte nasceu na v53 fixando o contrário: "quando o app conhece a
+     prova, o cálculo atual manda". A v86 inverteu, porque o professor
+     pegou o erro com as provas impressas na mão.
+
+     O QR sai NA MESMA FOLHA das questões, no mesmo instante, pela mesma
+     versão do app — não pode estar dessincronizado com o papel que o
+     estudante respondeu. Se o cálculo de hoje dá outra permutação, o
+     errado PARA AQUELA FOLHA é o cálculo, e corrigir por ele é comparar
+     as marcações com o gabarito de uma prova que ninguém recebeu. */
   const v = J(`gabaritoVigente(${JSON.stringify(dados.turma)},
     ${JSON.stringify(dados.numero)}, ${JSON.stringify(dados.qrVelho)})`);
-  ok(v.gab === dados.atual,
-     "gabaritoVigente devolve o gabarito ATUAL, não o do QR");
-  ok(v.origem === "app-diverge", "e marca que houve divergência");
+  ok(v.gab === dados.qrVelho,
+     "gabaritoVigente devolve o gabarito do QR, que é o da folha impressa");
+  ok(v.origem === "qr-impresso", "marcando a origem (" + v.origem + ")");
   ok(v.divergem.length === 2,
-     "apontando as duas questões gráficas (" + v.divergem.join(", ") + ")");
+     "e apontando as duas questões gráficas (" + v.divergem.join(", ") + ")");
 
   /* QR igual ao cálculo: nada a dizer */
   const v2 = J(`gabaritoVigente(${JSON.stringify(dados.turma)},
@@ -96,26 +105,28 @@ setTimeout(() => {
   ok(v4.gab === "ABCDEABCDE" && v4.origem === "qr",
      "sem prova cadastrada, o QR é a autoridade — como sempre foi");
 
-  /* ── 2. a correção usa o gabarito certo ── */
-  /* a estudante respondeu seguindo a PLANILHA (o gabarito atual) e o
-     caderno na mão foi impresso pela versão antiga */
+  /* ── 2. a correção usa o gabarito da FOLHA ──────────────────────
+     Invertido na v86 junto com a regra. A estudante respondeu o caderno
+     que tinha na mão — o impresso pela versão antiga —, e é por ele que
+     ela tem de ser corrigida. */
   const reg = J(`(function(){
     var p=provaAtiva(), t=turmaDe(p.turma), a=t.alunos[0];
-    var certo=gabaritoDe(t.nome,a.numero);
+    /* ela marcou exatamente o que o caderno dela pedia */
     var r=registrar({numero:a.numero, nome:a.nome, gab:${JSON.stringify(dados.qrVelho)},
-      R:certo.split(""), origem:"qr"});
+      R:${JSON.stringify(dados.qrVelho)}.split(""), origem:"qr"});
     return {acertos:r.acertos, gab:r.gab, regra:r.regra};
   })()`);
   ok(reg.acertos === 10,
-     "quem acertou tudo tira 10 de 10, mesmo com o QR velho no papel " +
-     "(saiu " + reg.acertos + ")");
-  ok(reg.gab === dados.atual,
-     "o registro grava o gabarito atual, não o do QR");
+     "quem acertou tudo NO CADERNO QUE RECEBEU tira 10 de 10 (saiu " +
+     reg.acertos + ")");
+  ok(reg.gab === dados.qrVelho,
+     "o registro grava o gabarito da folha, que é contra o que ela foi " +
+     "corrigida");
   ok(reg.regra === require("./gerador.js").REGRA_GABARITO,
      "carimbado com a regra vigente");
 
-  /* e quem seguiu o QR velho perde as duas — é o papel que está errado,
-     e agora o app diz isso em vez de calar */
+  /* e quem seguisse o cálculo de HOJE — um gabarito de uma prova que não
+     existe em papel — perderia exatamente as questões divergentes */
   const reg2 = J(`(function(){
     var p=provaAtiva(), t=turmaDe(p.turma), a=t.alunos[1];
     var chave=chaveDeOrdem(a.numero,tiposDe(p)), LET=LAY.options;
@@ -126,13 +137,13 @@ setTimeout(() => {
       qrVelho+=LET[o.oa[i].indexOf(certa)];
     }
     var r=registrar({numero:a.numero, nome:a.nome, gab:qrVelho,
-      R:qrVelho.split(""), origem:"qr"});
+      R:gabaritoDe(t.nome,a.numero).split(""), origem:"qr"});
     var v=gabaritoVigente(t.nome,a.numero,qrVelho);
     return {acertos:r.acertos, divergem:v.divergem};
   })()`);
   ok(reg2.acertos === 10 - reg2.divergem.length,
-     "quem seguiu o QR velho erra exatamente as questões divergentes (" +
-     reg2.acertos + " de 10)");
+     "e erra exatamente as questões divergentes (" + reg2.acertos +
+     " de 10) — a prova que ninguém recebeu");
 
   /* ── 3. a tela e o salvar não podem discordar ── */
   /* `montarPainel` mostra o gabarito e `registrar` grava outro? era o

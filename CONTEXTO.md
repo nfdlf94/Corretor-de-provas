@@ -4365,3 +4365,67 @@ Várias suítes deste projeto verificam comportamento lendo o `index.html`
 com expressão regular. Serve para garantir que uma frase de explicação
 está lá; **não serve para garantir que um controle funciona**. Onde há
 interação, o teste tem de montar a tela e clicar.
+
+---
+
+## v86 — a folha impressa manda. A v53 estava errada.
+
+O professor mandou três coisas do mesmo simulado — a prova impressa, o
+arquivo que subiu e a planilha — e o app dizia:
+
+> "O gabarito impresso no QR deste caderno é de uma versão anterior do app
+> e diverge nas questões 1, 2, 3, 4, 5, 7, 9, 10. Estou usando o gabarito
+> atual, que é o mesmo da planilha."
+
+**Oito de dez questões. E as provas já estavam impressas.**
+
+### O erro
+
+A v53 decidiu que "quando o app conhece a prova, o cálculo atual manda".
+Isso é falso, e o motivo é físico: **o QR é impresso NA MESMA FOLHA das
+questões**, no mesmo instante, pela mesma versão do app. Ele não pode
+estar dessincronizado com o papel que o estudante respondeu.
+
+Se o cálculo de hoje produz outra permutação, o errado *para aquela folha*
+é o cálculo. Corrigir por ele é comparar as marcações com o gabarito de
+uma prova que ninguém recebeu — e foi isso que a tela fez, zerando a
+estudante.
+
+A frase "que é o mesmo da planilha" era pior ainda: uma afirmação que o
+app nunca verificou.
+
+### A distinção que faltava
+
+Existe UM caso legítimo de o cálculo mandar: o professor consertou o
+gabarito CANÔNICO depois de imprimir. Aí a permutação é a mesma e só as
+letras mudaram.
+
+Para separar os dois casos, `gerarPDF` passou a gravar
+`pr.impressao = {gabC, regra, quando, versao}` — o estado no instante em
+que o papel saiu. Com ele:
+
+- permutação igual + canônico diferente → **cálculo manda**
+  (`app-corrigido`);
+- qualquer outra coisa, inclusive sem registro → **QR manda**
+  (`qr-impresso`).
+
+Provas já impressas não têm o registro, e é exatamente por isso que o
+fallback é o QR: sem saber o que mudou, a folha é a única verdade física
+disponível.
+
+### A mensagem
+
+Passou a dizer o que está sendo usado, por quê, e o que fazer com a
+planilha — que pode ter sido baixada com a outra ordem e precisa ser
+baixada de novo.
+
+### Suítes
+
+`teste77` (nova) — QR e cálculo iguais; permutação diferente com o QR
+mandando; canônico corrigido com o cálculo mandando; sem registro de
+impressão, o QR manda; o registro sendo gravado ao gerar o PDF.
+
+`teste57` fixava a regra da v53 e foi invertida com o motivo escrito
+dentro. É a segunda vez que uma suíte deste projeto precisa ser invertida
+porque a decisão que ela guardava estava errada — e nas duas vezes o teste
+fez seu trabalho: falhou alto no instante em que a regra mudou.
