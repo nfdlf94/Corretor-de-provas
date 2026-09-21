@@ -118,7 +118,20 @@ const NOME_COMP = {LP: "LÍNGUA PORTUGUESA", MAT: "MATEMÁTICA"};
       mal corrigida — em silêncio. Nestas questões a ordem das
       alternativas fica travada na original. */
 function alternativasNaFigura(q){
-  if(!q || !q.imagem || !dadosDaFigura(q.imagem)) return false;
+  /* A decisão é pela EXISTÊNCIA da figura, nunca pelo conteúdo dela estar
+     na memória.
+
+     Na v83 esta linha passou a perguntar `dadosDaFigura(q.imagem)`, e isso
+     tornou a PERMUTAÇÃO dependente de o poço de figuras já ter carregado.
+     Ao gerar o PDF, o poço está cheio (as figuras acabaram de entrar); ao
+     corrigir, o app acabou de abrir e o poço carrega em segundo plano. A
+     questão com alternativas dentro da figura era travada numa hora e
+     embaralhada na outra — outra permutação, outro gabarito, e a mensagem
+     de divergência aparecendo em provas NOVAS.
+
+     Nada que dependa de estado de carregamento pode entrar no cálculo da
+     ordem. */
+  if(!q || !temFigura(q.imagem)) return false;
   const alts = q.alternativas || [];
   /* Duas formas de a MESMA coisa chegar aqui, e a segunda passava batido:
 
@@ -405,10 +418,32 @@ function cabecalho(doc, cfg, aluno, dry){
 }
 
 /* figura: nunca mais larga que a coluna nem mais alta que meia página */
-const FIG_MAX_H = 52;
+/* Teto de ALTURA de uma figura, em mm.
+
+   Era 52, e esse número é que encolhia as figuras. Uma figura que bate no
+   teto é reduzida INTEIRA, largura junto — então as altas eram as mais
+   prejudicadas: uma tirinha vertical saía com 30 mm de largura, um quadro
+   com cinco gráficos com 60 mm, e o texto dentro deles ficava ilegível.
+
+   Com 95 mm a mesma tirinha sai com 55 mm (+83%) e os cinco gráficos
+   ocupam a coluna inteira (+49%). Figuras largas e baixas não mudam: elas
+   já eram limitadas pela largura da coluna, não pela altura.
+
+   O custo é página: figura maior ocupa mais papel. A busca da v61
+   (letra × espaçamento × reorganização) absorve parte, e o resto é o
+   preço de o estudante conseguir LER o que a questão pergunta. */
+const FIG_MAX_H = 95;
 /* A figura pode estar guardada de dois jeitos: `{dados}` nas provas
    antigas e `{ref}` depois que o conteúdo foi para o poço no IndexedDB
    (v83). O gerador não precisa saber de qual se trata. */
+/* A questão TEM figura? — pergunta sobre EXISTÊNCIA, respondida só com o
+   que está gravado na prova. Separada de `dadosDaFigura` de propósito:
+   aquela depende de o poço já ter carregado, esta não pode depender de
+   nada que carregue. Tudo que entra no cálculo da ORDEM usa esta. */
+function temFigura(img){
+  return !!(img && (img.dados || img.ref));
+}
+
 function dadosDaFigura(img){
   if(!img) return null;
   if(img.dados) return img.dados;
@@ -418,7 +453,10 @@ function dadosDaFigura(img){
 }
 
 function medirFigura(img, larguraDisponivel){
-  if(!img || !dadosDaFigura(img)) return null;
+  /* as MEDIDAS vêm de img.w/img.h, gravadas na prova — não precisam do
+     conteúdo. Perguntar pelo conteúdo aqui fazia a figura sumir do layout
+     quando o PDF era gerado antes de o poço terminar de carregar. */
+  if(!temFigura(img)) return null;
   const pw = img.w || 400, ph = img.h || 300;
   const teto = larguraDisponivel || 78;
   let w = Math.min(teto, pw * 0.2646);          // px -> mm a ~96 dpi
@@ -2012,4 +2050,4 @@ if(typeof module !== "undefined") module.exports =
    pedacosDeNivel, remarcar, semMarcas, temMarcas, medidasQuestao, desenharQuestaoCol, prepararFontes, medirFigura,
    segmentarEnunciado, classificarCorpo, pareceFormula, unidadesQuestao, melhorCorte,
    grupoColado, empacotar, distribuirPagina, encherColuna, molduraDaPagina, fundoUtil, RODAPE, unidadesNaOrdem, paginasDaTurma, paginasNoPior, preFlightCheck, alternativasNaFigura, indicesFixos, ordemDaProva, paresDeOrdem, chavesDaTurma, charsDeNivel, cabecalho, larguraComNiveis,
-   AR_QUESTAO, AR_ALT, dadosDaFigura, REGRA_GABARITO, alturaFaixaCabecalho, comTempero, TEMPEROS};
+   AR_QUESTAO, AR_ALT, dadosDaFigura, temFigura, REGRA_GABARITO, alturaFaixaCabecalho, comTempero, TEMPEROS};

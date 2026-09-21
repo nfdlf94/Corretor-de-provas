@@ -103,8 +103,36 @@ setTimeout(() => {
   ok(G.dadosDaFigura(null) === null, "e aguenta nulo");
 
   const fonteG = require("fs").readFileSync(__dirname + "/gerador.js", "utf8");
-  ok(!/\bimagem\.dados\b/.test(fonteG) && !/\bimg\.dados\b/.test(fonteG.replace(/if\(img\.dados\) return img\.dados;/g,"")),
+  /* as duas funções que PODEM tocar `.dados`: o acessor, que lê, e
+     `temFigura`, que só pergunta se existe */
+  const semAcessores = fonteG
+    .replace(/if\(img\.dados\) return img\.dados;/g, "")
+    .replace(/return !!\(img && \(img\.dados \|\| img\.ref\)\);/g, "");
+  ok(!/\bimagem\.dados\b/.test(semAcessores) && !/\bimg\.dados\b/.test(semAcessores),
      "e nenhum lugar do gerador lê o conteúdo por fora do acessor");
+
+  /* ── a ORDEM não pode depender do poço ter carregado (v87) ── */
+  /* Na v83 a trava das questões com alternativas dentro da figura passou
+     a perguntar pelo CONTEÚDO da figura. Ao gerar o PDF o poço está
+     cheio; ao corrigir, o app acabou de abrir e ele ainda carrega. A
+     questão era travada numa hora e embaralhada na outra — e a divergência
+     aparecia em provas NOVAS. */
+  const ordemEstavel = JSON.parse(win.eval(`JSON.stringify((function(){
+    var r=poeFig({dados:"data:image/jpeg;base64,"+new Array(400).join("Q"),w:900,h:500});
+    var qs=[{enunciado:"Q1",alternativas:[],imagem:r},
+            {enunciado:"Q2",alternativas:["a","b","c","d","e"],imagem:null}];
+    var carregado=JSON.stringify(indicesFixos(qs));
+    var guarda=new Map(FIGS); FIGS.clear();
+    var carregando=JSON.stringify(indicesFixos(qs));
+    guarda.forEach(function(v,k){FIGS.set(k,v);});
+    return {carregado:carregado, carregando:carregando};
+  })())`));
+  ok(ordemEstavel.carregado === ordemEstavel.carregando,
+     "as questões travadas são as MESMAS com o poço carregado (" +
+     ordemEstavel.carregado + ") e carregando (" + ordemEstavel.carregando +
+     ") — é o que faz a prova impressa e a correção concordarem");
+  ok(ordemEstavel.carregado === "[0]",
+     "e a questão com alternativas na figura é travada nos dois casos");
 
   /* ── 6. a migração ── */
   const migrou = JSON.parse(win.eval(`JSON.stringify((function(){

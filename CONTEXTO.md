@@ -4429,3 +4429,78 @@ impressão, o QR manda; o registro sendo gravado ao gerar o PDF.
 dentro. É a segunda vez que uma suíte deste projeto precisa ser invertida
 porque a decisão que ela guardava estava errada — e nas duas vezes o teste
 fez seu trabalho: falhou alto no instante em que a regra mudou.
+
+---
+
+## v87 — a divergência em provas NOVAS era minha, da v83
+
+O professor: *"entendo a mensagem nas avaliações antigas. O que não
+entendo é ela continuar aparecendo em avaliações NOVAS, criadas depois da
+correção."*
+
+Ele estava certo em estranhar, e a causa não tinha nada a ver com a v86.
+
+### A causa
+
+Na v83 as figuras foram para um poço no IndexedDB, carregado em segundo
+plano **depois** da abertura. E `alternativasNaFigura` — que decide quais
+questões têm a ordem das alternativas travada — passou a perguntar pelo
+CONTEÚDO da figura (`dadosDaFigura`), não pela existência dela.
+
+Medido:
+
+```
+poço carregado : indicesFixos → [0]
+poço carregando: indicesFixos → []
+```
+
+Ao gerar o PDF, o poço está cheio (as figuras acabaram de entrar). Ao
+corrigir, o app acabou de abrir e o poço ainda carrega. A questão com
+alternativas dentro da figura era travada numa hora e embaralhada na
+outra — **outra permutação, outro gabarito**, e a mensagem de divergência
+em provas novinhas.
+
+**Nada que dependa de estado de carregamento pode entrar no cálculo da
+ordem.** `temFigura(img)` pergunta só pela existência, com o que está
+gravado na prova; `dadosDaFigura` fica para quem vai DESENHAR.
+
+### O mesmo defeito, um andar abaixo
+
+`medirFigura` também perguntava pelo conteúdo — e as medidas vêm de
+`img.w/img.h`, que estão na prova. Gerando o PDF logo depois de abrir o
+app, antes de o poço carregar, as figuras **sumiriam da prova impressa**.
+
+Agora `medirFigura` usa `temFigura`, e `gerarPDF` espera o poço
+(`pocoPronto`, com teto de 8 s) antes de desenhar.
+
+### As figuras pequenas
+
+`FIG_MAX_H` era **52 mm**. Uma figura que bate no teto é reduzida
+INTEIRA, largura junto — então as altas eram as mais prejudicadas:
+
+| figura | antes (teto 52) | agora (teto 95) |
+|---|---|---|
+| tirinha vertical (Q06) | 30 × 52 mm | 55 × 95 mm (+83%) |
+| cinco gráficos (Q11) | 60 × 52 mm | 90 × 78 mm (+49%) |
+| quadriláteros (Q13) | 90 × 42 mm | igual |
+
+Figuras largas e baixas não mudam: já eram limitadas pela largura da
+coluna, não pela altura. **Esse é o limite que sobra**: uma tirinha
+horizontal de três quadros, que no original ocupava a página inteira,
+cabe em 89 mm de coluna. Resolver isso exige figura atravessando as duas
+colunas — uma mudança de layout, não de número.
+
+### Suíte
+
+`teste75` ganhou a prova de que a ordem é a mesma com o poço carregado e
+carregando, e passou a reconhecer `temFigura` como o segundo acessor
+autorizado a tocar `.dados` (só para perguntar se existe).
+
+### A lição
+
+A v83 moveu o conteúdo das figuras para um lugar ASSÍNCRONO e eu tratei
+isso como uma mudança de armazenamento. Era uma mudança de **tempo**: tudo
+que lia o conteúdo passou a depender de quando lia. Eu troquei os três
+leitores pelo acessor sem perguntar, em cada um, se ele precisava do
+conteúdo ou só de saber que a figura existia. Dois deles só precisavam
+saber.

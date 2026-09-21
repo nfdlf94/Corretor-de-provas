@@ -591,7 +591,7 @@ const guarda=(()=>{ let mem={},ok=false;
    morre aqui.
 
    TEM DE CASAR com o VERSAO do sw.js. */
-const VERSAO_APP="v86";
+const VERSAO_APP="v87";
 
 const $=s=>document.querySelector(s);
 /* `esc` também resolve as marcas de expoente e índice: nas telas elas
@@ -4346,7 +4346,9 @@ E) conjunto vazio
 }
 
 /* ── geração dos PDFs ────────────────────────────────────────────── */
-function gerarPDF(p,t,modo){
+async function gerarPDF(p,t,modo){
+  /* as figuras precisam estar na memória para serem DESENHADAS */
+  try{ await Promise.race([pocoPronto, new Promise(r=>setTimeout(r,8000))]); }catch(e){}
   const st=$("#pdfStatus");
   const dizer=(cls,txt)=>{ st.innerHTML=`<div class="${cls}" style="margin-top:12px">${txt}</div>`; };
   if(!t.alunos.length){ dizer("aviso","Cadastre os estudantes da turma antes de gerar."); return; }
@@ -9722,6 +9724,11 @@ montarCasa(); pintarResultados(); pintarDesempenho(); montarManual(); pintarSele
    inicial depende dele, e o app abre na mesma velocidade. Quando termina,
    migra as provas antigas (tirando o base64 de dentro do estado) e
    repinta, para que qualquer figura já apareça. */
+/* Promessa de "poço pronto". Quem vai DESENHAR figura espera por ela —
+   gerar o PDF logo depois de abrir o app, antes de o poço carregar,
+   imprimiria as questões sem as figuras. */
+let resolvePoco;
+const pocoPronto=new Promise(r=>{ resolvePoco=r; });
 (async function(){
   try{
     await figsDoBanco();
@@ -9731,6 +9738,7 @@ montarCasa(); pintarResultados(); pintarDesempenho(); montarManual(); pintarSele
       montarCasa();
     }
   }catch(e){ console.warn("poço de figuras indisponível",e); }
+  resolvePoco();
 })();
 faixa("Toque em iniciar câmera",
   provaAtiva()?resDa(E.ativa).length+" cartões salvos":"Escolha a prova na aba Turmas");
