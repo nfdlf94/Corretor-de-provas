@@ -4551,3 +4551,141 @@ arquivo**, e eu só descobri quando a função ficou indefinida no harness.
 O script de edição precisa gravar o que conseguiu ou avisar alto; um
 `assert` no meio de várias substituições deixa o arquivo num estado que
 nem é o velho nem o novo.
+
+---
+
+## v89 — páginas variáveis e distribuição progressiva por descritor
+
+Quatro pedidos do professor, que se encaixam num só movimento.
+
+### 1. O limite de páginas deixou de ser fixo
+
+`MAX_PAG_SIMULADO=4` virou `sm.maxPaginas`, escolhido na tela do simulado:
+2, 4, 6, 8, 10, 12 — ou **sem limite** (`0`), quando todas as questões
+pedidas entram e o caderno fica do tamanho que precisar.
+
+Quem não escolhe nada continua com 4, que é o que os simulados anteriores
+usaram. `maxPaginasDe(sm)` é o único lugar que decide, e o `teste78`
+confere, lendo o arquivo, que nenhum outro ponto usa o número fixo.
+
+### 2. Distribuição por descritor
+
+`escolherEquilibrado` já cortava do descritor mais numeroso, o que
+converge para o equilíbrio. Os três exemplos do professor viraram
+asserções:
+
+| pedido | resultado |
+|---|---|
+| 13 questões, 10 descritores | 10 contemplados, entre 1 e 2 cada |
+| 20 questões, 10 descritores | exatamente 2 de cada |
+| 25 questões, 10 descritores | entre 2 e 3 cada |
+
+### 3. Mais descritores do que vagas
+
+`selecionarItens` passou a devolver `descritoresFora`, gravado em
+`pr.descritoresFora[comp]`. Com 13 questões para 20 descritores: 13
+entram com uma questão cada, **7 ficam registrados**, e contemplados +
+fora = 20 — nenhum se perde da conta.
+
+A tela da importação avisa: *"descritores não contemplados nesta
+avaliação, por limitação do número de questões: … — ficam registrados e
+entram na frente no próximo simulado"*.
+
+### 4. O histórico decide o próximo
+
+`historicoDescritores(turma, comp)` conta quantas vezes cada descritor
+apareceu, quando foi a última e quantas vezes ficou de fora.
+`prioridadeDescritor` transforma isso num número, e `escolherEquilibrado`
+usa como critério de desempate: **entre dois descritores com a mesma
+quantidade de questões, sai o que já foi cobrado mais vezes**.
+
+Medido no teste: os descritores que ficaram de fora do 1º simulado saem
+com prioridade 1100 contra −1 dos já cobrados. O 2º simulado puxa eles
+primeiro.
+
+Sem histórico, a prioridade é constante e o comportamento é o de antes —
+a mudança não altera nada em quem tem um simulado só.
+
+### O painel
+
+"Cobertura dos descritores", na Análise: o que este simulado cobrou, o que
+ficou de fora por falta de vaga, quem já apareceu três vezes ou mais, quem
+apareceu uma só, e quem nunca foi cobrado. E "ficou de fora por falta de
+vaga" virou um motivo na sugestão do próximo simulado — o próprio app o
+deixou de lado, é ele que deve trazer de volta.
+
+### Suíte nova
+
+`teste78` — os cinco casos de limite de página; os três exemplos de
+distribuição do professor; o caso de 20 descritores para 13 vagas com a
+conta fechando; a prioridade do histórico invertendo a ordem; e o painel
+na tela.
+
+---
+
+## v90 — evolução dos descritores entre simulados
+
+Última parte do pedido da v89, adiada até haver um segundo simulado
+corrigido de verdade para conferir contra.
+
+### O cálculo
+
+`evolucaoDescritores(turmaId, comp)` — para cada descritor, o histórico
+de % de acerto ao longo dos simulados da turma, em ordem cronológica
+(`sm.criado`). Com pelo menos dois pontos, calcula a **variação** (último
+menos primeiro) e classifica:
+
+| variação | tendência |
+|---|---|
+| ≥ 20 pontos | rápida |
+| 10 a 20 | moderada |
+| −10 a 10 | lenta |
+| ≤ −10 | piorando |
+
+`precisaContinuidade`: ainda abaixo de 50% de acerto **e** sem avanço
+rápido — não importa se apareceu uma vez ou dez.
+
+Um descritor com um único ponto tem `variacao: null`, nunca `0` — não há
+o que comparar ainda, e zero mentiria dizendo "estável".
+
+### Onde aparece
+
+**Tela (Análise):** "Evolução entre simulados", só a partir do 2º
+simulado corrigido — antes disso a seção não aparece, para não virar
+ruído. Cada descritor com quantas vezes apareceu, o % mais recente, a
+seta de variação e a situação.
+
+**Relatório em PDF:** a mesma tabela, com as linhas críticas destacadas e
+um parágrafo nomeando quem mais precisa de continuidade.
+
+**Sugestão do próximo simulado:** ganhou um novo motivo — "evolução
+lenta" ou "piorando entre simulados" — que pesa mais que "acerto baixo"
+isolado, porque já teve uma chance de melhorar e não melhorou.
+
+### A suíte foi a parte difícil
+
+A primeira versão do `teste79` tentava fixar percentuais controlando
+`R[k]` pela POSIÇÃO no caderno de cada estudante — e a posição não
+corresponde ao mesmo índice original entre estudantes, porque o
+embaralhamento é por (turma, número). O teste dava números aproximados,
+não exatos, e cinco asserções falharam.
+
+A correção foi usar `ordemDe(pr, turma, numero)` para saber, para CADA
+estudante, em que posição do caderno dele cada índice original caiu, e
+então acertar/errar por índice original, não por posição. Com isso os
+quatro percentuais do cenário saem **exatos**: 20% → 25%, 60% → 20%,
+40% → 90%.
+
+Uma segunda rodada corrigiu um limite: o teste esperava "lenta" para uma
+variação de exatamente +10, mas a regra usa `<10`, e 10 cai em
+"moderada". Não era bug no código — era o teste testando a fronteira sem
+querer. Ajustado para +5, inequivocamente dentro da faixa.
+
+### Suíte
+
+`teste79` — dois simulados com percentuais exatos por descritor (D17
+20→25%, D22 60→20%, D23 40→90%, D24 só no segundo); as quatro
+classificações (lenta, piorando, rápida, sem variação); `precisaContinuidade`
+nos três primeiros casos; a seção presente na tela e no relatório; a
+sugestão do próximo simulado priorizando D22 e não incluindo D23 como
+"piorando"; e um simulado isolado sem nenhuma evolução.

@@ -2,7 +2,7 @@
    Desbugando a Matemática · correção de provas
 
    AO PUBLICAR UMA VERSÃO NOVA: troque o número em VERSAO. */
-const VERSAO = "v88";
+const VERSAO = "v90";
 const CACHE = "dbm-omr-" + VERSAO;
 
 /* O que o app precisa para ABRIR e corrigir provas. A instalação só

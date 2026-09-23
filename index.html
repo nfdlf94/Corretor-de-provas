@@ -591,7 +591,7 @@ const guarda=(()=>{ let mem={},ok=false;
    morre aqui.
 
    TEM DE CASAR com o VERSAO do sw.js. */
-const VERSAO_APP="v88";
+const VERSAO_APP="v90";
 
 const $=s=>document.querySelector(s);
 /* `esc` também resolve as marcas de expoente e índice: nas telas elas
@@ -1531,7 +1531,25 @@ function faltasDoCaderno(pr){
    quantidade de cada componente, para não desequilibrar o simulado.
    Como o item carrega enunciado, gabarito, descritor e o número
    original juntos, cortar o fim de um bloco não desfaz relação nenhuma. */
+/* ── LIMITE DE PÁGINAS DO SIMULADO ────────────────────────────────
+   Era fixo em 4. Virou escolha de cada simulado: `sm.maxPaginas`, com
+   `0` (ou null) querendo dizer SEM LIMITE — todas as questões pedidas
+   entram, e o caderno fica do tamanho que precisar.
+
+   O 4 continua sendo o padrão de quem não escolhe nada, porque é o que
+   os simulados anteriores usaram. */
 const MAX_PAG_SIMULADO=4;
+const SEM_LIMITE=999;
+function maxPaginasDe(sm){
+  if(!sm) return MAX_PAG_SIMULADO;
+  if(sm.maxPaginas===0 || sm.maxPaginas===null) return SEM_LIMITE;
+  const n=parseInt(sm.maxPaginas,10);
+  return (isFinite(n) && n>0) ? n : MAX_PAG_SIMULADO;
+}
+const rotuloPaginas=sm=>{
+  const n=maxPaginasDe(sm);
+  return n>=SEM_LIMITE ? "sem limite" : (n+" página"+(n===1?"":"s"));
+};
 
 function medirCaderno(sm,pr,t,lista){
   if(typeof gerarProvas!=="function" || !window.jspdf) return null;
@@ -1592,7 +1610,7 @@ function melhorAjuste(sm){
   /* 1º a escada de fonte, que já roda dentro do gerador; 2º as trocas;
      3º e só então o corte. */
   const m0=medirCaderno(sm,pr,t,base);
-  if(m0 && m0.paginas<=MAX_PAG_SIMULADO)
+  if(m0 && m0.paginas<=maxPaginasDe(sm))
     return {corte:0, trocas:[], lista:base, paginas:m0.paginas, corpo:m0.corpo,
             qtd:COMPONENTES.reduce((o,c)=>{o[c.id]=base.filter(x=>x.comp===c.id).length;return o;},{})};
 
@@ -1609,7 +1627,7 @@ function melhorAjuste(sm){
     if(!m) break;
     atual=nova;
     trocas.push({i:c.i, ganho:c.ganho, de:c.antigo, para:c.novo});
-    if(m.paginas<=MAX_PAG_SIMULADO)
+    if(m.paginas<=maxPaginasDe(sm))
       return {corte:0, trocas, lista:atual, paginas:m.paginas, corpo:m.corpo,
               qtd:COMPONENTES.reduce((o,c2)=>{o[c2.id]=atual.filter(x=>x.comp===c2.id).length;return o;},{})};
   }
@@ -1633,7 +1651,7 @@ function melhorAjuste(sm){
     if(!m) return null;                 // não deu para medir: gera como está
     ultimo={corte, trocas, lista, paginas:m.paginas, corpo:m.corpo,
       qtd:COMPONENTES.reduce((o,c)=>{o[c.id]=Math.max(0,porComp[c.id].length-corte);return o;},{})};
-    if(m.paginas<=MAX_PAG_SIMULADO) return ultimo;
+    if(m.paginas<=maxPaginasDe(sm)) return ultimo;
   }
   return ultimo;                      // nem o mínimo coube: devolve o último medido
 }
@@ -1687,7 +1705,42 @@ function sortear(lista,quantos){
    Itens sem descritor formam o seu próprio grupo — e, por serem
    normalmente os mais numerosos (item em branco), saem primeiro. */
 const descDoItem=x=>codDesc((x&&x.desc)||"")||"";
-function escolherEquilibrado(lista,quantos){
+/* ══════════════════════════════════════════════════════════════════
+   HISTÓRICO DE DESCRITORES
+
+   Quantas vezes cada descritor já foi cobrado nesta turma, quando foi a
+   última vez, e quais ficaram de fora por falta de vaga. É o que permite
+   o simulado seguinte NÃO repetir a mesma distribuição — que era o pedido
+   do professor: cobertura progressiva, não distribuição fixa.
+   ══════════════════════════════════════════════════════════════════ */
+function historicoDescritores(turmaId, comp){
+  const conta={}, ultimo={}, foraAntes={};
+  (E.simulados||[]).filter(sm=>!turmaId || sm.turma===turmaId).forEach(sm=>{
+    const pr=provaDoSim(sm); if(!pr) return;
+    const quando=sm.criado||sm.quando||0;
+    itensDe(pr,comp).forEach(i=>{
+      const cod=codDesc((pr.desc||[])[i]||"");
+      if(!cod) return;
+      conta[cod]=(conta[cod]||0)+1;
+      if(quando>=(ultimo[cod]||0)) ultimo[cod]=quando;
+    });
+    ((pr.descritoresFora||{})[comp]||[]).forEach(cod=>{
+      foraAntes[cod]=(foraAntes[cod]||0)+1;
+    });
+  });
+  return {conta, ultimo, foraAntes};
+}
+
+/* Prioridade de um descritor na hora de escolher quem fica: MAIOR fica.
+   Quem nunca foi cobrado vem primeiro; depois quem ficou de fora antes;
+   depois quem apareceu menos vezes. */
+function prioridadeDescritor(H, cod){
+  const vezes=(H.conta[cod]||0);
+  const fora=(H.foraAntes[cod]||0);
+  return (vezes===0?1000:0) + fora*100 - vezes;
+}
+
+function escolherEquilibrado(lista,quantos,opc){
   const todos=(lista||[]).slice();
   if(quantos>=todos.length) return todos;
   if(quantos<=0) return [];
@@ -1702,12 +1755,23 @@ function escolherEquilibrado(lista,quantos){
     fica=reais.concat(vazios.slice(0,quantos-reais.length));
   }else{
     fica=reais.slice();
+    /* Prioridade vinda do histórico: entre dois descritores empatados em
+       número de questões, sai o que JÁ foi cobrado mais vezes. Sem
+       histórico, `pri` é constante e o comportamento é o de antes. */
+    const pri=(opc&&opc.prioridade)||(()=>0);
     while(fica.length>quantos){
       const conta={};
       fica.forEach(x=>{ const k=descDoItem(x); conta[k]=(conta[k]||0)+1; });
-      let alvo=null, maior=-1;
-      fica.forEach(x=>{ const k=descDoItem(x);
-        if(conta[k]>maior){ maior=conta[k]; alvo=k; } });
+      /* corta do descritor com MAIS questões; empate, do de menor
+         prioridade. Isso é o que garante, quando `quantos` >= número de
+         descritores, pelo menos uma questão de cada: nenhum desce a zero
+         enquanto outro tiver duas. */
+      let alvo=null, maior=-1, menorPri=Infinity;
+      Object.keys(conta).forEach(k=>{
+        const p=pri(k);
+        if(conta[k]>maior || (conta[k]===maior && p<menorPri)){
+          maior=conta[k]; menorPri=p; alvo=k; }
+      });
       let i=-1;
       for(let k=fica.length-1;k>=0;k--) if(descDoItem(fica[k])===alvo){ i=k; break; }
       if(i<0) break;                       // não deveria acontecer
@@ -1744,11 +1808,23 @@ function selecionarItens(sm,comp,itens){
      descritor — e só então equilibra. O sorteio decide QUEM sai dentro
      do descritor; o equilíbrio decide QUANTOS saem de cada um. */
   const numerados=itens.map((x,i)=>Object.assign({},x,{orig:i+1}));
+  /* Histórico da turma: entre dois descritores empatados, sai o que já
+     foi cobrado mais vezes. É o que faz o simulado seguinte cobrir o que
+     o anterior deixou de fora, em vez de repetir a mesma distribuição. */
+  const H=historicoDescritores(sm&&sm.turma, comp);
   const escolhidos=(itens.length===pedido)
     ? numerados
-    : escolherEquilibrado(sortear(numerados,numerados.length),pedido)
+    : escolherEquilibrado(sortear(numerados,numerados.length),pedido,
+        {prioridade:cod=>prioridadeDescritor(H,cod)})
         .sort((a,b)=>a.orig-b.orig);
+  /* quais descritores o arquivo trazia e NÃO couberam */
+  const noArquivo={}, noCaderno={};
+  numerados.forEach(x=>{ const c=codDesc(x.desc||""); if(c) noArquivo[c]=1; });
+  escolhidos.forEach(x=>{ const c=codDesc(x.desc||""); if(c) noCaderno[c]=1; });
+  const fora=Object.keys(noArquivo).filter(c=>!noCaderno[c]).sort();
   return {itens:escolhidos, encontradas:itens.length, usadas:escolhidos.length,
+    descritoresNoArquivo:Object.keys(noArquivo).sort(),
+    descritoresFora:fora,
           sorteadas:itens.length>pedido};
 }
 
@@ -4422,7 +4498,8 @@ async function gerarPDF(p,t,modo){
         comps:ehCaderno(p)?(p.comps||null):null,
         alternarBlocos:ehCaderno(p)&&alternaBlocos(p),
         tipos:ehCaderno(p)?((simuladoDe(p.simulado)||{}).tipos||0):0,
-        simulado:ehCaderno(p), maxPaginas:ehCaderno(p)?MAX_PAG_SIMULADO:undefined,
+        simulado:ehCaderno(p),
+        maxPaginas:ehCaderno(p)?maxPaginasDe(simuladoDe(p.simulado)):undefined,
         tempero:p.tempero||0, permitirTempero:!temResultados(p),
         rotulosComp:COMPONENTES.reduce((m,c)=>{m[c.id]=c.nome;return m;},{})};
       const doc = (modo==="cartoes")
@@ -5305,6 +5382,12 @@ function telaSimulado(box){
       ajustarQuantidade(sm,c.id);
       guardar(); montarCasa(); };
   });
+  if($("#smPag")) $("#smPag").onchange=()=>{
+    /* 0 = sem limite. Mudar o limite muda o que cabe, então os
+       componentes já lidos são reajustados. */
+    sm.maxPaginas=parseInt($("#smPag").value,10)||0;
+    COMPONENTES.forEach(c=>{ if(qtdPedida(sm,c.id)) ajustarQuantidade(sm,c.id); });
+    guardar(); montarCasa(); };
   $("#smTipos").onchange=()=>{
     const n=parseInt($("#smTipos").value,10)||0;
     if(corrigidos && !confirm("Mudar os tipos de prova muda o caderno de cada estudante. "+
@@ -5596,6 +5679,13 @@ function telaSimulado(box){
       lido.descritores.forEach(d=>{ if(d.texto) E.descritores[comp][d.cod]=d.texto; });
       window.__ultimaNormalizacao=norm;
       aplicarImportacao(sm,comp,sel.itens);
+      /* registro dos descritores que o arquivo trazia e não couberam —
+         é o que o professor pediu para priorizar no simulado seguinte */
+      const prAgora=provaDoSim(sm);
+      if(prAgora){
+        prAgora.descritoresFora=prAgora.descritoresFora||{};
+        prAgora.descritoresFora[comp]=(sel.descritoresFora||[]).slice();
+      }
       sm.fontes=sm.fontes||{};
       sm.fontes[comp]={nome:arq.name, encontradas:sel.encontradas,
         usadas:sel.usadas, sorteadas:!!sel.sorteadas, quando:Date.now()};
@@ -5616,6 +5706,10 @@ function telaSimulado(box){
           " "+(norm.itens===1?"item":"itens")+": "+
           norm.trocas.map(t=>t.de+" → "+t.para).join(", ")+
           " — o texto da habilidade é o que manda, e ele bate com a matriz");
+      if(sel.descritoresFora && sel.descritoresFora.length)
+        alertas.push("descritores não contemplados nesta avaliação, por "+
+          "limitação do número de questões: "+sel.descritoresFora.join(", ")+
+          " — ficam registrados e entram na frente no próximo simulado");
       if(norm.semPar.length)
         alertas.push(norm.semPar.length+" descritor"+
           (norm.semPar.length===1?"":"es")+" cujo texto não foi encontrado na "+
@@ -5670,7 +5764,7 @@ function telaSimulado(box){
         av.innerHTML=`<div class="aviso" style="margin-top:10px">
           Com ${pr.nq} questões a prova sai com ${doc.avisoPaginas} páginas, mesmo na
           menor letra permitida (9 pt). Ao gerar, o app vai propor a maior quantidade
-          que cabe em ${MAX_PAG_SIMULADO} páginas.</div>`+blocoPF;
+          que cabe em ${rotuloPaginas(sm)}.</div>`+blocoPF;
       }else if(av) av.innerHTML=blocoPF;
     }catch(e){ /* previsão é enfeite: se falhar, o botão continua valendo */ }
   };
@@ -5687,7 +5781,7 @@ function telaSimulado(box){
     if(aj.corte===0 && aj.trocas.length){
       /* coube trocando questões: nenhuma habilidade se perde */
       const lista=aj.trocas.map(t2=>"questão "+(t2.i+1)).join(", ");
-      if(!confirm("As questões não cabiam em "+MAX_PAG_SIMULADO+" páginas nem na menor "+
+      if(!confirm("As questões não cabiam em "+rotuloPaginas(sm)+" nem na menor "+
         "letra permitida.\n\nTroquei "+aj.trocas.length+" questão"+
         (aj.trocas.length===1?"":"ões")+" por outra do MESMO descritor e texto mais "+
         "curto, do próprio arquivo que você enviou ("+lista+").\n\nA prova fica com "+
@@ -5698,14 +5792,14 @@ function telaSimulado(box){
     const antes=pr.nq;
     const resumo=COMPONENTES.filter(c=>aj.qtd[c.id]!=null)
       .map(c=>aj.qtd[c.id]+" de "+nomeComp(c.id)).join(" e ");
-    if(aj.paginas>MAX_PAG_SIMULADO){
+    if(aj.paginas>maxPaginasDe(sm)){
       alert("Mesmo com "+aj.lista.length+" questões e a menor letra permitida, a prova "+
         "sai com "+aj.paginas+" páginas. Reduza a quantidade pedida ou use enunciados menores.");
       return; }
     const jaTrocou=(aj.trocas||[]).length
       ? "Já troquei "+aj.trocas.length+" questão por outra do mesmo descritor e "+
         "texto menor, e mesmo assim não coube.\n\n" : "";
-    if(!confirm("As "+antes+" questões não cabem em "+MAX_PAG_SIMULADO+" páginas, nem "+
+    if(!confirm("As "+antes+" questões não cabem em "+rotuloPaginas(sm)+", nem "+
       "reduzindo a letra até 9 pt.\n\n"+jaTrocou+"A maior quantidade que cabe é "+resumo+
       " — "+aj.lista.length+" questões, corpo "+String(aj.corpo).replace(".",",")+" pt.\n\n"+
       "Aplicar esse ajuste? As questões retiradas saem do fim de cada bloco; "+
@@ -5740,7 +5834,7 @@ function cfgDoCaderno(sm,pr,t){
     periodoLabel:"Simulado SAEPE · "+(sm.ano||""),
     gabaritoCanonico:pr.gabC,no:pr.no,questoes:pr.questoes||[],discursivas:[],
     comps:pr.comps||null, alternarBlocos:alternaBlocos(pr), tipos:sm.tipos||0,
-    simulado:true, maxPaginas:MAX_PAG_SIMULADO, serie:turmasDoCaderno(sm),
+    simulado:true, maxPaginas:maxPaginasDe(sm), serie:turmasDoCaderno(sm),
     desc:(pr.desc||[]).slice(),
     tempero:pr.tempero||0, permitirTempero:!temResultados(pr),
     rotulosComp:COMPONENTES.reduce((m,c)=>{m[c.id]=c.nome;return m;},{})};
@@ -6669,6 +6763,135 @@ function tetoNaTela(sims,comp){
     :""}</p>`;
 }
 
+/* ══════════════════════════════════════════════════════════════════
+   EVOLUÇÃO DOS DESCRITORES ENTRE SIMULADOS
+
+   O professor pediu: não só QUAIS descritores foram cobrados, mas COMO
+   eles estão evoluindo — quais melhoram rápido, quais estagnam, quais
+   pioram. Isso só existe comparando o % de acerto do MESMO descritor
+   entre simulados sucessivos da mesma turma.
+
+   Um simulado só não tem "evolução": há um ponto, não uma reta. A partir
+   do segundo simulado corrigido, cada descritor cobrado nos dois ganha
+   uma variação — a diferença entre o % de acerto do mais recente e o
+   mais antigo em que apareceu.
+   ══════════════════════════════════════════════════════════════════ */
+const EVOLUCAO_LENTA=10;    // pontos percentuais: abaixo disso, "lenta"
+const EVOLUCAO_RAPIDA=20;   // pontos percentuais: acima disso, "rápida"
+
+/* Para cada descritor, o histórico de % de acerto ao longo dos
+   simulados da turma, em ordem cronológica. */
+function evolucaoDescritores(turmaId, comp){
+  const sims=(E.simulados||[]).filter(sm=>sm.turma===turmaId)
+    .sort((a,b)=>(a.criado||0)-(b.criado||0));
+  const porCod={};
+  sims.forEach(sm=>{
+    const A=apurarConjunto([sm],comp);
+    if(!A) return;
+    (A.descritores||[]).forEach(d=>{
+      const cod=codDesc(d.cod);
+      (porCod[cod]=porCod[cod]||[]).push(
+        {quando:sm.criado||0, titulo:sm.titulo||sm.codigo, pct:d.pct, itens:d.itens});
+    });
+  });
+  return Object.keys(porCod).sort().map(cod=>{
+    const hist=porCod[cod];
+    const primeiro=hist[0], ultimo=hist[hist.length-1];
+    const variacao=hist.length>=2?(ultimo.pct-primeiro.pct):null;
+    let tendencia=null;
+    if(variacao!=null)
+      tendencia = variacao>=EVOLUCAO_RAPIDA?"rápida"
+                : variacao<=-EVOLUCAO_LENTA?"piorando"
+                : variacao<EVOLUCAO_LENTA?"lenta"
+                : "moderada";
+    /* precisa de continuidade: ainda vai mal E não está melhorando rápido,
+       ou está piorando — não importa se já foi cobrado uma vez ou dez */
+    const precisaContinuidade = ultimo.pct<50 &&
+      (variacao==null || variacao<EVOLUCAO_RAPIDA);
+    return {cod, hist, vezes:hist.length, ultimoPct:ultimo.pct,
+      variacao, tendencia, precisaContinuidade};
+  });
+}
+
+/* ── COBERTURA DOS DESCRITORES, NA TELA ──────────────────────────
+   O que o professor pediu ver: o que este simulado cobrou, o que ficou
+   de fora por falta de vaga, quem já apareceu muito e quem ainda não
+   apareceu. É a base para decidir o próximo, em vez de repetir a mesma
+   distribuição. */
+function coberturaNaTela(sims,comp){
+  const c=COMPONENTES.find(x=>x.id===comp)||{nome:comp};
+  const etapa=(sims[0]&&sims[0].etapa)||"3EM";
+  const oficial=(typeof matrizDe==="function")?matrizDe(comp,etapa):{};
+  const turmaId=sims[0]&&sims[0].turma;
+  const H=historicoDescritores(turmaId,comp);
+
+  /* o que ESTE simulado cobrou, e o que ficou de fora nele */
+  const agora={}, fora={};
+  sims.forEach(sm=>{
+    const pr=provaDoSim(sm); if(!pr) return;
+    itensDe(pr,comp).forEach(i=>{
+      const cod=codDesc((pr.desc||[])[i]||"");
+      if(cod) agora[cod]=(agora[cod]||0)+1; });
+    ((pr.descritoresFora||{})[comp]||[]).forEach(cod=>{ fora[cod]=1; });
+  });
+  const nAgora=Object.keys(agora).length;
+  if(!nAgora && !Object.keys(fora).length) return "";
+
+  const naMatriz=Object.keys(oficial);
+  const nunca=naMatriz.filter(k=>!H.conta[k]);
+  const muito=Object.keys(H.conta).filter(k=>H.conta[k]>=3)
+    .sort((a,b)=>H.conta[b]-H.conta[a]);
+  const pouco=Object.keys(H.conta).filter(k=>H.conta[k]===1 && !agora[k]);
+
+  const lista=(t,arr,cor)=>arr.length?`<div style="margin-top:8px">
+    <b style="${cor?"color:"+cor:""}">${t}</b>
+    <div class="hint" style="font-family:var(--mono);font-size:12px;margin-top:2px">
+      ${arr.map(esc).join(" · ")}</div></div>`:"";
+
+  return `<div class="rot" style="margin-top:6px">Cobertura dos descritores · ${esc(c.nome)}</div>
+    <p class="hint" style="margin:0 0 4px">${nAgora} descritor${nAgora===1?"":"es"}
+      neste simulado · ${Object.keys(H.conta).length} de ${naMatriz.length} da matriz
+      já cobrados nesta turma.</p>
+    ${lista("Neste simulado",
+      Object.keys(agora).sort().map(k=>k+" ("+agora[k]+")"))}
+    ${lista("Ficaram de fora por falta de vaga",
+      Object.keys(fora).sort(), "var(--amber)")}
+    ${lista("Já apareceram três vezes ou mais",
+      muito.map(k=>k+" ("+H.conta[k]+"×)"))}
+    ${lista("Apareceram uma vez só e não estão neste",pouco)}
+    ${lista("Nunca cobrados nesta turma",
+      nunca.slice(0,20).concat(nunca.length>20?["…"]:[]), "var(--coral)")}`;
+}
+
+/* Evolução, na tela. Só aparece a partir do 2º simulado corrigido da
+   turma — antes disso não há o que comparar, e mostrar uma tabela vazia
+   seria ruído. */
+function evolucaoNaTela(sims,comp){
+  const turmaId=(sims[0]||{}).turma;
+  if(!turmaId) return "";
+  const E2=evolucaoDescritores(turmaId,comp).filter(x=>x.vezes>=2);
+  if(!E2.length) return "";
+  const c=COMPONENTES.find(x=>x.id===comp)||{nome:comp};
+  const seta=v=>v==null?"":(v>0?"↑ +":v<0?"↓ ":"→ ")+Math.round(Math.abs(v))+" pts";
+  const cor=t=>t==="rápida"?"var(--verde,#2e8b57)":t==="piorando"?"var(--coral)":
+              t==="lenta"?"var(--amber)":"inherit";
+  return `<div class="rot" style="margin-top:6px">Evolução entre simulados · ${esc(c.nome)}</div>
+    <p class="hint" style="margin:0 0 8px">${E2.length} descritor${E2.length===1?"":"es"}
+      já ${E2.length===1?"apareceu":"apareceram"} em mais de um simulado desta turma —
+      comparando o % de acerto do primeiro ao mais recente.</p>
+    ${E2.sort((a,b)=>(a.variacao||0)-(b.variacao||0)).map(d=>`
+      <div class="aluno" style="cursor:default;align-items:flex-start">
+        <div style="flex:0 0 42px;font-family:var(--mono);font-weight:700">${esc(d.cod)}</div>
+        <div style="flex:1;min-width:0">
+          <div class="nm" style="font-weight:400">${d.vezes}× · agora ${Math.round(d.ultimoPct)}%
+            <span style="color:${cor(d.tendencia)}">${seta(d.variacao)}</span></div>
+          <div class="rs">${d.precisaContinuidade
+            ?"precisa de continuidade — ainda abaixo de 50% e sem avanço rápido"
+            :(d.tendencia==="rápida"?"evoluindo rápido":d.tendencia==="piorando"
+              ?"piorando entre simulados":"evoluindo devagar")}</div>
+        </div></div>`).join("")}`;
+}
+
 /* A sugestão para o próximo simulado, na tela. */
 function sugestaoNaTela(sims,comp){
   const S=sugerirProximos(sims,comp,7);
@@ -6795,6 +7018,7 @@ function analiseTurma(){
   corpo.innerHTML=COMPONENTES.map(c=>
       avisoCoerencia([sm],c.id)
       +blocoComponente(apurarConjunto([sm],c.id),c.id)+tetoNaTela([sm],c.id)
+      +coberturaNaTela([sm],c.id)+evolucaoNaTela([sm],c.id)
       +sugestaoNaTela([sm],c.id)).join("")
     +`<button class="btn" id="anPdf" style="margin-top:14px">Relatório completo em PDF</button>
       <p class="hint">Turma, habilidades observadas, até onde o simulado mede e o
@@ -6859,7 +7083,8 @@ function analiseSerie(){
   corpo.innerHTML=COMPONENTES.map(c=>
       avisoCoerencia(grupo.sims,c.id)
       +blocoComponente(apurarConjunto(grupo.sims,c.id),c.id,{turmas:true})
-      +tetoNaTela(grupo.sims,c.id)+sugestaoNaTela(grupo.sims,c.id)).join("")
+      +tetoNaTela(grupo.sims,c.id)+coberturaNaTela(grupo.sims,c.id)
+      +evolucaoNaTela(grupo.sims,c.id)+sugestaoNaTela(grupo.sims,c.id)).join("")
     +`<button class="btn" id="anPdf" style="margin-top:14px">Relatório completo em PDF</button>
       <p class="hint">A série inteira, a comparação entre as turmas, as habilidades
         observadas, até onde o simulado mede e o desempenho individual de cada
@@ -7166,6 +7391,17 @@ function sugerirProximos(sims, comp, quantos){
           Math.round(d.pct)+"% de acerto em "+d.itens+
           (d.itens===1?" item":" itens")); });
 
+  /* 1.5 — evolução lenta ou piorando: pesa mais que "acerto baixo" isolado,
+     porque já teve chance de melhorar e não melhorou */
+  const turmaId=(sims[0]||{}).turma;
+  if(turmaId)
+    evolucaoDescritores(turmaId,comp)
+      .filter(x=>x.precisaContinuidade)
+      .sort((a,b)=>(a.variacao||0)-(b.variacao||0))
+      .forEach(d=>por(d.cod,
+        d.tendencia==="piorando"?"piorando entre simulados":"evolução lenta",
+        0.8, d.vezes+"× cobrado, agora "+Math.round(d.ultimoPct)+"%"));
+
   /* 2 — níveis da escala que o caderno não alcançou */
   if(T.maxNivel!=null && T.ultimoDaEscala && T.maxNivel<T.ultimoDaEscala){
     const acima=habilidadesDe(comp,etapa)
@@ -7175,6 +7411,13 @@ function sugerirProximos(sims, comp, quantos){
        não cobrados como proxy e dizemos isso */
     acima.slice(0,0);   // marcador: a escala informa o nível, não o código
   }
+
+  /* 2.5 — ficou de fora por falta de vaga: entra na frente, foi o
+     próprio app que o deixou de lado */
+  const H2=historicoDescritores((sims[0]||{}).turma, comp);
+  Object.keys(H2.foraAntes).sort((a,b)=>H2.foraAntes[b]-H2.foraAntes[a])
+    .forEach(cod=>por(cod, "ficou de fora por falta de vaga", 1.5,
+      H2.foraAntes[cod]+"× de fora"));
 
   /* 3 — o que a matriz tem e nunca foi cobrado */
   Object.keys(oficial).forEach(cod=>{
@@ -7667,6 +7910,39 @@ function pdfAnalise(escopo){
         if(isNaN(v)) return null;
         return v>=70?CORPAD[3]:v>=50?CORPAD[2]:v>=30?CORPAD[1]:CORPAD[0];
       }});
+
+    /* ── evolução entre simulados ── */
+    const turmaIdRel=(escopo.sims[0]||{}).turma;
+    const EV=turmaIdRel?evolucaoDescritores(turmaIdRel,c.id).filter(x=>x.vezes>=2):[];
+    if(EV.length){
+      sub("Evolução entre simulados");
+      par(EV.length+" descritor"+(EV.length===1?"":"es")+" "+
+          (EV.length===1?"já apareceu":"já apareceram")+" em mais de um "+
+          "simulado desta turma. A variação compara o percentual de acerto "+
+          "do primeiro ao mais recente em que o descritor foi cobrado.",CINZA,7.5);
+      const ordenada=EV.slice().sort((a,b)=>(a.variacao||0)-(b.variacao||0));
+      tabela([{t:"DESCRITOR",w:22,b:true},{t:"VEZES",w:18,al:"r"},
+              {t:"ÚLTIMO %",w:22,al:"r"},{t:"VARIAÇÃO",w:26,al:"r"},
+              {t:"SITUAÇÃO",w:UTIL-22-18-22-26}],
+        ordenada.map(d=>[d.cod, d.vezes, Math.round(d.ultimoPct)+"%",
+          (d.variacao>0?"+":"")+Math.round(d.variacao)+" pts",
+          d.precisaContinuidade?"precisa de continuidade"
+            :(d.tendencia==="rápida"?"evoluindo rápido"
+              :d.tendencia==="piorando"?"piorando":"evoluindo devagar")]),
+        {cor:(L)=>{
+          const t=String(L[4]);
+          return t.indexOf("continuidade")>=0||t.indexOf("piorando")>=0?CORPAD[0]
+               : t.indexOf("devagar")>=0?CORPAD[1]
+               : t.indexOf("rápido")>=0?CORPAD[3]:null; }});
+      const precisam=ordenada.filter(d=>d.precisaContinuidade);
+      if(precisam.length)
+        par("Atenção: "+precisam.map(d=>d.cod).join(", ")+" "+
+            (precisam.length===1?"já foi cobrado":"já foram cobrados")+
+            " mais de uma vez, continua"+(precisam.length===1?"":"m")+
+            " abaixo de 50% de acerto e não avança"+
+            (precisam.length===1?"":"m")+" rápido o bastante. São os que "+
+            "mais precisam de continuidade no acompanhamento.",CORPAD[0],8);
+    }
 
     /* ── o que cobrar no próximo simulado ── */
     const S=sugerirProximos(escopo.sims,c.id,7);
