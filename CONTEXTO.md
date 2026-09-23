@@ -4689,3 +4689,57 @@ classificações (lenta, piorando, rápida, sem variação); `precisaContinuidad
 nos três primeiros casos; a seção presente na tela e no relatório; a
 sugestão do próximo simulado priorizando D22 e não incluindo D23 como
 "piorando"; e um simulado isolado sem nenhuma evolução.
+
+---
+
+## v91 — 10 descritores na sugestão, e a regra de não ficar preso
+
+Dois pedidos, e o segundo é uma correção de julgamento sobre o que a v90
+tinha acabado de fazer.
+
+### 1. Sete virou dez
+
+`sugerirProximos` passou o padrão de 7 para 10, nos dois lugares que o
+fixavam (a tela e o relatório em PDF). O professor quer mais opções à
+vista — "algumas avaliações eu vou colocar mais descritores" — para poder
+escolher quantos usar.
+
+### 2. Não ficar preso no mesmo descritor
+
+O alerta do professor, com um exemplo concreto: *"se tem um descritor, já
+estou no terceiro, quarto simulado, e nada está melhorando, a gente está
+perdendo a oportunidade de trabalhar outro."*
+
+`TENTATIVAS_SEM_TRAVAR = 3`. Um descritor com evolução lenta ou piorando
+continua tendo prioridade alta (peso 0,8) enquanto foi cobrado até 2
+vezes — janela normal de acompanhamento. Na 3ª vez sem sair do lugar, ele
+passa a peso 2,5 — abaixo até de "nunca cobrado" — e o motivo muda para
+*"cobrado N× sem avançar — considere alternar"*.
+
+**Mas ele nunca desaparece.** Deprioridade é sobre ONDE aparece, não sobre
+SER mostrado. Se o corte natural das 10 vagas deixaria um travado de fora
+— porque a matriz tem muito material nunca cobrado competindo por
+espaço —, a lista estoura o número redondo para garanti-lo, marcado, no
+fim. `travadosForaDoCorte` registra quando isso acontece.
+
+### Um defeito de ordem que só apareceu no teste com 4 simulados
+
+A primeira versão simulava 4 simulados travados e o D17 **não aparecia em
+lugar nenhum** — nem no topo, nem no fim. A causa: dois blocos disputam o
+mesmo descritor (evolução e "acerto baixo neste simulado"), e `por()` dá o
+motivo a quem chega primeiro. O bloco de "acerto baixo" rodava ANTES do de
+evolução, então um descritor com histórico ruim ficava etiquetado como se
+fosse a primeira vez — sem a marca `travado`, sem o peso 2,5, e sem entrar
+na lista de garantia.
+
+A ordem foi invertida: evolução primeiro, "acerto baixo isolado" depois,
+só para quem a evolução ainda não reivindicou. Comentário no código:
+*"`por()` é 'quem chega primeiro, fica com o motivo' — então a ordem das
+duas checagens decide qual explicação o professor lê."*
+
+### Suíte
+
+`teste79` ganhou dois blocos: a confirmação de que o padrão é 10, e um
+cenário de quatro simulados onde um descritor nunca sai de 20% —
+confirmando que ele continua na lista, com o motivo certo, e que o app
+registra que ele estourou o corte de propósito.

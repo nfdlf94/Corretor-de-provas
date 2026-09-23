@@ -199,6 +199,70 @@ setTimeout(() => {
      "com um único simulado, nenhum descritor tem 2 pontos para comparar " +
      "(" + soUm + ")");
 
+  /* ── 10 descritores, e a regra de "não ficar preso" ─────────────
+     Pedido do professor: a sugestão passa a trazer 10 descritores, não
+     7. E um descritor que já foi cobrado muitas vezes sem sair do lugar
+     não deve travar o topo da lista para sempre — mas também não pode
+     simplesmente SUMIR, porque o professor precisa continuar vendo que
+     ele existe para decidir o que fazer com ele. */
+  const dez = J(`sugerirProximos([E.simulados[0]],"MAT",10)`);
+  ok(dez.lista.length <= 10 || dez.travadosForaDoCorte.length > 0,
+     "o pedido padrão é 10 descritores (" + dez.lista.length + " agora, " +
+     "porque este cenário tem poucos travados)");
+
+  /* quatro simulados de um descritor que nunca decola de 20% */
+  const preso = J(`(function(){
+    var t=E.turmas[0];
+    var helper=function(pr,turma,numero,errados){
+      var o=ordemDe(pr,turma,numero);
+      var g=gabaritoDe(turma,numero).split("");
+      var R=g.slice();
+      o.oq.forEach(function(idx,pos){
+        if(errados.indexOf(idx)>=0) R[pos]=(R[pos]==="A"?"B":"A");
+      });
+      registrar({numero:numero,nome:"P"+numero,R:R,origem:"qr"});
+    };
+    for(var s=1;s<=4;s++){
+      var pr={id:"prP"+s, turma:t.id, disciplina:"d1", codigo:"P"+s,
+        titulo:"Preso "+s, nq:5, no:5, gabC:"AAAAA",
+        desc:["D40","D40","D41","D42","D43"], niv:[6,6,6,6,6],
+        comps:["MAT","MAT","MAT","MAT","MAT"],
+        habs:["MAT D40","MAT D40","MAT D41","MAT D42","MAT D43"],
+        questoes:[0,1,2,3,4].map(function(i){return {enunciado:"P"+s+"q"+i,
+          alternativas:["a","b","c","d","e"]};}), discursivas:[]};
+      E.provas.push(pr);
+      var sm={id:"smP"+s, turma:t.id, disciplina:"d1", etapa:"3EM",
+        titulo:"Preso "+s, codigo:"P"+s, prova:pr.id, criado:100000+s*1000,
+        qtd:{LP:0,MAT:5}};
+      E.simulados.push(sm);
+      E.ativa=pr.id; aplicarLayout(pr.nq,pr.no);
+      t.alunos.slice(0,5).forEach(function(a,ai){
+        helper(pr,t.nome,a.numero,(ai!==0)?[0,1]:[]);   // D40: sempre 20%
+      });
+    }
+    var ultimo=E.simulados[E.simulados.length-1];
+    var S=sugerirProximos([ultimo],"MAT",10);
+    var pos=S.lista.map(function(x){return x.cod;}).indexOf("D40");
+    return {qtd:S.lista.length, pos:pos,
+      motivo:pos>=0?S.lista[pos].motivo:null,
+      foraDoCorte:S.travadosForaDoCorte};
+  })()`);
+  ok(preso.pos >= 0,
+     "D40, cobrado 4× sempre em 20%, CONTINUA na lista (posição " +
+     preso.pos + ")");
+  ok(/sem avançar/.test(preso.motivo||""),
+     "com o motivo explicando o porquê: \"" + preso.motivo + "\"");
+  ok(preso.foraDoCorte.indexOf("D40") >= 0,
+     "e o app registra que ele perdeu o corte natural das 10 vagas — " +
+     "ficou visível À CUSTA de estourar o número redondo, de propósito");
+
+  const fonte79 = require("fs").readFileSync(__dirname + "/index.html", "utf8");
+  ok(/Dez descritores/.test(fonte79),
+     "a tela e o relatório dizem \"dez descritores\", não mais \"sete\"");
+  ok(/TENTATIVAS_SEM_TRAVAR/.test(fonte79),
+     "e a regra de não travar está nomeada no código, não escondida " +
+     "dentro de um número mágico");
+
   console.log(falhas ? "\nteste79: " + falhas + " FALHA(S)" : "\nteste79: tudo certo");
   process.exit(falhas ? 1 : 0);
 }, 1500);

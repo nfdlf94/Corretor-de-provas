@@ -591,7 +591,7 @@ const guarda=(()=>{ let mem={},ok=false;
    morre aqui.
 
    TEM DE CASAR com o VERSAO do sw.js. */
-const VERSAO_APP="v90";
+const VERSAO_APP="v91";
 
 const $=s=>document.querySelector(s);
 /* `esc` também resolve as marcas de expoente e índice: nas telas elas
@@ -6894,11 +6894,11 @@ function evolucaoNaTela(sims,comp){
 
 /* A sugestão para o próximo simulado, na tela. */
 function sugestaoNaTela(sims,comp){
-  const S=sugerirProximos(sims,comp,7);
+  const S=sugerirProximos(sims,comp,10);
   if(!S.lista.length) return "";
   const c=COMPONENTES.find(x=>x.id===comp)||{nome:comp};
   return `<div class="rot" style="margin-top:6px">Próximo simulado · ${esc(c.nome)}</div>
-    <p class="hint" style="margin:0 0 8px">Sete descritores sugeridos, na ordem da
+    <p class="hint" style="margin:0 0 8px">Dez descritores sugeridos, na ordem da
       urgência. ${S.jaCobrados} dos ${S.naMatriz} descritores da matriz já foram
       cobrados nesta turma.</p>
     ${S.lista.map(d=>`<div class="aluno" style="cursor:default;align-items:flex-start">
@@ -7358,8 +7358,15 @@ function tetoDoSimulado(sims,comp){
    sem justificativa é um palpite; com o motivo, o professor discorda
    quando quiser.
    ══════════════════════════════════════════════════════════════════ */
+/* Depois de quantas tentativas SEM avanço rápido a persistência num
+   descritor deixa de valer o espaço que ocupa. Não é abandono — o
+   descritor continua na lista, só desce de posição — mas insistir para
+   sempre no mesmo, simulado após simulado, é perder a chance de
+   trabalhar outros. */
+const TENTATIVAS_SEM_TRAVAR=3;
+
 function sugerirProximos(sims, comp, quantos){
-  const n=quantos||7;
+  const n=quantos||10;
   const A=apurarConjunto(sims,comp);
   const T=tetoDoSimulado(sims,comp);
   const etapa=(sims[0]&&sims[0].etapa)||"3EM";
@@ -7377,30 +7384,53 @@ function sugerirProximos(sims, comp, quantos){
 
   const sug=[], usado={};
   const por=(cod,motivo,peso,extra)=>{
-    if(!cod || usado[cod]) return;
+    if(!cod || usado[cod]) return null;
     usado[cod]=1;
-    sug.push({cod, motivo, peso, extra:extra||"",
-              texto:oficial[cod]||textoDesc(comp,cod)||""});
+    const item={cod, motivo, peso, extra:extra||"",
+                texto:oficial[cod]||textoDesc(comp,cod)||""};
+    sug.push(item);
+    return item;
   };
 
-  /* 1 — desempenho baixo no que foi cobrado */
+  /* 0.8/1.5 — HISTÓRICO ANTES do simulado isolado, de propósito.
+
+     `por()` é "quem chega primeiro, fica com o motivo" — então a ordem
+     das duas checagens abaixo decide qual explicação o professor lê.
+     Evolução vem PRIMEIRO: se um descritor já tem histórico, o motivo
+     certo é "está lento" ou "está piorando", não "foi mal desta vez",
+     que conta só metade da história (e não diz que já tentamos antes).
+
+     Dentro da evolução, a regra de não travar: cobrado 2 vezes sem
+     melhora ainda está em janela normal de acompanhamento — insistir faz
+     sentido. Cobrado 3 vezes ou mais sem sair do lugar, insistir pela
+     QUARTA vez do mesmo jeito não é mais diagnóstico, é repetição: o app
+     perde a prioridade dele de propósito (peso mais alto, mais para o
+     fim da lista) para abrir espaço a outros descritores — sem tirá-lo
+     da lista, e dizendo por quê. */
+  const turmaId=(sims[0]||{}).turma;
+  if(turmaId)
+    evolucaoDescritores(turmaId,comp)
+      .filter(x=>x.precisaContinuidade)
+      .sort((a,b)=>(a.variacao||0)-(b.variacao||0))
+      .forEach(d=>{
+        const travado=d.vezes>=TENTATIVAS_SEM_TRAVAR;
+        const item=por(d.cod,
+          travado
+            ? "cobrado "+d.vezes+"× sem avançar — considere alternar"
+            : (d.tendencia==="piorando"?"piorando entre simulados":"evolução lenta"),
+          travado?2.5:0.8,
+          d.vezes+"× cobrado, agora "+Math.round(d.ultimoPct)+"%");
+        if(item && travado) item.travado=true;
+      });
+
+  /* 1 — desempenho baixo no que foi cobrado, para quem não tem (ainda)
+     histórico de evolução — o bloco acima já reivindicou quem tem */
   ((A&&A.descritores)||[]).slice()
     .sort((a,b)=>a.pct-b.pct)
     .forEach(d=>{ if(d.pct<50)
       por(codDesc(d.cod), "acerto baixo neste simulado", 1,
           Math.round(d.pct)+"% de acerto em "+d.itens+
           (d.itens===1?" item":" itens")); });
-
-  /* 1.5 — evolução lenta ou piorando: pesa mais que "acerto baixo" isolado,
-     porque já teve chance de melhorar e não melhorou */
-  const turmaId=(sims[0]||{}).turma;
-  if(turmaId)
-    evolucaoDescritores(turmaId,comp)
-      .filter(x=>x.precisaContinuidade)
-      .sort((a,b)=>(a.variacao||0)-(b.variacao||0))
-      .forEach(d=>por(d.cod,
-        d.tendencia==="piorando"?"piorando entre simulados":"evolução lenta",
-        0.8, d.vezes+"× cobrado, agora "+Math.round(d.ultimoPct)+"%"));
 
   /* 2 — níveis da escala que o caderno não alcançou */
   if(T.maxNivel!=null && T.ultimoDaEscala && T.maxNivel<T.ultimoDaEscala){
@@ -7432,7 +7462,18 @@ function sugerirProximos(sims, comp, quantos){
   });
 
   sug.sort((a,b)=>a.peso-b.peso);
-  return {lista:sug.slice(0,n), total:sug.length,
+  /* Um descritor TRAVADO nunca some da lista, mesmo perdendo o corte
+     natural de `n` para descritores frescos — a deprioridade dele é
+     sobre ONDE ele aparece (mais no fim), não sobre SER MOSTRADO. Sem
+     isso, numa matriz grande com muito ainda não cobrado, o próprio
+     mecanismo pensado para "não ficar preso" faria o descritor travado
+     desaparecer de vista — o oposto do que deveria: o professor precisa
+     continuar vendo que ele existe, para decidir o que fazer com ele. */
+  const travados=sug.filter(x=>x.travado);
+  const lista=sug.slice(0,n);
+  travados.forEach(t=>{ if(lista.indexOf(t)<0) lista.push(t); });
+  return {lista, total:sug.length, travadosForaDoCorte:
+      travados.filter(t=>sug.slice(0,n).indexOf(t)<0).map(t=>t.cod),
     naMatriz:Object.keys(oficial).length,
     jaCobrados:Object.keys(jaCobrados).length,
     teto:T, etapa};
@@ -7945,10 +7986,11 @@ function pdfAnalise(escopo){
     }
 
     /* ── o que cobrar no próximo simulado ── */
-    const S=sugerirProximos(escopo.sims,c.id,7);
+    const S=sugerirProximos(escopo.sims,c.id,10);
     if(S.lista.length){
       sub("O que cobrar no próximo simulado");
-      par("Sete descritores, na ordem da urgência. A regra é: primeiro o que "+
+      par("Dez descritores, na ordem da urgência — use quantos a avaliação "+
+          "pedir. A regra é: primeiro o que "+
           "foi cobrado e a turma não domina; depois o que a matriz tem e nunca "+
           "foi cobrado nesta turma. "+S.jaCobrados+" dos "+S.naMatriz+
           " descritores da matriz já apareceram em algum simulado.",CINZA,7.5);
