@@ -591,7 +591,7 @@ const guarda=(()=>{ let mem={},ok=false;
    morre aqui.
 
    TEM DE CASAR com o VERSAO do sw.js. */
-const VERSAO_APP="v87";
+const VERSAO_APP="v88";
 
 const $=s=>document.querySelector(s);
 /* `esc` também resolve as marcas de expoente e índice: nas telas elas
@@ -996,6 +996,30 @@ const acertoCorrigido=(acertos,total,no)=>{
   return Math.max(0,((acertos/total)-chute)/(1-chute));
 };
 
+/* ── SEM EVIDÊNCIA: zero acertos ──────────────────────────────────
+   A regra é a que o professor precisa defender numa reunião: quem não
+   acertou NADA não foi posicionado por esta prova.
+
+   A v73 tinha posto a linha no nível do chute (1 em 5), e isso marcava
+   como "não medido" quem acertou 1 de 9. Estatisticamente defensável —
+   1 de 9 está abaixo do que o acaso produziria —, mas "não medido" diz
+   outra coisa a quem lê: diz que o app não conseguiu medir. Para um
+   estudante que acertou uma questão isso é falso, e soa como falha do
+   sistema.
+
+   A faixa do chute continua calculada, mas virou NOTA DE RODAPÉ: o
+   número aparece, com um asterisco dizendo que ainda está dentro do que
+   o acaso produziria. A informação fica; a palavra certa vai para o
+   lugar certo. */
+const semEvidenciaNenhuma=(acertos,total)=> !!total && acertos===0;
+
+/* Acertou pouco o bastante para o resultado não se distinguir de chute?
+   Não suprime o número — só acompanha ele. Em ambos os casos a
+   proficiência vem do percentual, nunca do prior da TRI, que sobe quando
+   a prova é difícil. */
+const naFaixaDoChute=(acertos,total,no)=>
+  !!total && acertos>0 && (acertos/total)<=(1/(no||5)+1e-9);
+
 /* ── quando a prova não mediu nada ─────────────────────────────────
    Acertar no nível do CHUTE — 0 de 9, ou 2 de 9 com cinco alternativas —
    não é evidência de nenhum nível de proficiência. É o resultado que
@@ -1017,8 +1041,6 @@ const acertoCorrigido=(acertos,total,no)=>{
 
    Nesses casos o app para de dar um número e diz o que sabe: o estudante
    está ABAIXO do que este caderno consegue medir. */
-const noNivelDoChute=(acertos,total,no)=>
-  !!total && (acertos/total)<=(1/(no||5))+1e-9;
 /* A faixa de um componente. `sm.faixa` aceita as duas formas: o objeto
    {LP:[...],MAT:[...]} de agora e o par [piso,teto] das versões antigas,
    que valia para os dois componentes. */
@@ -6237,8 +6259,10 @@ function apurarComp(sm,comp){
      métodos: no percentual o valor já é o piso da escala, e na TRI ele
      seria o prior — que sobe quando a prova fica mais difícil. */
   feitos.forEach(L=>{
-    L.semEvidencia=noNivelDoChute(L.acertos,idx.length,pr.no);
-    if(L.semEvidencia) L.prof=profPorPercentual(sm,L.acertos,idx.length,pr.no,comp);
+    L.semEvidencia=semEvidenciaNenhuma(L.acertos,idx.length);
+    L.noChute=naFaixaDoChute(L.acertos,idx.length,pr.no);
+    if(L.semEvidencia||L.noChute)
+      L.prof=profPorPercentual(sm,L.acertos,idx.length,pr.no,comp);
   });
   linhas.forEach(L=>{ if(L.prof==null) L.prof=null;
     L.padrao=L.prof==null?null:padraoDe(L.prof,sm.etapa,comp); });
@@ -6573,8 +6597,10 @@ function apurarConjunto(sims,comp){
     linhas.forEach(L=>{ L.prof=profPorPercentual(sm0,L.acertos,L.total,no,comp); });
   /* mesma regra do conjunto: acerto no nível do chute não posiciona */
   linhas.forEach(L=>{
-    L.semEvidencia=noNivelDoChute(L.acertos,L.total,no);
-    if(L.semEvidencia) L.prof=profPorPercentual(L.sm||sm0,L.acertos,L.total,no,comp);
+    L.semEvidencia=semEvidenciaNenhuma(L.acertos,L.total);
+    L.noChute=naFaixaDoChute(L.acertos,L.total,no);
+    if(L.semEvidencia||L.noChute)
+      L.prof=profPorPercentual(L.sm||sm0,L.acertos,L.total,no,comp);
   });
   linhas.forEach(L=>{ L.padrao=padraoDe(L.prof,etapa,comp); });
 
@@ -7699,7 +7725,7 @@ function pdfAnalise(escopo){
         const prof=(L.prof!=null)?L.prof
           :profPorPercentual(L.sm,L.acertos,L.total,5,c.id);
         dados[k].comp[c.id]={acertos:L.acertos, total:L.total, prof,
-          semEvidencia:!!L.semEvidencia,
+          semEvidencia:!!L.semEvidencia, noChute:!!L.noChute,
           padrao:padraoDe(prof,L.sm.etapa,c.id)};
       });
     });
@@ -7791,14 +7817,21 @@ function pdfAnalise(escopo){
 
     const compsAqui=COMPONENTES.filter(c=>lista.some(L=>L.comp[c.id]));
     const semEv=lista.filter(L=>compsAqui.some(c=>L.comp[c.id]&&L.comp[c.id].semEvidencia));
+    const chute=lista.filter(L=>compsAqui.some(c=>L.comp[c.id]&&L.comp[c.id].noChute));
     if(semEv.length)
-      par("\u201cNão medido\u201d aparece quando o estudante acertou no nível do "+
-          "chute (com cinco alternativas, 1 em 5). Esse resultado é o que "+
-          "qualquer pessoa teria marcando ao acaso: ele não é evidência de "+
-          "nenhum nível de proficiência, e o app prefere dizer isso a "+
+      par("\u201cNão medido\u201d aparece quando o estudante não acertou "+
+          "NENHUMA questão do componente. Sem nenhum acerto não há como "+
+          "posicionar ninguém na escala, e o app prefere dizer isso a "+
           "apresentar um número que viria do modelo, não do estudante. "+
           semEv.length+" "+(semEv.length===1?"estudante está":"estudantes estão")+
           " nessa situação.",CORPAD[1],7.5);
+    if(chute.length)
+      par("O asterisco (*) marca resultados que ainda estão dentro do que "+
+          "o acaso produziria: com cinco alternativas, marcar tudo sem ler "+
+          "acerta cerca de 1 em 5. A proficiência desses "+chute.length+" "+
+          (chute.length===1?"estudante aparece":"estudantes aparece")+
+          ", mas serve para agrupar por necessidade, não para afirmar um "+
+          "nível.",CINZA,7.5);
 
     const comps=COMPONENTES.filter(c=>lista.some(L=>L.comp[c.id]));
     const cols=[{t:"Nº",w:10},{t:"ESTUDANTE",w:UTIL-10-comps.length*38,b:true}];
@@ -7811,8 +7844,13 @@ function pdfAnalise(escopo){
       comps.forEach(c=>{
         const x=L.comp[c.id];
         out.push(x?x.acertos+"/"+x.total:"—");
+        /* "não medido" só para quem não acertou nada. Quem acertou pouco
+           recebe o número com um asterisco — o resultado existe, só não se
+           distingue do acaso. */
         out.push(!x?"—":(x.semEvidencia?"não medido"
-                        :(x.padrao?vg(x.prof,0)+" · "+x.padrao.nome:"—")));
+                        :(x.padrao?vg(x.prof,0)+" · "+x.padrao.nome+
+                                   (x.noChute?" *":"")
+                                 :"—")));
       });
       return out;
     });

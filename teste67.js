@@ -50,26 +50,44 @@ setTimeout(() => {
      "e o " + perverso.dificil + " passa do corte do Elementar I, que é " +
      "exatamente o que o professor viu");
 
-  /* ── 2. a regra ── */
+  /* ── 2. as DUAS regras, que a v88 separou ────────────────────────
+     A v73 usava uma só, no nível do chute, e ela marcava como "não
+     medido" quem acertou 1 de 9. O professor apontou o problema: "não
+     medido" diz que o app não conseguiu medir, e isso é falso para quem
+     acertou uma questão. Viraram duas:
+
+       • NÃO MEDIDO  → zero acertos. Sem nenhum acerto não há como
+         posicionar ninguém na escala.
+       • ASTERISCO   → acertou, mas dentro do que o acaso produziria. O
+         número aparece, com a ressalva ao lado. */
   const regra = J(`(function(){
-    return {zero:noNivelDoChute(0,9,5), um:noNivelDoChute(1,9,5),
-      doisDeDez:noNivelDoChute(2,10,5), tresDeDez:noNivelDoChute(3,10,5),
-      metade:noNivelDoChute(5,10,5), tudo:noNivelDoChute(10,10,5),
-      semItens:noNivelDoChute(0,0,5),
-      duasDeOito5:noNivelDoChute(2,8,5), duasDeOito4:noNivelDoChute(2,8,4)};
+    return {
+      naoMedido:{zero:semEvidenciaNenhuma(0,9), um:semEvidenciaNenhuma(1,9),
+                 tudo:semEvidenciaNenhuma(9,9), semItens:semEvidenciaNenhuma(0,0)},
+      chute:{zero:naFaixaDoChute(0,9,5), um:naFaixaDoChute(1,9,5),
+             doisDeDez:naFaixaDoChute(2,10,5), tresDeDez:naFaixaDoChute(3,10,5),
+             metade:naFaixaDoChute(5,10,5),
+             duasDeOito5:naFaixaDoChute(2,8,5), duasDeOito4:naFaixaDoChute(2,8,4)}};
   })()`);
-  ok(regra.zero === true, "0 de 9 está no nível do chute");
-  ok(regra.um === true, "1 de 9 também (1/9 < 1/5)");
-  ok(regra.doisDeDez === true, "2 de 10 é exatamente o chute com 5 opções");
-  ok(regra.tresDeDez === false, "3 de 10 já está acima do chute");
-  ok(regra.metade === false && regra.tudo === false,
-     "metade e tudo, claro, não");
-  /* 2 de 8 = 25%: chute com QUATRO alternativas, acima do chute com CINCO.
-     A conta acompanha o número de opções, não um percentual fixo. */
-  ok(regra.duasDeOito4 === true && regra.duasDeOito5 === false,
+  ok(regra.naoMedido.zero === true, "\"não medido\": 0 de 9, sim");
+  ok(regra.naoMedido.um === false,
+     "e 1 de 9 NÃO é \"não medido\" — era isso que estava errado");
+  ok(regra.naoMedido.tudo === false && regra.naoMedido.semItens === false,
+     "quem acertou tudo e componente sem itens, claro, também não");
+
+  ok(regra.chute.um === true,
+     "o asterisco, esse sim, pega 1 de 9 — o resultado existe mas não se " +
+     "distingue do acaso");
+  ok(regra.chute.zero === false,
+     "e NÃO pega o zero, que já tem o seu próprio rótulo — as duas marcas " +
+     "não se sobrepõem");
+  ok(regra.chute.doisDeDez === true, "2 de 10 é exatamente o chute com 5 opções");
+  ok(regra.chute.tresDeDez === false && regra.chute.metade === false,
+     "3 de 10 e metade já estão acima dele");
+  /* 2 de 8 = 25%: chute com QUATRO alternativas, acima do chute com CINCO */
+  ok(regra.chute.duasDeOito4 === true && regra.chute.duasDeOito5 === false,
      "2 de 8 é chute com quatro alternativas e NÃO é com cinco — a conta " +
      "acompanha o número de opções");
-  ok(regra.semItens === false, "componente sem itens não é marcado");
 
   /* ── 3. no fim da linha: o estudante não recebe número inventado ── */
   const analise = J(`(function(){
@@ -109,15 +127,48 @@ setTimeout(() => {
      "proficiência estimada (" + analise.bom.prof + ")");
 
   /* ── 4. o relatório diz \"não medido\", não um número ── */
+  /* ── 3b. um estudante com 1 acerto NÃO é "não medido" ── */
+  const umAcerto = J(`(function(){
+    var sm=E.simulados[0], pr=provaDoSim(sm), t=turmaDe(sm.turma);
+    /* zera todo mundo e deixa um estudante com exatamente 1 acerto */
+    E.res=E.res.filter(function(r){ return r.prova!==pr.id; });
+    t.alunos.forEach(function(a,i){
+      var g=gabaritoDe(t.nome,a.numero); if(!g) return;
+      var R=g.split("");
+      var errar=(i===0)?pr.nq:(i===1?pr.nq-1:Math.max(0,pr.nq-i-1));
+      for(var k=0;k<errar;k++) R[k]=(R[k]==="A"?"B":"A");
+      registrar({numero:a.numero,nome:a.nome,R:R,origem:"qr"});
+    });
+    var A=apurarConjunto([sm],"MAT");
+    var zero=A.linhas.filter(function(L){return L.acertos===0;})[0];
+    var um=A.linhas.filter(function(L){return L.acertos===1;})[0];
+    return {
+      zero:zero?{semEvidencia:!!zero.semEvidencia, noChute:!!zero.noChute}:null,
+      um:um?{acertos:um.acertos, semEvidencia:!!um.semEvidencia,
+             noChute:!!um.noChute, prof:Math.round(um.prof),
+             padrao:um.padrao?um.padrao.nome:null}:null};
+  })()`);
+  ok(umAcerto.zero && umAcerto.zero.semEvidencia === true,
+     "quem zerou continua como \"não medido\"");
+  ok(umAcerto.um, "há um estudante com exatamente 1 acerto");
+  ok(umAcerto.um && umAcerto.um.semEvidencia === false,
+     "e ele NÃO é \"não medido\" — é o que o professor apontou");
+  ok(umAcerto.um && umAcerto.um.noChute === true,
+     "ele leva o asterisco: o resultado não se distingue do acaso");
+  ok(umAcerto.um && umAcerto.um.padrao,
+     "e recebe proficiência e padrão (" + (umAcerto.um.prof) + " · " +
+     (umAcerto.um.padrao) + ") — o número existe, com a ressalva ao lado");
+
   const fonte = require("fs").readFileSync(__dirname + "/index.html", "utf8");
+  ok(/não acertou "\+\s*\n?\s*"NENHUMA questão|não acertou\s+"\+/.test(fonte) ||
+     /NENHUMA questão do componente/.test(fonte),
+     "e o relatório explica \"não medido\" pelo zero, não pelo chute");
+  ok(/O asterisco \(\*\) marca resultados/.test(fonte),
+     "com o asterisco explicado à parte");
   ok(/não medido/.test(fonte),
      "a tabela individual do PDF mostra \"não medido\" em vez do número");
-  ok(/acertou no nível do \\u201cchute\\u201d|acertou no nível do "+/.test(fonte) ||
-     /no nível do chute/.test(fonte),
-     "e explica o que isso significa");
-  ok(/qualquer pessoa teria marcando ao acaso/.test(fonte),
-     "com a frase que qualquer leitor entende: é o que qualquer pessoa " +
-     "teria marcando ao acaso");
+  ok(/o acaso produziria/.test(fonte),
+     "com a frase que qualquer leitor entende: é o que o acaso produziria");
   ok(/quanto mais dif.{0,3}cil a prova, maior a nota de quem/i.test(fonte),
      "e o motivo está registrado no código, para ninguém \"consertar\" isso " +
      "de volta");

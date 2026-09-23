@@ -4504,3 +4504,50 @@ que lia o conteúdo passou a depender de quando lia. Eu troquei os três
 leitores pelo acessor sem perguntar, em cada um, se ele precisava do
 conteúdo ou só de saber que a figura existia. Dois deles só precisavam
 saber.
+
+---
+
+## v88 — "não medido" é zero acerto, não faixa de chute
+
+O professor: *"quando o aluno acertou 1 está dando como não medido.
+Quando na verdade, não medido é quando o aluno não acerta nenhuma
+questão."*
+
+### Ele tem razão sobre o que a palavra comunica
+
+A v73 traçou a linha no nível do chute (1 em 5), e ela pegava quem acertou
+1 de 9. Estatisticamente defensável — 1 de 9 está abaixo do que o acaso
+produziria. Mas **"não medido" diz outra coisa a quem lê**: diz que o app
+não conseguiu medir. Para um estudante que acertou uma questão, isso é
+falso e soa como falha do sistema — numa reunião com a família é
+indefensável.
+
+### Duas regras no lugar de uma
+
+| marca | quando | o que aparece |
+|---|---|---|
+| **não medido** | zero acertos | sem número |
+| **asterisco (\*)** | acertou, mas dentro do que o acaso produziria | o número, com a ressalva |
+
+A informação estatística não se perdeu — mudou de lugar. O relatório
+explica as duas separadamente.
+
+Nos dois casos a proficiência continua vindo do PERCENTUAL, nunca do prior
+da TRI, porque é ele que sobe quando a prova é difícil (v73). Isso não
+mudou: o que mudou foi só o rótulo.
+
+### Suíte
+
+`teste67` foi reescrita nas asserções da regra: `semEvidenciaNenhuma` e
+`naFaixaDoChute` conferidas separadamente, com a exigência explícita de
+que **as duas marcas não se sobrepõem** (zero não leva asterisco), e um
+cenário novo com um estudante de exatamente 1 acerto, que recebe
+proficiência, padrão e asterisco — e não "não medido".
+
+### Nota de método
+
+Três edições seguidas minhas falharam em `assert` e **não gravaram o
+arquivo**, e eu só descobri quando a função ficou indefinida no harness.
+O script de edição precisa gravar o que conseguiu ou avisar alto; um
+`assert` no meio de várias substituições deixa o arquivo num estado que
+nem é o velho nem o novo.
