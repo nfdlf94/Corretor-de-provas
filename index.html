@@ -591,7 +591,7 @@ const guarda=(()=>{ let mem={},ok=false;
    morre aqui.
 
    TEM DE CASAR com o VERSAO do sw.js. */
-const VERSAO_APP="v94";
+const VERSAO_APP="v95";
 
 const $=s=>document.querySelector(s);
 /* `esc` também resolve as marcas de expoente e índice: nas telas elas
@@ -1625,6 +1625,65 @@ function trocasPossiveis(sm,lista){
     });
   });
   return saida.sort((a,b)=>b.ganho-a.ganho);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   TROCAR UMA QUESTÃO PELO MESMO DESCRITOR
+
+   O professor não gostou de uma questão específica que o app escolheu —
+   nada errado com ela, só não quer usar aquela. Pede outra do MESMO
+   descritor, tirada do mesmo arquivo, automaticamente.
+
+   A fonte é `sm.reserva[comp]` — até 60 questões do arquivo enviado,
+   guardadas na importação (v?? de reforço de página já usa a mesma
+   reserva para trocar por texto mais curto; esta função é a versão sem
+   aquela restrição de tamanho, porque aqui o motivo é gosto, não
+   espaço).
+
+   Nunca oferece uma questão que já esteja em uso EM QUALQUER LUGAR do
+   caderno atual (os dois componentes, não só o da questão trocada) —
+   `qidDoTexto` identifica pelo texto, então mesmo com letras diferentes
+   embaralhadas a mesma questão nunca dobra. Não tenta impedir repetição
+   entre SIMULADOS diferentes: esta reserva só enxerga o arquivo que
+   gerou o caderno atual, e o app não mantém um registro permanente de
+   toda questão já usada em toda avaliação — isso é controle do
+   professor, fora do escopo desta troca pontual.
+   ══════════════════════════════════════════════════════════════════ */
+function candidatosParaTrocar(sm,pr,indice){
+  const itens=itensDoCaderno(pr);
+  const alvo=itens[indice]; if(!alvo) return [];
+  const cod=codDesc(alvo.desc||""); if(!cod) return [];
+  const pool=((sm.reserva||{})[alvo.comp])||[];
+  const usados=new Set(itens.map(x=>qidDoTexto((x.questao||{}).enunciado)));
+  return pool.filter(c=>{
+    if(codDesc(c.desc||"")!==cod) return false;
+    if(!c.gab) return false;                      // sem gabarito, não oferece
+    const qid=qidDoTexto((c.questao||{}).enunciado);
+    if(!qid || usados.has(qid)) return false;
+    return true;
+  });
+}
+
+/* Troca a questão da posição `indice` por outra do mesmo descritor,
+   escolhida automaticamente (a primeira da reserva ainda não usada, na
+   ordem em que apareciam no arquivo). Devolve {ok:true} ou
+   {ok:false, motivo}. Não mexe em nada se não achar candidata. */
+function trocarQuestaoDoCaderno(sm,indice){
+  const pr=provaDoSim(sm); if(!pr) return {ok:false, motivo:"sem prova"};
+  const itens=itensDoCaderno(pr);
+  const alvo=itens[indice];
+  if(!alvo) return {ok:false, motivo:"posição inválida"};
+  const cod=codDesc(alvo.desc||"");
+  if(!cod) return {ok:false, motivo:
+    "esta questão não tem descritor — não há como saber qual trocar por qual"};
+  const candidatos=candidatosParaTrocar(sm,pr,indice);
+  if(!candidatos.length) return {ok:false, motivo:
+    "não sobrou nenhuma questão inédita do descritor "+cod+" no arquivo enviado"};
+  const nova=candidatos[0];
+  itens[indice]={...alvo, questao:nova.questao, gab:nova.gab,
+    niv:(nova.niv!=null?nova.niv:alvo.niv), orig:nova.orig||null};
+  gravarCaderno(pr,itens);
+  return {ok:true, restantes:candidatos.length-1};
 }
 
 function melhorAjuste(sm){
@@ -5715,8 +5774,8 @@ function telaSimulado(box){
          couber nas páginas, dá para trocar uma questão comprida por
          outra do MESMO descritor e texto menor, em vez de cortar. */
       sm.reserva=Object.assign({},sm.reserva);
-      sm.reserva[comp]=lido.itens.slice(0,60).map(x=>({
-        questao:x.questao, gab:x.gab, desc:x.desc, niv:x.niv||null}));
+      sm.reserva[comp]=lido.itens.slice(0,60).map((x,i)=>({
+        questao:x.questao, gab:x.gab, desc:x.desc, niv:x.niv||null, orig:i+1}));
       if(sel.erro){ info(`<div class="aviso" style="margin-top:10px">${esc(sel.erro)}</div>`); return; }
       if(resDa(pr.id).length && !confirm("Trocar as questões invalida os "+
         resDa(pr.id).length+" cartões já corrigidos deste simulado.\n\nContinuar?")){
@@ -6071,6 +6130,14 @@ function telaConferir(box){
           esc(String(alts[k]||"").slice(0,190))||"<i>—</i>"}</div></div>
         ${marcada?`<span class="tag ok">certa</span>`:""}</button>`;
     });
+    /* não gostou desta? outra do MESMO descritor, tirada do mesmo
+       arquivo — só aparece quando há descritor e reserva para oferecer */
+    const nCand=x.desc?candidatosParaTrocar(sm,pr,i).length:0;
+    h+=nCand
+      ? `<button class="btn gho" data-tq="${i}" style="margin-top:6px;padding:9px">
+          Trocar por outra do mesmo descritor (${nCand} dispon${nCand===1?"ível":"íveis"})</button>`
+      : (x.desc?`<p class="hint" style="margin-top:4px">Nenhuma outra questão inédita
+          de ${esc(x.desc)} no arquivo enviado.</p>`:"");
     h+=`</div>`;
   });
 
@@ -6083,6 +6150,14 @@ function telaConferir(box){
     const lista=itensDoCaderno(pr);
     lista[i].gab=b.dataset.l;
     gravarCaderno(pr,lista); salvar(); montarCasa(); });
+  box.querySelectorAll("[data-tq]").forEach(b=>b.onclick=()=>{
+    const i=+b.dataset.tq;
+    const corrigidos=resDa(pr.id).length;
+    if(corrigidos && !confirm("Trocar esta questão invalida os "+corrigidos+
+      " cartões já corrigidos deste simulado.\n\nContinuar?")) return;
+    const r=trocarQuestaoDoCaderno(sm,i);
+    if(!r.ok){ alert("Não consegui trocar: "+r.motivo+"."); return; }
+    salvar(); montarCasa(); });
 }
 
 /* ═══════════════════════════════════════════════════════════════════

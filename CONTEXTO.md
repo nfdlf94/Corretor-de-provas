@@ -4950,3 +4950,68 @@ usuário — sem depender de saber qual dos três é a causa numa próxima vez.
 `teste75` ganhou o bloco 8, reproduzindo a corrida com interceptação real
 do `setItem` do protótipo (a primeira tentativa de mock, na instância,
 não interceptava — jsdom expõe o método no protótipo).
+
+---
+
+## v95 — trocar uma questão pelo mesmo descritor
+
+Pedido do professor: *"tem uma questão que eu não curti. Queria clicar em
+trocar, e que automaticamente você selecionasse outra do mesmo
+descritor."*
+
+### A fonte já existia
+
+`sm.reserva[comp]` — até 60 questões do arquivo importado, guardadas
+desde antes desta versão para o ajuste automático de páginas
+(`trocasPossiveis`, que troca por texto menor quando a prova não cabe).
+Esta função é a mesma ideia, sem a exigência de tamanho: aqui o motivo é
+gosto, não espaço, então qualquer candidata do mesmo descritor serve.
+
+`sm.reserva` passou a guardar também `orig` (o número da questão no
+arquivo), que faltava — sem ele a troca perderia a proveniência da nova
+questão.
+
+### As regras
+
+`candidatosParaTrocar(sm, pr, indice)` — do mesmo descritor, com
+gabarito, e **não em uso em NENHUMA posição do caderno atual** (os dois
+componentes, não só o trocado). A identidade é por texto (`qidDoTexto`):
+mesmo que o arquivo repita a questão em posições diferentes, ou que as
+alternativas venham embaralhadas de outro jeito, ela não dobra.
+
+`trocarQuestaoDoCaderno(sm, indice)` escolhe a primeira candidata livre,
+na ordem em que apareciam no arquivo — determinístico, e clicar de novo
+na mesma questão naturalmente pega a próxima, porque a que acabou de
+entrar passa a contar como "em uso" e sai da lista de candidatas.
+
+Não tenta impedir repetição entre SIMULADOS diferentes — essa reserva só
+enxerga o arquivo que gerou o caderno atual, e o app não mantém um
+registro permanente de toda questão já usada em toda avaliação (isso é
+controle do professor, fora do escopo desta troca pontual).
+
+### Onde fica
+
+Na tela "Conferir o gabarito" — que já mostra o enunciado e as
+alternativas de cada questão, o lugar certo para o professor decidir que
+não gostou de uma. O botão só aparece quando há descritor (sem ele, "outra
+igual a quê?") e quando sobra alguma candidata; sem candidata, um texto
+explica por quê em vez de mostrar um botão morto.
+
+Com cartão já corrigido, pede confirmação — a mesma que a reimportação
+usa — e **respeita a recusa**: nada muda se o professor cancelar.
+
+### Testado como tela, não como texto
+
+Lição da v85 e da v92: montei a tela de verdade, cliquei no botão de
+verdade, e conferi o efeito. Descobri no processo que `candidatosParaTrocar`
+lidava corretamente com o caso mais traiçoeiro — uma candidata da reserva
+cujo texto já está em uso numa posição DIFERENTE do caderno não é
+oferecida, mesmo sendo, no arquivo, uma entrada "livre".
+
+### Suíte
+
+`teste80` — o botão aparece com a contagem certa; o primeiro clique pula
+a candidata já em uso e pega a livre; o segundo clique pega a outra; sem
+candidata, mensagem clara e nada muda; candidata cujo texto já está em
+uso alhures não é oferecida; com cartão corrigido, a recusa é respeitada;
+sem descritor, o botão nem aparece.
