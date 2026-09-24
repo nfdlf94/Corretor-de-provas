@@ -4800,3 +4800,67 @@ descarta TUDO, inclusive o que já tinha funcionado — e se a próxima
 tentativa não verificar o resultado final, uma edição parcial vira
 silenciosamente uma feature ausente. E: procurar texto no arquivo nunca
 substitui montar a tela e interagir com o elemento.
+
+---
+
+## v93 — o poço tinha um buraco: a tela de anexar figura manualmente
+
+O professor: *"é a segunda vez, desde que o app está rodando, que aparece
+essa mensagem."*
+
+A v83 moveu as figuras da importação para o poço no IndexedDB. Mas havia
+uma tela que a migração não tocou: **"Figuras das questões"**
+(`telaFiguras`) — onde o professor anexa ou troca uma figura à mão,
+questão por questão, sem passar pela importação de arquivo. É exatamente
+o tipo de tela que um professor de EJA e Fundamental usa bastante:
+avaliações regulares, muitas vezes sem PDF de origem, com figura
+fotografada e anexada uma a uma.
+
+### Os dois vazamentos
+
+```js
+// 1. "usar imagem do documento"
+qs[i].imagem = {dados: iaImagens[k], w:520, h:360};
+
+// 2. "anexar/trocar arquivo"
+qs[figAlvo].imagem = img;   // img = {dados, w, h}, direto de comprimirImagem
+```
+
+Os dois gravavam o base64 **dentro da questão**, dentro de `E`, dentro do
+que vai para o `localStorage` — reabrindo exatamente o vazamento que a
+v83 tinha fechado para a importação normal.
+
+### E havia uma segunda regressão escondida no mesmo lugar
+
+A pré-visualização dessa tela lia `q.imagem.dados` diretamente:
+
+```js
+`<img src="${q.imagem.dados}" ...>`
+```
+
+Depois que a v83 passou a migrar as figuras antigas para `{ref}` (sem
+`.dados`), essa tela **parou de mostrar a pré-visualização** de qualquer
+figura já migrada — quebra silenciosa, sem erro no console, só uma
+imagem que não aparece. Ninguém tinha reportado ainda.
+
+### A correção
+
+Os dois pontos de escrita passaram por `poeFig()`; a leitura passou a
+usar `dadosFig(q.imagem)`. Medido: 44 bytes contra 3050 — a mesma redução
+de ~98% que a importação normal já tinha.
+
+### Como o buraco escapou da v83
+
+Busquei então por TODO o arquivo, não só pelos pontos que eu lembrava —
+`grep` por qualquer atribuição a `.imagem` e por qualquer leitura de
+`.imagem.dados`. Sobrou só a migração legítima em cada busca. A tela de
+figuras tinha ficado fora do escopo que eu tinha em mente na v83 (eu
+pensei em "importação", não em "toda gravação de imagem em `E`").
+
+### Suíte
+
+`teste75` ganhou o bloco 7: os dois caminhos de escrita confirmados
+usando `poeFig` (checagem no próprio arquivo, já que são efeitos
+colaterais de UI difíceis de exercitar isolados); a prova de que o
+tamanho cai na mesma proporção da importação; e a confirmação de que a
+pré-visualização lê pelo acessor, não por `.dados` direto.

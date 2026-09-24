@@ -168,6 +168,48 @@ setTimeout(() => {
     ok(migrou.semImagem === null, "questão sem figura segue sem figura");
   }
 
+  /* ── 7. a tela "Figuras das questões" também tinha de passar pelo poço (v93) ──
+     O professor viu o aviso de armazenamento cheio uma SEGUNDA vez, meses
+     depois do arranjo do poço estar funcionando. A importação normal
+     (aplicarImportacao) já usava `poeFig` desde a v83 — mas a tela de
+     anexar/trocar figura manualmente (`telaFiguras`) nunca foi
+     atualizada: ela gravava `{dados: base64, w, h}` DIRETO na questão,
+     por dois caminhos — "usar imagem do documento" e "anexar/trocar
+     arquivo" — reabrindo exatamente o vazamento que a v83 tinha fechado
+     para a importação. */
+  const semPoco = JSON.parse(win.eval(`JSON.stringify((function(){
+    var base64="data:image/jpeg;base64,"+new Array(3000).join("F");
+    var semPoco={dados:base64, w:520, h:360};      // como era escrito antes
+    var comPoco=poeFig({dados:base64, w:520, h:360});  // como é escrito agora
+    return {
+      antes:{temDados:!!semPoco.dados, peso:JSON.stringify(semPoco).length},
+      depois:{temDados:!!comPoco.dados, temRef:!!comPoco.ref,
+        peso:JSON.stringify(comPoco).length,
+        leituraBate:dadosFig(comPoco)===base64}
+    };
+  })())`));
+  ok(semPoco.antes.temDados === true,
+     "como a tela escrevia antes: o base64 dentro da questão (" +
+     semPoco.antes.peso + " bytes) — era daqui que vinha o segundo aviso");
+  ok(semPoco.depois.temDados === false && semPoco.depois.temRef === true,
+     "como escreve agora: só a referência, sem o conteúdo");
+  ok(semPoco.depois.peso < semPoco.antes.peso / 20,
+     "" + semPoco.depois.peso + " bytes contra " + semPoco.antes.peso +
+     " — a mesma redução da importação normal, agora também aqui");
+  ok(semPoco.depois.leituraBate,
+     "e a leitura pela referência devolve o mesmo conteúdo");
+
+  const fonteFig = require("fs").readFileSync(__dirname + "/index.html", "utf8");
+  ok(/qs\[i\]\.imagem=poeFig\(\{dados:iaImagens\[k\]/.test(fonteFig),
+     "o caminho \"usar imagem do documento\" passa por poeFig");
+  ok(/qs\[figAlvo\]\.imagem=poeFig\(img\)/.test(fonteFig),
+     "e o caminho \"anexar/trocar arquivo\" também");
+  ok(!/img\.imagem\.dados/.test(fonteFig) &&
+     /src="\$\{esc\(dadosFig\(q\.imagem\)/.test(fonteFig),
+     "e a PRÉ-VISUALIZAÇÃO nessa tela lê pelo acessor, não por `.dados` " +
+     "direto — senão quebraria para qualquer figura já movida ao poço, " +
+     "que é a maioria depois da migração automática da v83");
+
   console.log(falhas ? "\nteste75: " + falhas + " FALHA(S)" : "\nteste75: tudo certo");
   process.exit(falhas ? 1 : 0);
 }, 1000);

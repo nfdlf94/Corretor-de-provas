@@ -591,7 +591,7 @@ const guarda=(()=>{ let mem={},ok=false;
    morre aqui.
 
    TEM DE CASAR com o VERSAO do sw.js. */
-const VERSAO_APP="v92";
+const VERSAO_APP="v93";
 
 const $=s=>document.querySelector(s);
 /* `esc` também resolve as marcas de expoente e índice: nas telas elas
@@ -3524,7 +3524,7 @@ function telaFiguras(box){
         <p style="margin-bottom:8px">${esc(String(q.enunciado||"").slice(0,90))}${String(q.enunciado||"").length>90?"…":""}</p>
         ${(!q.imagem&&iaImagens.length)?`<button class="btn gho" style="padding:9px;margin-bottom:8px"
             data-doc="${i}">Usar imagem do documento (${iaImagens.length})</button>`:""}
-        ${q.imagem?`<img src="${q.imagem.dados}" style="max-width:100%;border-radius:9px;border:1px solid var(--line)">
+        ${q.imagem?`<img src="${esc(dadosFig(q.imagem)||"")}" style="max-width:100%;border-radius:9px;border:1px solid var(--line)">
           <div class="linha" style="margin-top:8px">
             <button class="btn gho" style="padding:9px" data-tr="${i}">Trocar</button>
             <button class="btn gho" style="padding:9px" data-rm="${i}">Remover</button></div>`
@@ -3537,7 +3537,13 @@ function telaFiguras(box){
       const escolha=prompt("Qual das "+iaImagens.length+" imagens do documento? (1 a "+iaImagens.length+")","1");
       const k=parseInt(escolha,10)-1;
       if(!(k>=0&&k<iaImagens.length)) return;
-      qs[i].imagem={dados:iaImagens[k],w:520,h:360};
+      /* ESTA era a fuga: `iaImagens[k]` é base64 puro, e ir direto para
+         `qs[i].imagem` grava o conteúdo DENTRO da prova — exatamente o que
+         a v83 tirou do localStorage para o poço no IndexedDB. Uma tela só
+         de anexar figura manualmente escapou daquela migração inteira, e
+         era por aqui que o armazenamento voltava a encher, mesmo depois
+         do arranjo do poço estar funcionando para a importação normal. */
+      qs[i].imagem=poeFig({dados:iaImagens[k],w:520,h:360});
       if(salvar()) telaFiguras(box); });
     $("#figLista").querySelectorAll("[data-rm]").forEach(b=>b.onclick=()=>{
       qs[+b.dataset.rm].imagem=null; salvar(); telaFiguras(box); });
@@ -3547,7 +3553,7 @@ function telaFiguras(box){
     const f=ev.target.files[0]; ev.target.value=""; if(!f||figAlvo==null) return;
     try{
       const img=await comprimirImagem(f);
-      qs[figAlvo].imagem=img;
+      qs[figAlvo].imagem=poeFig(img);         // mesma fuga, mesmo remendo
       if(salvar()) telaFiguras(box);
       else { qs[figAlvo].imagem=null; telaFiguras(box); }
     }catch(e){ alert("Não consegui usar esta imagem: "+e.message); }
