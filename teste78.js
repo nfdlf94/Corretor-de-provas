@@ -46,7 +46,38 @@ setTimeout(() => {
      "2 e 8 valem 2 e 8 (" + pag.duas.rot + " · " + pag.oito.rot + ")");
 
   const fonte = require("fs").readFileSync(__dirname + "/index.html", "utf8");
-  ok(/id="smPag"/.test(fonte), "o campo está na tela do simulado");
+  /* ── O CAMPO TEM DE EXISTIR E FUNCIONAR, não só o texto no arquivo ──
+     A primeira versão deste teste checava `/id="smPag"/.test(fonte)` — e
+     PASSAVA mesmo com o campo inexistente, porque já havia um `<b
+     id="smPag">` no passo 6 (mostra a previsão de páginas depois de
+     gerar), usado para outra coisa. O handler `onchange` da v89 ficou
+     pendurado nesse `<b>`, que nunca dispara evento — o campo nunca
+     apareceu na tela, e o teste, checando só texto, não percebeu. É o
+     mesmo erro da v85 (o botão "Já tenho a prova num arquivo"), de novo:
+     procurar texto no arquivo prova que algo foi ESCRITO, não que
+     FUNCIONA. */
+  ok(!/id="smPag"/.test(fonte) || true, "(id antigo mantido só no <b> " +
+     "de exibição — não é mais usado por nenhum campo)");
+  ok(/<select id="smMaxPag">/.test(fonte),
+     "existe um SELECT com o id certo, sem colidir com o <b> de exibição");
+
+  const campo = J(`(function(){
+    var sm=E.simulados[0];
+    casaSim=sm.id; casaNivel="simulado"; montarCasa();
+    var el=document.querySelector("#smMaxPag");
+    if(!el) return {erro:"elemento não existe no DOM"};
+    if(el.tagName!=="SELECT") return {erro:"não é um <select>, é "+el.tagName};
+    if(typeof el.onchange!=="function") return {erro:"sem handler onchange"};
+    el.value="8"; el.onchange();
+    return {maxPaginas:sm.maxPaginas, rotulo:rotuloPaginas(sm)};
+  })()`);
+  ok(!campo.erro, "o campo existe, é select e tem handler" +
+     (campo.erro?": "+campo.erro:""));
+  ok(campo.maxPaginas === 8,
+     "mudar o select para \"8\" atualiza sm.maxPaginas (" +
+     campo.maxPaginas + ")");
+  ok(campo.rotulo === "8 páginas",
+     "e rotuloPaginas reflete a mudança (" + campo.rotulo + ")");
   ok(!/[^_]MAX_PAG_SIMULADO\b(?!=)/.test(
        fonte.replace(/const MAX_PAG_SIMULADO=4;/,"")
             .replace(/return MAX_PAG_SIMULADO;/g,"")

@@ -4743,3 +4743,60 @@ duas checagens decide qual explicação o professor lê."*
 cenário de quatro simulados onde um descritor nunca sai de 20% —
 confirmando que ele continua na lista, com o motivo certo, e que o app
 registra que ele estourou o corte de propósito.
+
+---
+
+## v92 — o campo de limite de páginas nunca existiu
+
+O professor: *"a função que determina o número de páginas não foi
+implementada."*
+
+Ele estava certo, e a causa é a mesma família de erro da v85.
+
+### O que aconteceu na v89
+
+Ao escrever o campo, o script python rodou dois `assert` em sequência: o
+primeiro (inserir o `<select>` no passo 2) **passou** e alterou a string
+em memória; o segundo (achar o gancho para o handler) **falhou** — e o
+script morreu antes do `open(p,'w',...).write(s)` final. **Nada daquela
+edição foi salvo.**
+
+Eu segui adiante e fiz uma segunda edição, separada, só para o handler:
+
+```js
+if($("#smPag")) $("#smPag").onchange=()=>{ sm.maxPaginas=... };
+```
+
+Essa edição, isolada, teve sucesso e foi gravada — mas o `<select>` a que
+ela deveria se referir nunca existiu. E `#smPag` já pertencia a **outro
+elemento**, um `<b id="smPag">` do passo 6, que mostra a previsão de
+páginas depois de gerar. Um `<b>` não dispara `onchange` nunca; o handler
+ficou pendurado em silêncio, sem erro, sem efeito.
+
+### Por que o teste não pegou
+
+```js
+ok(/id="smPag"/.test(fonte), "o campo está na tela do simulado");
+```
+
+Essa regex casava com o `<b id="smPag">` que **já estava lá antes**, sem
+relação com o campo novo. O teste "passou" atestando a existência de um
+elemento que não tinha nada a ver com o que deveria testar.
+
+### A correção
+
+O select ganhou um id próprio, `smMaxPag`, e um comentário no código
+citando exatamente esse acidente para não repetir. O handler foi movido
+para o id certo. O teste deixou de procurar texto e passou a **montar a
+tela, achar o elemento, confirmar que é um `<select>`, confirmar que tem
+`onchange`, mudar o valor e verificar o efeito** — a mesma disciplina que
+a v85 estabeleceu para o botão "Já tenho a prova num arquivo".
+
+### A lição, de novo
+
+Terceira vez que registro isto: quando um script de edição roda vários
+`assert` numa sequência com um único `write` no final, uma falha no meio
+descarta TUDO, inclusive o que já tinha funcionado — e se a próxima
+tentativa não verificar o resultado final, uma edição parcial vira
+silenciosamente uma feature ausente. E: procurar texto no arquivo nunca
+substitui montar a tela e interagir com o elemento.

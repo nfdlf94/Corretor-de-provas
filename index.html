@@ -591,7 +591,7 @@ const guarda=(()=>{ let mem={},ok=false;
    morre aqui.
 
    TEM DE CASAR com o VERSAO do sw.js. */
-const VERSAO_APP="v91";
+const VERSAO_APP="v92";
 
 const $=s=>document.querySelector(s);
 /* `esc` também resolve as marcas de expoente e índice: nas telas elas
@@ -5177,7 +5177,16 @@ function telaSimulado(box){
          ${SAEPE_MAX} itens no total. Reduza para caber.</div>`
       : pedidoTotal&&pedidoTotal<MIN_Q_CARTAO
       ? `<div class="aviso" style="margin-top:10px">Com menos de ${MIN_Q_CARTAO} itens
-         não sai cartão-resposta.</div>`:""}`;
+         não sai cartão-resposta.</div>`:""}
+    <label style="margin-top:12px">Limite de páginas do caderno</label>
+    <select id="smMaxPag">
+      ${[0,2,4,6,8,10,12].map(n=>`<option value="${n}" ${
+        maxPaginasDe(sm)===(n||SEM_LIMITE)?"selected":""}>${
+        n?n+" páginas":"Sem limite"}</option>`).join("")}
+    </select>
+    <p class="hint">Quando as questões não couberem, o app troca as maiores por
+      outras do MESMO descritor antes de reduzir a letra. Sem limite, todas as
+      questões pedidas entram e o caderno fica do tamanho que precisar.</p>`;
 
   /* 3 — arquivos */
   const pronto3=COMPONENTES.every(c=>!qtdPedida(sm,c.id)||!f.questoes[c.id]);
@@ -5382,10 +5391,18 @@ function telaSimulado(box){
       ajustarQuantidade(sm,c.id);
       guardar(); montarCasa(); };
   });
-  if($("#smPag")) $("#smPag").onchange=()=>{
+  /* CUIDADO: existe um `<b id="smPag">` — no passo 6, é o texto que
+     mostra a previsão de páginas depois de gerar. É outro elemento,
+     outro propósito: por isso este campo usa `smMaxPag`, não `smPag`.
+     A v89 tentou usar `smPag` aqui e o `onchange` ficou pendurado num
+     `<b>`, que não dispara evento nenhum — o campo nunca apareceu na
+     tela e ninguém percebeu, porque o teste da época só checava se a
+     string `id="smPag"` existia em algum lugar do arquivo, e aquele
+     `<b>` já a fornecia. */
+  if($("#smMaxPag")) $("#smMaxPag").onchange=()=>{
     /* 0 = sem limite. Mudar o limite muda o que cabe, então os
        componentes já lidos são reajustados. */
-    sm.maxPaginas=parseInt($("#smPag").value,10)||0;
+    sm.maxPaginas=parseInt($("#smMaxPag").value,10)||0;
     COMPONENTES.forEach(c=>{ if(qtdPedida(sm,c.id)) ajustarQuantidade(sm,c.id); });
     guardar(); montarCasa(); };
   $("#smTipos").onchange=()=>{
