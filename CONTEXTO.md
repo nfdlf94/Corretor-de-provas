@@ -5077,3 +5077,82 @@ número; a prova de que "QUESTÃO N" sobrevive; a instrução repetida
 e o **cenário exato** das capturas do professor, reconstruído linha por
 linha, confirmando que o rodapé da página 7 some e a alternativa B volta
 a ser seguida direto pela C.
+
+---
+
+## v97 — a troca propaga; e o bug real por trás das habilidades some
+
+O professor pediu quatro coisas para a troca de questão (propagar,
+regenerar, atualizar o arquivo final, identificar a habilidade da
+nova) e, à parte, disse que habilidades "estão simplesmente saindo ou
+desaparecendo" e que "subir as habilidades" não devia precisar ser
+recorrente.
+
+### O que a troca passou a fazer
+
+`trocarQuestaoDoCaderno` agora propaga para **todo caderno que
+compartilha o simulado** — `cadernosDoMesmoSimulado`, o mesmo casamento
+por matriz OU por título+etapa já estabelecido em v78-80. A candidata é
+escolhida **uma vez só**, contra a reserva do simulado aberto, e a MESMA
+escolha é copiada para os irmãos — nunca re-sorteada por caderno, senão
+cada turma acabaria com uma questão diferente na mesma posição.
+
+Testado com o caso que o professor de fato tem: turmas **sem** matriz
+compartilhada (importadas uma a uma), achadas por título+etapa. A troca
+alcançou os 3 cadernos, e as outras 4 posições da turma irmã não foram
+tocadas.
+
+A confirmação, quando há cartão corrigido, passou a somar os cartões de
+**todas** as turmas que vão ser afetadas, não só a que está na tela —
+senão o professor autorizaria sem saber que ia invalidar a correção de
+outra turma também.
+
+Sobre "regenerar o simulado" e "atualizar o arquivo dos estudantes": não
+existe artefato armazenado para regenerar. O PDF é montado do zero a
+cada "Gerar provas", lendo `pr.questoes` na hora — a próxima vez que o
+professor gerar, a questão nova já vem, automaticamente, sem passo
+extra.
+
+### A habilidade da questão nova
+
+`hab` (a associação oficial de "Habilidades da escala") **não** é
+copiada da questão antiga — estava presa a um enunciado específico, e
+alegar que valeria para o novo seria falso. Em vez de deixar em branco
+esperando o professor lembrar, o app chama `sugerirHabilidades` sozinho,
+com o mesmo corte de confiança (nota > 0,06) já usado em "Sugerir para os
+itens ainda sem habilidade". Sem confiança suficiente, fica sem — visível
+como "sem habilidade" na tela, nunca com um valor errado escondido.
+
+### O bug real: "Itens do caderno" apagava hab e niv
+
+Investigando "habilidades desaparecendo", achei algo que não tinha
+relação nenhuma com a troca. A função `gravar()` da tela "Itens do
+caderno" reconstruía cada item do zero, a partir só dos campos que
+aquela tela edita (componente, gabarito, descritor, origem):
+
+```js
+const lista=itensDoCaderno(pr).map((x,i)=>({comp:c[i],questao:x.questao,
+  gab:g[i],desc:d[i],orig:x.orig}));
+```
+
+`hab` e `niv` não têm campo editável ali — e por isso a reconstrução os
+esquecia. **Toda vez** que o professor visitava essa tela — rotineira, é
+onde se confere gabarito e descritor — e saía, ou tocava no rótulo
+Port./Mat. de uma questão, `pr.hab` e `pr.niv` do caderno **inteiro**
+viravam vazio/nulo, em silêncio. Nada avisava, porque para `gravarCaderno`
+um `hab` ausente é indistinguível de um `hab` que nunca existiu.
+
+Isso explica os dois relatos: habilidades "saindo" sem ação nenhuma do
+professor, e "subir as habilidades" precisando ser repetido — porque essa
+tela ia desfazendo o trabalho toda vez que era visitada.
+
+A correção: `hab:x.hab,niv:x.niv` entraram na reconstrução.
+
+### Suíte
+
+`teste82` — o cenário com hab/niv associados, visitar "Itens do caderno"
+e sair sem perder nada, tocar no rótulo do componente sem perder nada; e
+a propagação: turmas sem matriz compartilhada, achadas por título+etapa,
+os 3 cadernos atualizados, a mesma questão nova nos irmãos, as outras
+posições intocadas, a habilidade antiga não herdada, e o aviso de
+confirmação somando os cartões de todas as turmas envolvidas.

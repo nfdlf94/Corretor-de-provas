@@ -591,7 +591,7 @@ const guarda=(()=>{ let mem={},ok=false;
    morre aqui.
 
    TEM DE CASAR com o VERSAO do sw.js. */
-const VERSAO_APP="v96";
+const VERSAO_APP="v97";
 
 const $=s=>document.querySelector(s);
 /* `esc` também resolve as marcas de expoente e índice: nas telas elas
@@ -1666,8 +1666,25 @@ function candidatosParaTrocar(sm,pr,indice){
 
 /* Troca a questão da posição `indice` por outra do mesmo descritor,
    escolhida automaticamente (a primeira da reserva ainda não usada, na
-   ordem em que apareciam no arquivo). Devolve {ok:true} ou
-   {ok:false, motivo}. Não mexe em nada se não achar candidata. */
+   ordem em que apareciam no arquivo). Devolve
+   {ok:true, cadernosAtualizados, restantes} ou {ok:false, motivo}. Não
+   mexe em nada se não achar candidata.
+
+   PROPAGA para todo caderno que compartilha este simulado — casado por
+   matriz (turmas geradas juntas) OU por título+etapa (turmas importadas
+   uma a uma, o caso mais comum na prática). A candidata é escolhida UMA
+   vez, contra a reserva do simulado que está aberto, e a MESMA escolha é
+   copiada para os outros — nunca re-sorteada por caderno, senão cada
+   turma acabaria com uma questão diferente na mesma posição.
+
+   `hab` (a habilidade oficial associada em "Habilidades da escala") NÃO
+   é copiada da questão antiga: ela estava presa a UM enunciado
+   específico, e a alegação de que essa habilidade se aplica à questão
+   NOVA seria simplesmente falsa. Em vez de deixar em branco à espera de
+   o professor lembrar de reassociar, o app sugere sozinho — mesma lógica
+   de "Habilidades da escala" — e só aceita a sugestão com confiança
+   suficiente (nota>0.06, o mesmo corte de lá); do contrário, fica sem, e
+   aparece na tela como "sem habilidade", visível, em vez de errada. */
 function trocarQuestaoDoCaderno(sm,indice){
   const pr=provaDoSim(sm); if(!pr) return {ok:false, motivo:"sem prova"};
   const itens=itensDoCaderno(pr);
@@ -1680,10 +1697,35 @@ function trocarQuestaoDoCaderno(sm,indice){
   if(!candidatos.length) return {ok:false, motivo:
     "não sobrou nenhuma questão inédita do descritor "+cod+" no arquivo enviado"};
   const nova=candidatos[0];
-  itens[indice]={...alvo, questao:nova.questao, gab:nova.gab,
-    niv:(nova.niv!=null?nova.niv:alvo.niv), orig:nova.orig||null};
+  const item={...alvo, questao:nova.questao, gab:nova.gab,
+    niv:(nova.niv!=null?nova.niv:alvo.niv), orig:nova.orig||null, hab:""};
+  itens[indice]=item;
   gravarCaderno(pr,itens);
-  return {ok:true, restantes:candidatos.length-1};
+
+  /* sugere a habilidade oficial para a questão nova, no PRÓPRIO caderno
+     onde a troca foi pedida — os cadernos irmãos recebem o mesmo `hab`
+     já decidido aqui, junto com o resto do item, no laço abaixo */
+  if(typeof sugerirHabilidades==="function"){
+    const sug=sugerirHabilidades(pr,indice,item.comp,sm.etapa,1)[0];
+    if(sug && sug.nota>0.06){
+      item.hab=sug.h.id;
+      const relidos=itensDoCaderno(pr);
+      relidos[indice]=item;
+      gravarCaderno(pr,relidos);
+    }
+  }
+
+  let cadernosAtualizados=1;
+  cadernosDoMesmoSimulado(sm).forEach(s2=>{
+    const p2=provaDoSim(s2); if(!p2) return;
+    const lista=itensDoCaderno(p2);
+    if(indice>=lista.length) return;   // caderno de outro tamanho: não força
+    lista[indice]=Object.assign({},lista[indice],item);
+    gravarCaderno(p2,lista);
+    cadernosAtualizados++;
+  });
+  salvar();
+  return {ok:true, restantes:candidatos.length-1, cadernosAtualizados};
 }
 
 function melhorAjuste(sm){
@@ -6063,10 +6105,20 @@ function telaItens(box){
     }
     return {g,d,c};
   };
+  /* Reconstrói cada item do zero, a partir do que os campos da tela
+     dizem — e por isso é fácil esquecer um campo que a tela não edita.
+     Foi o que aconteceu: `hab` (a habilidade oficial associada em
+     "Habilidades da escala") e `niv` (o nível da escala, de
+     "Completar os níveis pelo arquivo") não têm campo aqui, e a
+     reconstrução os deixava de fora — toda vez que o professor visitava
+     esta tela e saía, ou tocava no rótulo Port./Mat. de uma questão,
+     as duas informações eram silenciosamente apagadas do caderno
+     inteiro. Nada no app avisava, porque para `gravarCaderno` um `hab`
+     ausente é indistinguível de um `hab` que nunca existiu. */
   const gravar=()=>{
     const {g,d,c}=ler();
     const lista=itensDoCaderno(pr).map((x,i)=>({comp:c[i],questao:x.questao,
-      gab:g[i],desc:d[i],orig:x.orig}));
+      gab:g[i],desc:d[i],orig:x.orig,hab:x.hab,niv:x.niv}));
     gravarCaderno(pr,lista);
     salvar();
     return g.every(x=>x);
@@ -6211,12 +6263,22 @@ function telaConferir(box){
     gravarCaderno(pr,lista); salvar(); montarCasa(); });
   box.querySelectorAll("[data-tq]").forEach(b=>b.onclick=()=>{
     const i=+b.dataset.tq;
-    const corrigidos=resDa(pr.id).length;
+    /* a troca propaga para os cadernos irmãos — a confirmação precisa
+       contar os cartões corrigidos DE TODOS ELES, não só do que está
+       aberto na tela, senão o professor autoriza sem saber que vai
+       invalidar a correção de outra turma também */
+    const grupo=[pr].concat(cadernosDoMesmoSimulado(sm)
+      .map(s2=>provaDoSim(s2)).filter(Boolean));
+    const corrigidos=grupo.reduce((n,p2)=>n+resDa(p2.id).length,0);
     if(corrigidos && !confirm("Trocar esta questão invalida os "+corrigidos+
-      " cartões já corrigidos deste simulado.\n\nContinuar?")) return;
+      " cartões já corrigidos"+(grupo.length>1?" (somando as turmas que "+
+      "compartilham este simulado)":" deste simulado")+".\n\nContinuar?")) return;
     const r=trocarQuestaoDoCaderno(sm,i);
     if(!r.ok){ alert("Não consegui trocar: "+r.motivo+"."); return; }
-    salvar(); montarCasa(); });
+    if(r.cadernosAtualizados>1)
+      alert("Questão trocada em "+r.cadernosAtualizados+" cadernos "+
+        "(todas as turmas que compartilham este simulado).");
+    montarCasa(); });
 }
 
 /* ═══════════════════════════════════════════════════════════════════
