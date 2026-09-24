@@ -5015,3 +5015,65 @@ a candidata já em uso e pega a livre; o segundo clique pega a outra; sem
 candidata, mensagem clara e nada muda; candidata cujo texto já está em
 uso alhures não é oferecida; com cartão corrigido, a recusa é respeitada;
 sem descritor, o botão nem aparece.
+
+---
+
+## v96 — cabeçalho e rodapé da página vazando para dentro da questão
+
+O professor mostrou duas capturas do mesmo simulado: o PDF gerado, com a
+alternativa B da questão 3 assim —
+
+> "B) uma relação entre o tamanho do celular e o vício. **3º Simulado
+> SAEPE · Língua Portuguesa · 3ª série do Ensino Médio Página 7**"
+
+— e a "Conferência da diagramação" do mesmo caderno, que só apontava
+vazamento nas questões 5 e 9, calada sobre a questão 3.
+
+### A causa raiz: na extração, não na diagramação
+
+O extrator de PDF lê o documento em ordem visual, sem saber que uma linha
+é rodapé de página. Quando a quebra de página do arquivo original cai no
+meio de uma questão — entre a alternativa B e a C, neste caso —, o rodapé
+daquela página entra no fluxo do texto como se fosse mais um pedaço da
+questão. A importação, cega a isso, costura o rodapé dentro da
+alternativa em andamento.
+
+`removerCabecalhoRodape(paginas)` roda dentro de `conteudoDePdf`, antes de
+qualquer questão ser interpretada. A marca é **posição, não frequência**:
+só a PRIMEIRA ou a ÚLTIMA linha de uma página, repetida na mesma posição
+em pelo menos 60% das páginas (números variando, resto igual), é
+candidata. Frequência sozinha erraria: "Leia o texto abaixo." abre várias
+questões diferentes de propósito, e não é rodapé nenhum.
+
+### O falso positivo que o próprio teste pegou
+
+A primeira versão marcava também "QUESTÃO 1", "QUESTÃO 2"… como
+candidatas — elas também repetem, na mesma posição (primeira linha),
+variando só o número. Mas não são rodapé: são a numeração que o parser
+usa para achar onde cada questão começa. Removê-las apagaria a própria
+estrutura que o resto do sistema depende.
+
+`PARECE_MARCADOR` blinda qualquer linha que se pareça com um marcador
+estrutural — `QUESTÃO N`, `N.`/`N)`, `A)` a `E)` — contra ser tratada como
+cabeçalho/rodapé, não importa quantas vezes se repita.
+
+### A rede: `preFlightCheck` também tinha um buraco
+
+`RE_VAZOU_FONTE` (o padrão que já existia, para referência bibliográfica)
+só olhava o **comando** da questão — nunca as alternativas. Era
+exatamente na alternativa B que o vazamento do professor estava, e a
+checagem antiga nunca chegava lá.
+
+Agora: `RE_VAZOU_RODAPE` (novo padrão, para "Página N" / "N º Simulado
+SAEPE") e a checagem passou a varrer **cada alternativa**, além do
+comando. Isso não substitui a correção na extração — é rede, para o caso
+de um arquivo ter o rodapé numa forma que a extração não reconheceu.
+
+### Suíte
+
+`teste81` — o cenário sintético de 5 páginas com rodapé variando só o
+número; a prova de que "QUESTÃO N" sobrevive; a instrução repetida
+("Leia o texto abaixo.") intacta; amostra pequena (2 páginas) não mexida;
+e o **cenário exato** das capturas do professor, reconstruído linha por
+linha, confirmando que o rodapé da página 7 some e a alternativa B volta
+a ser seguida direto pela C.

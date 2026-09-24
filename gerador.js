@@ -1745,6 +1745,12 @@ function niveisRenderizados(m){
 }
 
 const RE_VAZOU_FONTE = /(Dispon[ií]vel em|Acesso em:|Fragmento\.|Adaptado\.)/;
+/* segunda marca: cabeçalho/rodapé de página (título da prova + "Página N")
+   que escapou da limpeza na extração — ver `removerCabecalhoRodape` no
+   index.html. Fica aqui como REDE, não como a correção principal: se um
+   arquivo tiver o rodapé numa forma que a extração não reconheceu, o
+   pre-flight ainda avisa antes de o PDF sair errado. */
+const RE_VAZOU_RODAPE = /P[áa]gina\s*\d+\b|\d[ºª°]\s*Simulado\s+SAEPE/i;
 
 function preFlightCheck(cfg, doc, fs){
   const avisos = [];
@@ -1797,6 +1803,18 @@ function preFlightCheck(cfg, doc, fs){
     if(comando && RE_VAZOU_FONTE.test(comando))
       avisos.push("questão " + n + ": a referência bibliográfica vazou para " +
                   "dentro do comando");
+    if(comando && RE_VAZOU_RODAPE.test(comando))
+      avisos.push("questão " + n + ": cabeçalho ou rodapé de página vazou " +
+                  "para dentro do comando");
+    /* as ALTERNATIVAS também podem receber o vazamento — a quebra de
+       página não escolhe onde cair, e "B) ..." é tão candidato quanto o
+       comando a ficar colada num rodapé */
+    alts.forEach((a, k) => {
+      const txt = semMarcas(a);
+      if(txt && (RE_VAZOU_FONTE.test(txt) || RE_VAZOU_RODAPE.test(txt)))
+        avisos.push("questão " + n + ": a alternativa " + opcoes[k] +
+                    " tem cabeçalho, rodapé ou referência vazados dentro dela");
+    });
     m.partes.forEach(pt => {
       doc.setFont(FONTE_TEXTO, pt.estilo); doc.setFontSize(pt.fs);
       pt.linhas.forEach(ln => {

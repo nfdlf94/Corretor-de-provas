@@ -591,7 +591,7 @@ const guarda=(()=>{ let mem={},ok=false;
    morre aqui.
 
    TEM DE CASAR com o VERSAO do sw.js. */
-const VERSAO_APP="v95";
+const VERSAO_APP="v96";
 
 const $=s=>document.querySelector(s);
 /* `esc` também resolve as marcas de expoente e índice: nas telas elas
@@ -3146,6 +3146,65 @@ function bandasDeLinhas(linhas, topo){
   return bandas;
 }
 
+/* ══════════════════════════════════════════════════════════════════
+   CABEÇALHO E RODAPÉ QUE VAZAM PARA DENTRO DA QUESTÃO
+
+   O extrator lê o PDF em ordem visual, de cima para baixo, sem saber
+   que uma linha é cabeçalho ou rodapé — ela entra no fluxo como se
+   fosse mais um pedaço de questão. Quando a quebra de página cai no
+   meio de uma questão, essa linha aparece ENTRE duas alternativas, e a
+   importação a costura dentro da que estava em andamento. Foi o que
+   aconteceu: "...malefícios de aparelhos celulares." virou
+   "...malefícios[TÍTULO DA PROVA · PÁGINA N] de aparelhos celulares."
+
+   A marca certa é POSIÇÃO, não repetição pura. Uma linha do MEIO da
+   página pode se repetir de propósito — "Leia o texto abaixo." abre
+   várias questões diferentes — e não é rodapé nenhum; remover por
+   frequência sozinha apagaria essa instrução em toda questão de leitura.
+   Só a PRIMEIRA ou a ÚLTIMA linha de uma página — onde cabeçalho e
+   rodapé de fato ficam —, repetida na MESMA posição em várias outras
+   páginas do arquivo (os números variando, o resto igual), é. */
+function normSemNumero(t){
+  return String(t||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+    .toLowerCase().replace(/\d+/g,"#").replace(/\s+/g," ").trim();
+}
+/* Repetir de página em página não basta: "QUESTÃO 1", "QUESTÃO 2"…
+   também repetem nessa forma (mesmo texto, número diferente) sempre que
+   uma quebra de página calha de cair bem no início de uma questão — e
+   aquilo NÃO é rodapé, é a numeração que o próprio parser depende para
+   achar onde cada questão começa. O mesmo vale para "A)", "B)" no
+   início de uma alternativa. Uma linha assim nunca é candidata, não
+   importa quantas vezes se repita. */
+const PARECE_MARCADOR=/^\s*(quest(ã|a)o\s*\d+|\d{1,3}\s*[.)\-–]|[a-e]\s*[)\-])/i;
+
+function removerCabecalhoRodape(paginas){
+  if(paginas.length<3) return paginas;   // amostra pequena, risco maior que ganho
+  const conta=pega=>{
+    const c={};
+    paginas.forEach(p=>{
+      const linhas=(p.linhas||[]).filter(l=>!l.startsWith(MARCA_FIG));
+      const l=pega(linhas); if(l==null || PARECE_MARCADOR.test(l)) return;
+      const n=normSemNumero(l);
+      if(n.length<8) return;             // curto demais para confiar
+      c[n]=(c[n]||0)+1;
+    });
+    return c;
+  };
+  const primeiras=conta(ls=>ls[0]);
+  const ultimas=conta(ls=>ls[ls.length-1]);
+  const limiar=Math.max(2,Math.ceil(paginas.length*0.6));
+  const podeTirar=(l,mapa)=>l && !PARECE_MARCADOR.test(l) &&
+    (mapa[normSemNumero(l)]||0)>=limiar;
+  return paginas.map(p=>{
+    const linhas=(p.linhas||[]).slice();
+    if(linhas.length && !linhas[0].startsWith(MARCA_FIG) &&
+       podeTirar(linhas[0],primeiras)) linhas.shift();
+    if(linhas.length && !linhas[linhas.length-1].startsWith(MARCA_FIG) &&
+       podeTirar(linhas[linhas.length-1],ultimas)) linhas.pop();
+    return Object.assign({},p,{linhas});
+  });
+}
+
 async function conteudoDePdf(arquivo){
   const doc=await abrirPdf(arquivo);
   const paginas=[], figuras=[];
@@ -3190,7 +3249,7 @@ async function conteudoDePdf(arquivo){
     });
     paginas.push({linhas:saida, imagens:[]});
   }
-  return {paginas, figuras};
+  return {paginas:removerCabecalhoRodape(paginas), figuras};
 }
 
 async function recortarFiguras(pg, bandas){
