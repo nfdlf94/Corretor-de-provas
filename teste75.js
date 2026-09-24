@@ -210,6 +210,71 @@ setTimeout(() => {
      "direto — senão quebraria para qualquer figura já movida ao poço, " +
      "que é a maioria depois da migração automática da v83");
 
+  /* ── 8. salvar() se defende sozinho, mesmo sem a migração ter chegado (v94) ──
+     Terceira vez que o professor viu o aviso, mesmo depois da v83 (poço)
+     e da v93 (fechar a fuga da tela de figuras). A causa não era outra
+     fuga — era uma CORRIDA: a migração das provas antigas roda em
+     SEGUNDO PLANO na abertura do app, sem bloquear nada. Se o professor
+     começa a importar um arquivo novo antes dela terminar — o caso
+     comum, abrir o app e já subir um PDF —, a gravação da importação
+     concorre com a migração pelo mesmo `localStorage`, e o BACKLOG
+     acumulado (meses de figuras anexadas à mão antes de qualquer um
+     destes consertos existir) ainda está lá, com `.dados` cru, quando a
+     gravação da importação acontece.
+
+     A correção: `salvar()` passou a se defender sozinho. Quando a
+     gravação normal estoura a cota, ele compacta TODAS as figuras que
+     ainda tiverem conteúdo embutido — não importa de onde vieram — e
+     tenta UMA vez a mais, antes de desistir e mostrar o aviso. */
+  const corrida = JSON.parse(win.eval(`JSON.stringify((function(){
+    var t=E.turmas[0];
+    var pr={id:"prCorrida", turma:t.id, disciplina:"d1", codigo:"C",
+      titulo:"Backlog", nq:5, no:5, gabC:"AAAAA",
+      comps:["MAT","MAT","MAT","MAT","MAT"], discursivas:[]};
+    var base64="data:image/jpeg;base64,"+new Array(200000).join("Z");
+    /* simula o backlog: 40 questões ainda com o base64 cru, como
+       ficariam sem a migração ter tido tempo de rodar */
+    pr.questoes=[];
+    for(var i=0;i<40;i++)
+      pr.questoes.push({enunciado:"Q"+i, alternativas:["a","b","c","d","e"],
+        imagem:{dados:base64, w:520, h:360}});
+    E.provas.push(pr);
+
+    var proto=Object.getPrototypeOf(window.localStorage);
+    var real=proto.setItem;
+    var tentativas=0;
+    proto.setItem=function(k,v){
+      tentativas++;
+      if(v.length>500000) throw new Error("QuotaExceededError (simulado)");
+      return real.call(this,k,v);
+    };
+    var guardaEspaco=avisouEspaco;
+    avisouEspaco=false;
+    var ok=salvar();
+    var lido=JSON.parse(window.localStorage.getItem("dbm_omr_v8"));
+    var salvo=lido.provas[lido.provas.length-1].questoes;
+    var resultado={ok:ok, tentativas:tentativas,
+      comRef:salvo.filter(function(q){return q.imagem&&q.imagem.ref;}).length,
+      comDados:salvo.filter(function(q){return q.imagem&&q.imagem.dados;}).length,
+      avisou:avisouEspaco,
+      leituraOk:dadosFig(E.provas[E.provas.length-1].questoes[0].imagem)===base64};
+    proto.setItem=real; avisouEspaco=guardaEspaco;
+    return resultado;
+  })())`));
+  ok(corrida.tentativas === 2,
+     "a gravação tenta de novo depois de estourar (" + corrida.tentativas +
+     " tentativas)");
+  ok(corrida.ok === true,
+     "e a segunda tentativa TEM SUCESSO — a gravação não se perde");
+  ok(corrida.comDados === 0 && corrida.comRef === 40,
+     "as 40 figuras do backlog saíram compactadas: " + corrida.comRef +
+     " com referência, " + corrida.comDados + " ainda com conteúdo cru");
+  ok(corrida.avisou === false,
+     "e o professor NÃO vê o alerta — a compactação resolveu antes de " +
+     "precisar avisar");
+  ok(corrida.leituraOk === true,
+     "e o conteúdo continua legível pela referência depois de tudo isso");
+
   console.log(falhas ? "\nteste75: " + falhas + " FALHA(S)" : "\nteste75: tudo certo");
   process.exit(falhas ? 1 : 0);
 }, 1000);

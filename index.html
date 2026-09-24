@@ -591,7 +591,7 @@ const guarda=(()=>{ let mem={},ok=false;
    morre aqui.
 
    TEM DE CASAR com o VERSAO do sw.js. */
-const VERSAO_APP="v93";
+const VERSAO_APP="v94";
 
 const $=s=>document.querySelector(s);
 /* `esc` também resolve as marcas de expoente e índice: nas telas elas
@@ -798,27 +798,52 @@ function dadosFig(img){
 }
 window.dadosFig=dadosFig;
 
-/* Provas antigas: tira o base64 de dentro do estado e manda para o poço.
-   Roda uma vez, na abertura, depois que o poço foi carregado. */
-async function migrarFigsParaOBanco(){
+/* Varre TODO o estado atrás de figura com conteúdo embutido (`.dados`) e
+   manda para o poço, substituindo por `{ref}`. Não depende de nada estar
+   pronto: `poeFig` grava no `FIGS` (memória) na hora, e tenta o
+   IndexedDB em segundo plano — então isto encolhe `E` imediatamente,
+   mesmo que o poço ainda esteja abrindo ou a conexão com ele falhe.
+
+   Duas chamadas: uma vez, de propósito, na abertura do app; e uma vez,
+   de emergência, de dentro de `salvar()`, sempre que a gravação normal
+   não couber. A segunda é a que realmente resolve o problema relatado:
+   antes, só a primeira existia, e ela roda em SEGUNDO PLANO — se o
+   professor começa a importar um arquivo novo antes dela terminar (o
+   caso comum: abre o app e já sobe um PDF), a gravação da importação
+   corre contra a migração e pode perder. Com a segunda chamada, não
+   importa quem chega primeiro: toda gravação se defende sozinha. */
+function compactarFiguras(){
   let movidas=0;
   (E.provas||[]).forEach(p=>{
     (p.questoes||[]).forEach(q=>{
-      if(q.imagem && q.imagem.dados && !q.imagem.ref){
-        const r=poeFig(q.imagem);
+      if(q.imagem && q.imagem.dados){
+        const r=poeFig({dados:q.imagem.dados, w:q.imagem.w, h:q.imagem.h});
         if(r){ q.imagem=r; movidas++; }
       }
     });
   });
-  if(movidas){ salvar(); }
+  return movidas;
+}
+
+/* Roda uma vez, de propósito, na abertura — depois que o poço carregou. */
+async function migrarFigsParaOBanco(){
+  const movidas=compactarFiguras();
+  if(movidas) salvar();
   return movidas;
 }
 
 let avisouEspaco=false;
 function salvar(){
-  const txt=JSON.stringify(E);
+  let txt=JSON.stringify(E);
   try{ localStorage.setItem("dbm_omr_v8",txt); return true; }
   catch(e){
+    /* antes de desistir: pode haver figura com conteúdo ainda embutido —
+       de uma migração que não terminou a tempo, ou de um canto que esta
+       versão ainda não cobriu. Comprime e tenta UMA vez a mais. */
+    if(compactarFiguras()){
+      txt=JSON.stringify(E);
+      try{ localStorage.setItem("dbm_omr_v8",txt); return true; }catch(e2){}
+    }
     guarda.esc("dbm_omr_v8",txt);          // cai para a memória da sessão
     if(!avisouEspaco){ avisouEspaco=true;
       alert("O armazenamento do navegador encheu — provavelmente por causa das figuras.\n\n"+

@@ -4864,3 +4864,89 @@ usando `poeFig` (checagem no próprio arquivo, já que são efeitos
 colaterais de UI difíceis de exercitar isolados); a prova de que o
 tamanho cai na mesma proporção da importação; e a confirmação de que a
 pré-visualização lê pelo acessor, não por `.dados` direto.
+
+---
+
+## v94 — a causa real não era mais uma fuga: era uma corrida
+
+Terceira vez que o professor viu o aviso, depois de dois consertos (v83:
+poço no IndexedDB; v93: fechar a fuga da tela de anexar figura à mão).
+Desta vez procurei outra coisa, porque duas fugas fechadas e o sintoma
+persistindo é sinal de que o problema não é UM ponto de gravação — é
+como o sistema se comporta no tempo.
+
+### A corrida
+
+A migração das provas antigas (`migrarFigsParaOBanco`) roda em SEGUNDO
+PLANO na abertura do app, sem bloquear nada — de propósito, para o app
+abrir rápido. Mas isso significa que, se o professor começa a importar um
+arquivo novo antes dela terminar (o caso comum: abrir o app e já subir um
+PDF), a gravação da importação **concorre** com a migração pelo mesmo
+`localStorage`.
+
+E o backlog acumulado — meses de figuras anexadas à mão antes de
+QUALQUER um destes consertos existir — ainda está lá, com o conteúdo cru
+embutido, exatamente no momento em que a gravação da importação tenta
+escrever. Não importa quantas fugas NOVAS eu feche: o backlog VELHO só
+sai de dentro do `localStorage` quando a migração, ou algum outro
+mecanismo, tiver a chance de rodar até o fim — e "até o fim, em segundo
+plano, sem prioridade" não é garantia nenhuma contra uma ação do usuário
+que chega primeiro.
+
+### A correção: `salvar()` se defende sozinho
+
+Em vez de depender de a migração terminar a tempo, `salvar()` passou a
+tentar se recuperar na hora:
+
+```js
+function salvar(){
+  let txt=JSON.stringify(E);
+  try{ localStorage.setItem(...); return true; }
+  catch(e){
+    if(compactarFiguras()){          // comprime TUDO que ainda tem .dados
+      txt=JSON.stringify(E);
+      try{ localStorage.setItem(...); return true; }catch(e2){}
+    }
+    /* só agora, se ainda não coube, mostra o aviso */
+  }
+}
+```
+
+`compactarFiguras()` varre `E.provas` inteiro atrás de qualquer imagem
+com `.dados` — não importa de onde veio, de qual tela, de qual versão —
+e manda para o poço. Não depende do IndexedDB já estar aberto (`poeFig`
+grava no `FIGS` em memória na hora, e tenta o IndexedDB por trás,
+assíncrono); por isso funciona mesmo que a conexão ainda esteja
+carregando.
+
+`migrarFigsParaOBanco` passou a usar a mesma função, em vez de duplicar a
+lógica.
+
+### O que o teste prova, de ponta a ponta
+
+Simulei o cenário exato: 40 questões com ~200 KB de base64 cru cada (o
+tamanho real de uma figura recortada), localStorage artificialmente
+pequeno via interceptação do `Storage.prototype.setItem`. Resultado:
+
+```
+tentativas: 2      (a primeira estourou, a segunda — após compactar — coube)
+ok: true           (a gravação teve sucesso)
+comRef: 40, comDados: 0   (as 40 figuras saíram compactadas)
+avisou: false      (o professor nem chega a ver o alerta)
+leituraOk: true    (o conteúdo continua legível pela referência)
+```
+
+### Por que não bastava fechar fugas
+
+As v83 e v93 impediam gravações NOVAS de crescer o backlog. Nenhuma das
+duas fazia nada sobre o backlog que **já existia**, nem sobre o intervalo
+de tempo entre o app abrir e a migração de fundo terminar. `salvar()`
+autodefensivo cobre os três casos de uma vez: backlog antigo, fuga nova
+que eu não tenha encontrado ainda, e a corrida entre migração e ação do
+usuário — sem depender de saber qual dos três é a causa numa próxima vez.
+
+### Suíte
+
+`teste75` ganhou o bloco 8, reproduzindo a corrida com interceptação real
+do `setItem` do protótipo (a primeira tentativa de mock, na instância,
+não interceptava — jsdom expõe o método no protótipo).
