@@ -5290,3 +5290,59 @@ v98 estava certa.
 reconhecida e ancorada corretamente; "destacada" aparecendo ANTES da
 citação (a ordem que quebrava a v98); e uma citação comum sem
 "destacada" no comando, confirmando que ela continua fora do escopo.
+
+## v100 — o comando não pode ficar todo em negrito por cima da palavra destacada
+
+O professor mandou dois exemplos novos ("ares de sucata", "Também") e apontou
+um problema diferente do da v98/v99: o COMANDO da questão sai inteiro em
+negrito por convenção (`medir(seg.comando, "comando", fs, "bold")`) — e
+quando ele já cita a palavra/expressão destacada entre aspas
+("a expressão destacada 'ares de sucata' indica...", "a palavra destacada
+'Também' estabelece..."), negritar a frase toda apaga exatamente o
+contraste que ajudaria o estudante a identificar qual palavra é.
+
+Na fala dele: "você deveria ter criado um mecanismo para realmente deixar
+a palavra destacada [...] pode colocar o comando todo da questão sem estar
+em negrito e deixar em negrito apenas a palavra que está sendo destacada."
+
+### O que mudou
+
+- Nova marca de uso privado, `M_NEG_INI`/`M_NEG_FIM` (`\u000E`/`\u000F`),
+  irmã de `M_SUBL_INI`/`M_SUBL_FIM` (v98) mas independente — um trecho pode
+  ser sublinhado, negritado, os dois, ou nenhum, sem que uma marca
+  interfira na outra.
+- `pedacosDeNivel` passou a rastrear `negrito` como estado próprio, do
+  mesmo jeito que já rastreava `sublinhado`.
+- `textoComNiveis` ganhou um parâmetro `estiloBase`: cada pedaço usa
+  negrito quando marcado, e o resto da linha usa o estilo-base — e a
+  função RESTAURA o estilo-base no fim, para o negrito de um pedaço não
+  vazar para a linha seguinte (que pode não passar por esta função).
+- `marcarPalavraDestacada` (v98/v99) passou a marcar a MESMA
+  palavra/expressão DUAS vezes: sublinhada no texto de apoio (como antes)
+  e em negrito dentro do próprio comando, na citação entre aspas que o
+  comando já traz. Só tenta a marca do comando quando ele é uma linha
+  única e exata do arquivo (o caso comum); um comando partido em duas
+  linhas do arquivo fica com o negrito de sempre — recuo seguro, sem
+  arriscar cortar a marca no lugar errado.
+- `medidasQuestao`: o comando só herda `"bold"` como estilo INTEIRO quando
+  NÃO tem a marca de negrito (`temNegrito`). Com a marca, o estilo-base
+  passa a `"normal"` — e é a própria marca, via `textoComNiveis`, que
+  garante que só a palavra citada sai em negrito.
+
+### O que não mudou
+
+Qualquer comando sem o padrão "palavra/expressão destacada" continua
+INTEIRO em negrito, exatamente como sempre foi — a mudança é estritamente
+aditiva para o caso específico, não uma alteração geral no estilo dos
+comandos.
+
+### Suíte
+
+`teste84.js` — os dois exemplos do professor com o comando marcado e a
+palavra em negrito; o "gatuno" da v98 confirmando que só a PRIMEIRA
+palavra da citação vira negrito, não a frase inteira; um comando partido
+em duas linhas caindo no recuo seguro (sem negrito, mas com o sublinhado
+da passagem intacto); um comando comum permanecendo `estilo:"bold"`
+inteiro; um comando marcado mudando para `estilo:"normal"`; o negrito não
+vazando para a linha seguinte; e a garantia de que nem sublinhado nem
+negrito interferem na checagem de "expoente sumiu".

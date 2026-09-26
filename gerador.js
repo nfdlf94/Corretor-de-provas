@@ -693,8 +693,16 @@ const M_SUB_INI="\u0004", M_SUB_FIM="\u0005";
    destacada" — ver `marcarPalavraDestacada`. Mesma família de código
    de uso privado que os expoentes, sem colidir com eles. */
 const M_SUBL_INI="\u0006", M_SUBL_FIM="\u0007";
-const semMarcas = t => String(t == null ? "" : t).replace(/[\u0002-\u0007]/g, "");
-const temMarcas = t => /[\u0002-\u0007]/.test(String(t == null ? "" : t));
+/* Negrito: a v100 acrescenta esta segunda marca para o MESMO recado,
+   usada dentro do COMANDO — ver mais abaixo por quê o comando precisa
+   de uma marca diferente da do texto de apoio. \u000E/\u000F (Shift
+   Out/In) não colidem com tab/quebra de linha nem com as marcas
+   anteriores. */
+const M_NEG_INI="\u000E", M_NEG_FIM="\u000F";
+const RE_QUALQUER_MARCA=/[\u0002-\u0007\u000E\u000F]/;
+const semMarcas = t => String(t == null ? "" : t).replace(new RegExp(RE_QUALQUER_MARCA,"g"), "");
+const temMarcas = t => RE_QUALQUER_MARCA.test(String(t == null ? "" : t));
+const temNegrito = t => /[\u000E\u000F]/.test(String(t == null ? "" : t));
 
 /* Depois de quebrar o texto limpo em linhas, devolve as marcas para os
    lugares certos, andando pelas duas versões em paralelo. É assim que a
@@ -708,13 +716,14 @@ function remarcar(linhas, marcado){
     let out = "", j = 0;
     while(j < l.length && i < src.length){
       const c = src[i];
-      if(c >= "\u0002" && c <= "\u0007"){ out += c; i++; continue; }
+      if(RE_QUALQUER_MARCA.test(c)){ out += c; i++; continue; }
       if(c === l[j]){ out += c; i++; j++; continue; }
       i++;                       // espaço engolido na quebra de linha
     }
     /* só as marcas de FECHAMENTO ficam no fim da linha; uma marca de
        abertura pertence ao pedaço que vem na linha seguinte */
-    while(i < src.length && (src[i] === "\u0003" || src[i] === "\u0005" || src[i] === "\u0007")){ out += src[i]; i++; }
+    while(i < src.length && (src[i] === "\u0003" || src[i] === "\u0005" ||
+          src[i] === "\u0007" || src[i] === "\u000F")){ out += src[i]; i++; }
     return out;
   });
 }
@@ -723,21 +732,28 @@ function remarcar(linhas, marcado){
    -1 subscrito */
 function pedacosDeNivel(txt){
   const out = [];
-  let subl = false;                    // estado do sublinhado, INDEPENDENTE do nível
-  let atual = {t: "", nivel: 0, sublinhado: false};
+  let subl = false;                    // sublinhado, INDEPENDENTE do nível
+  let neg = false;                     // negrito, INDEPENDENTE de tudo o mais
+  let atual = {t: "", nivel: 0, sublinhado: false, negrito: false};
   for(const ch of String(txt == null ? "" : txt)){
     if(ch === M_SUP_INI || ch === M_SUB_INI){
       if(atual.t) out.push(atual);
-      atual = {t: "", nivel: ch === M_SUP_INI ? 1 : -1, sublinhado: subl};
+      atual = {t: "", nivel: ch === M_SUP_INI ? 1 : -1, sublinhado: subl, negrito: neg};
     }else if(ch === M_SUP_FIM || ch === M_SUB_FIM){
       if(atual.t) out.push(atual);
-      atual = {t: "", nivel: 0, sublinhado: subl};
+      atual = {t: "", nivel: 0, sublinhado: subl, negrito: neg};
     }else if(ch === M_SUBL_INI){
       if(atual.t) out.push(atual);
-      subl = true; atual = {t: "", nivel: atual.nivel, sublinhado: true};
+      subl = true; atual = {t: "", nivel: atual.nivel, sublinhado: true, negrito: neg};
     }else if(ch === M_SUBL_FIM){
       if(atual.t) out.push(atual);
-      subl = false; atual = {t: "", nivel: atual.nivel, sublinhado: false};
+      subl = false; atual = {t: "", nivel: atual.nivel, sublinhado: false, negrito: neg};
+    }else if(ch === M_NEG_INI){
+      if(atual.t) out.push(atual);
+      neg = true; atual = {t: "", nivel: atual.nivel, sublinhado: subl, negrito: true};
+    }else if(ch === M_NEG_FIM){
+      if(atual.t) out.push(atual);
+      neg = false; atual = {t: "", nivel: atual.nivel, sublinhado: subl, negrito: false};
     }else atual.t += ch;
   }
   if(atual.t) out.push(atual);
@@ -762,10 +778,19 @@ function larguraComNiveis(doc, txt, fs){
    largura usada. O risco do sublinhado é traçado por baixo, na LARGURA
    real do pedaço marcado — não da linha inteira — para não sublinhar o
    espaço antes ou depois da palavra. */
-function textoComNiveis(doc, txt, x, y, fs){
+/* desenha uma linha que pode ter expoente, sublinhado e/ou negrito;
+   devolve a largura usada. `estiloBase` é o estilo (normal/bold) que os
+   pedaços SEM negrito próprio usam — o comando de uma "palavra
+   destacada" passa "normal" aqui, porque só a palavra marcada deve
+   ficar em negrito, não o comando inteiro (ver `marcarPalavraDestacada`).
+   Sempre restaura `estiloBase` no fim, para o negrito de um pedaço não
+   vazar para a linha seguinte, que pode não passar por esta função. */
+function textoComNiveis(doc, txt, x, y, fs, estiloBase){
+  const base = estiloBase || "normal";
   let dx = 0;
   pedacosDeNivel(txt).forEach(p => {
     const antesDx = dx;
+    doc.setFont(FONTE_TEXTO, p.negrito ? "bold" : base);
     if(p.nivel === 0){
       doc.setFontSize(fs);
       doc.text(p.t, x + dx, y);
@@ -796,6 +821,7 @@ function textoComNiveis(doc, txt, x, y, fs){
       doc.line(x + antesDx, y + abaixo, x + dx, y + abaixo);
     }
   });
+  doc.setFont(FONTE_TEXTO, base);
   return dx;
 }
 
@@ -894,7 +920,14 @@ function medidasQuestao(doc, item, larg, fs, opcoes){
      ver as cinco opções antes de saber o que procurar nelas. */
   const naFigura = alternativasNaFigura(item);
   const posFig = partes.length + (naFigura && seg.comando ? 1 : 0);
-  if(seg.comando)   medir(seg.comando,   "comando",   fs,       "bold");
+  /* Convenção: o comando sai em negrito por padrão — mas quando ele já
+     tem a palavra/expressão destacada marcada (`marcarPalavraDestacada`,
+     na importação), É ELA que carrega o negrito, sozinha; o resto do
+     comando volta ao peso normal, para o contraste sobreviver. Sem essa
+     condição, negritar o comando inteiro por cima da marca apagaria a
+     diferença entre a palavra e o resto da frase. */
+  if(seg.comando)
+    medir(seg.comando, "comando", fs, temNegrito(seg.comando)?"normal":"bold");
   centralizarVersos(doc, partes, larg);
 
   /* onde o fio abre e onde fecha; -1 quando a questão não leva moldura */
@@ -970,16 +1003,16 @@ function desenharLinhasParte(doc, pt, x, y, largCol, de, ate){
          alinhamento à direita some junto com o expoente */
       if(temMarcas(ln.t)){
         const larguraDaLinha = larguraComNiveis(doc, ln.t, pt.fs);
-        textoComNiveis(doc, ln.t, x + larg - larguraDaLinha, yy, pt.fs);
+        textoComNiveis(doc, ln.t, x + larg - larguraDaLinha, yy, pt.fs, pt.estilo);
       }else doc.text(ln.t, x + larg, yy, {align: "right"});
     }else if(pt.tipo === "titulo" || pt.tipo === "formula"){
       if(temMarcas(ln.t)){
         const larguraDaLinha = larguraComNiveis(doc, ln.t, pt.fs);
-        textoComNiveis(doc, ln.t, x + (larg - larguraDaLinha) / 2, yy, pt.fs);
+        textoComNiveis(doc, ln.t, x + (larg - larguraDaLinha) / 2, yy, pt.fs, pt.estilo);
       }else doc.text(ln.t, x + larg / 2, yy, {align: "center"});
     }else if(temMarcas(ln.t)){
       /* linha com expoente: desenhada pedaço a pedaço, sem justificar */
-      textoComNiveis(doc, ln.t, x + dxBloco + ln.dx, yy, pt.fs);
+      textoComNiveis(doc, ln.t, x + dxBloco + ln.dx, yy, pt.fs, pt.estilo);
     }else if(justifica && k < pt.linhas.length - 1){
       doc.text(ln.t, x + ln.dx, yy, {align: "justify", maxWidth: larg - ln.dx});
     }else{
@@ -1201,7 +1234,7 @@ function unidadesQuestao(doc, n, item, larg, fs, opcoes, m, rotuloBloco){
       la.forEach((ln, i2) => {
         const yy = y + m.passo * (0.75 + i2);
         /* linha seguinte de uma alternativa longa mantém o recuo */
-        if(temMarcas(ln)) textoComNiveis(doc, ln, x + 7, yy, fs);
+        if(temMarcas(ln)) textoComNiveis(doc, ln, x + 7, yy, fs, "normal");
         else doc.text(ln, x + 7, yy);
       });
       return y + la.length * m.passo + extra;
@@ -2192,6 +2225,29 @@ function marcarPalavraDestacada(enunciadoBruto){
   const idx=linhas.findIndex(l=>l.trim()===paragrafo.trim());
   if(idx<0) return bruto;                 // não deveria acontecer; recuo seguro
   linhas[idx]=linhas[idx].replace(paragrafo,marcado);
+
+  /* ── o MESMO destaque, agora dentro do próprio comando ──────────────
+     O comando inteiro sai em NEGRITO por convenção (ver `medidasQuestao`,
+     mais abaixo) — e quando ele já cita a palavra/expressão entre aspas
+     ("a palavra destacada 'Também'"), negritar a frase TODA é reforçar
+     o comando inteiro e apagar exatamente o contraste que distinguiria
+     a palavra das outras. A palavra em negrito só DENTRO do comando, com
+     o resto do comando em peso normal — é a marcação que sobrevive.
+
+     Só tenta quando o comando é uma linha ÚNICA e exata do bruto (o caso
+     comum e o dos dois exemplos que chegaram); um comando partido em
+     mais de uma linha do arquivo fica com o tratamento de sempre —
+     inteiro em negrito — em vez de arriscar um recorte errado. */
+  const inicioCit=cit.index+1;                 // 1 = a aspa de abertura
+  const textoNoComando=tipo==="palavra"
+    ? (/^[^\s,.;:!?"”“]+/.exec(cit[1])||[cit[1]])[0]
+    : cit[1];
+  const idxComando=linhas.findIndex(l=>l.trim()===seg.comando.trim());
+  if(idxComando>=0 && linhas[idxComando].includes(seg.comando.trim())){
+    const comandoMarcado=seg.comando.slice(0,inicioCit)+M_NEG_INI+
+      textoNoComando+M_NEG_FIM+seg.comando.slice(inicioCit+textoNoComando.length);
+    linhas[idxComando]=linhas[idxComando].replace(seg.comando,comandoMarcado);
+  }
   return linhas.join("\n");
 }
 
@@ -2201,4 +2257,5 @@ if(typeof module !== "undefined") module.exports =
    segmentarEnunciado, classificarCorpo, pareceFormula, unidadesQuestao, melhorCorte,
    grupoColado, empacotar, distribuirPagina, encherColuna, molduraDaPagina, fundoUtil, RODAPE, unidadesNaOrdem, paginasDaTurma, paginasNoPior, preFlightCheck, alternativasNaFigura, indicesFixos, ordemDaProva, paresDeOrdem, chavesDaTurma, charsDeNivel, cabecalho, larguraComNiveis,
    AR_QUESTAO, AR_ALT, dadosDaFigura, temFigura, REGRA_GABARITO, alturaFaixaCabecalho, comTempero, TEMPEROS,
-   marcarPalavraDestacada, acharDestaqueNoCorpo, M_SUBL_INI, M_SUBL_FIM, textoComNiveis};
+   marcarPalavraDestacada, acharDestaqueNoCorpo, M_SUBL_INI, M_SUBL_FIM, textoComNiveis,
+   M_NEG_INI, M_NEG_FIM, temNegrito};
