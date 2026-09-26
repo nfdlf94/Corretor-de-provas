@@ -5156,3 +5156,74 @@ a propagação: turmas sem matriz compartilhada, achadas por título+etapa,
 os 3 cadernos atualizados, a mesma questão nova nos irmãos, as outras
 posições intocadas, a habilidade antiga não herdada, e o aviso de
 confirmação somando os cartões de todas as turmas envolvidas.
+
+---
+
+## v98 — "a palavra destacada" volta a ficar destacada
+
+O professor mostrou o defeito com duas capturas: no arquivo original, a
+palavra "gatuno" vem com destaque no texto de apoio (sublinhado, segundo
+ele); no arquivo que o app gera, o destaque desaparece — e a questão
+("a palavra destacada foi empregada para...") fica sem nenhuma marca
+dizendo QUAL das ocorrências ela pergunta.
+
+### Por que ler o sublinhado do PDF não é o caminho
+
+`pdf.js` (a biblioteca de extração) devolve TEXTO — não estilo de fonte.
+Um sublinhado, num PDF, quase sempre não é um atributo do texto: é um
+RISCO desenhado separadamente na página, como um traço vetorial. Ler
+isso de forma confiável exigiria analisar os desenhos da página, não só
+o texto — um caminho caro e frágil, e sem um arquivo real para testar
+contra, alto risco de acertar num caso e errar em outro sem eu saber.
+
+### O caminho que funciona: o comando já diz qual é a palavra
+
+"No trecho **'Gatuno, sim senhor, ...'**, a palavra destacada foi
+empregada para" — a palavra vem entre aspas, é a primeira do trecho
+citado. `marcarPalavraDestacada` usa isso: acha a citação, localiza a
+OCORRÊNCIA CERTA dentro do texto de apoio, marca só ela.
+
+E "certa" importa de verdade aqui: o texto de apoio do professor tem
+**duas** ocorrências de "gatuno" — uma minúscula, no meio de uma frase
+("...ou gatuno. E como..."), e outra maiúscula, abrindo a fala citada no
+comando ("— Gatuno, sim senhor..."). A função ancora pelos primeiros ~30
+caracteres da citação e só marca a ocorrência que casa com a continuação
+do trecho — no exemplo, corretamente a maiúscula, não a primeira que
+aparece no texto.
+
+**Nunca adivinha.** Sem uma ancoragem que bata com o texto de apoio, o
+enunciado sai inalterado — melhor sublinhar nada do que sublinhar a
+palavra errada.
+
+### O sistema de marcas ganhou um terceiro tipo
+
+Os expoentes/índices já usavam caracteres de uso privado (`\u0002`-
+`\u0005`) para marcar trechos sem estragar a medição de largura. O
+sublinhado entrou como `\u0006`/`\u0007`, com um estado PRÓPRIO
+(`sublinhado`), separado do `nivel` — para não colidir com a lógica de
+sobrescrito/subscrito nem com a checagem de "expoente sumiu"
+(`charsDeNivel`), que continua contando só sup/sub.
+
+`textoComNiveis` passou a traçar um risco sob CADA pedaço marcado, na
+LARGURA exata daquele pedaço — não da linha inteira —, na mesma escala
+proporcional já usada para subscrito.
+
+### O que fica registrado como limitação, não como bug
+
+A linha que contém a palavra sublinhada perde a justificação (mesma
+concessão que já existia para linhas com expoente — "desenhada pedaço a
+pedaço, sem justificar"). E, sem o arquivo original, não tenho como
+confirmar que a ocorrência que a citação aponta é EXATAMENTE a que o PDF
+de origem sublinhava — só que é a ocorrência que a PRÓPRIA questão, pelo
+que ela cita entre aspas, está perguntando.
+
+### Suíte
+
+`teste83` — o exemplo real (a ocorrência certa marcada, a errada não, só
+uma marca no total, o texto limpo idêntico ao original); "expressão
+destacada" marcando o trecho inteiro; ausência do padrão sem alteração;
+citação sem ancoragem no texto sem marcação; idempotência; o traço
+desenhado com a largura exata da palavra, na posição certa, abaixo da
+linha de base; nenhuma interferência na checagem de expoente; e o
+encadeamento completo até `lerSimuladoDoc`, confirmando que a marcação
+acontece automaticamente na importação, sem passo manual.

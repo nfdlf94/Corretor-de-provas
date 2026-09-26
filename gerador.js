@@ -689,8 +689,12 @@ function quebrarComRecuo(doc, txt, larg, recuo){
    destes pedaços. */
 const M_SUP_INI="\u0002", M_SUP_FIM="\u0003";
 const M_SUB_INI="\u0004", M_SUB_FIM="\u0005";
-const semMarcas = t => String(t == null ? "" : t).replace(/[\u0002-\u0005]/g, "");
-const temMarcas = t => /[\u0002-\u0005]/.test(String(t == null ? "" : t));
+/* Sublinhado: a marca que a v98 acrescenta para "a palavra/expressão
+   destacada" — ver `marcarPalavraDestacada`. Mesma família de código
+   de uso privado que os expoentes, sem colidir com eles. */
+const M_SUBL_INI="\u0006", M_SUBL_FIM="\u0007";
+const semMarcas = t => String(t == null ? "" : t).replace(/[\u0002-\u0007]/g, "");
+const temMarcas = t => /[\u0002-\u0007]/.test(String(t == null ? "" : t));
 
 /* Depois de quebrar o texto limpo em linhas, devolve as marcas para os
    lugares certos, andando pelas duas versões em paralelo. É assim que a
@@ -704,13 +708,13 @@ function remarcar(linhas, marcado){
     let out = "", j = 0;
     while(j < l.length && i < src.length){
       const c = src[i];
-      if(c >= "\u0002" && c <= "\u0005"){ out += c; i++; continue; }
+      if(c >= "\u0002" && c <= "\u0007"){ out += c; i++; continue; }
       if(c === l[j]){ out += c; i++; j++; continue; }
       i++;                       // espaço engolido na quebra de linha
     }
     /* só as marcas de FECHAMENTO ficam no fim da linha; uma marca de
        abertura pertence ao pedaço que vem na linha seguinte */
-    while(i < src.length && (src[i] === "\u0003" || src[i] === "\u0005")){ out += src[i]; i++; }
+    while(i < src.length && (src[i] === "\u0003" || src[i] === "\u0005" || src[i] === "\u0007")){ out += src[i]; i++; }
     return out;
   });
 }
@@ -719,14 +723,21 @@ function remarcar(linhas, marcado){
    -1 subscrito */
 function pedacosDeNivel(txt){
   const out = [];
-  let atual = {t: "", nivel: 0};
+  let subl = false;                    // estado do sublinhado, INDEPENDENTE do nível
+  let atual = {t: "", nivel: 0, sublinhado: false};
   for(const ch of String(txt == null ? "" : txt)){
     if(ch === M_SUP_INI || ch === M_SUB_INI){
       if(atual.t) out.push(atual);
-      atual = {t: "", nivel: ch === M_SUP_INI ? 1 : -1};
+      atual = {t: "", nivel: ch === M_SUP_INI ? 1 : -1, sublinhado: subl};
     }else if(ch === M_SUP_FIM || ch === M_SUB_FIM){
       if(atual.t) out.push(atual);
-      atual = {t: "", nivel: 0};
+      atual = {t: "", nivel: 0, sublinhado: subl};
+    }else if(ch === M_SUBL_INI){
+      if(atual.t) out.push(atual);
+      subl = true; atual = {t: "", nivel: atual.nivel, sublinhado: true};
+    }else if(ch === M_SUBL_FIM){
+      if(atual.t) out.push(atual);
+      subl = false; atual = {t: "", nivel: atual.nivel, sublinhado: false};
     }else atual.t += ch;
   }
   if(atual.t) out.push(atual);
@@ -747,10 +758,14 @@ function larguraComNiveis(doc, txt, fs){
   return larg;
 }
 
-/* desenha uma linha que pode ter expoente; devolve a largura usada */
+/* desenha uma linha que pode ter expoente e/ou sublinhado; devolve a
+   largura usada. O risco do sublinhado é traçado por baixo, na LARGURA
+   real do pedaço marcado — não da linha inteira — para não sublinhar o
+   espaço antes ou depois da palavra. */
 function textoComNiveis(doc, txt, x, y, fs){
   let dx = 0;
   pedacosDeNivel(txt).forEach(p => {
+    const antesDx = dx;
     if(p.nivel === 0){
       doc.setFontSize(fs);
       doc.text(p.t, x + dx, y);
@@ -773,6 +788,12 @@ function textoComNiveis(doc, txt, x, y, fs){
       doc.text(p.t, x + dx, y - sobe);
       dx += doc.getTextWidth(p.t);
       doc.setFontSize(fs);
+    }
+    if(p.sublinhado && p.t.trim()){
+      const entre = fs * ENTRELINHA();
+      const abaixo = entre * 0.13;      // mesma escala do subscrito, mais discreta
+      doc.setLineWidth(0.12); doc.setDrawColor(0,0,0);
+      doc.line(x + antesDx, y + abaixo, x + dx, y + abaixo);
     }
   });
   return dx;
@@ -2063,9 +2084,98 @@ function gerarProvas(cfgEntrada, alunos, jsPDFctor){
   return doc;
 }
 
+/* ══════════════════════════════════════════════════════════════════
+   "A PALAVRA/EXPRESSÃO DESTACADA"
+
+   Um padrão comum nas provas de Língua Portuguesa: o comando cita um
+   trecho entre aspas ("No trecho '...', a palavra destacada...") e pede
+   o sentido de UMA palavra específica dentro dele — que, no material
+   original, vem com destaque visual no texto de apoio (no caso que
+   chegou, sublinhado).
+
+   O extrator de PDF não captura estilo de fonte — só texto corrido — e
+   por isso o destaque nunca sobrevivia à importação: o estudante lia o
+   texto de apoio sem nenhuma marca indicando qual das duas ou três
+   ocorrências da palavra é a que a questão pergunta.
+
+   Em vez de tentar ler sublinhado/negrito do PDF de origem — algo que a
+   biblioteca de extração não expõe como propriedade do texto, só como
+   desenho separado na página, caminho caro e frágil —, o comando JÁ diz
+   qual é a palavra: ela está entre aspas, é a primeira do trecho citado.
+   Basta achar ONDE esse trecho aparece no texto de apoio e sublinhar ali
+   — na ocorrência certa, não em qualquer uma.
+   ══════════════════════════════════════════════════════════════════ */
+const RE_TRECHO_DESTACADO=
+  /\bn[oa]\s+(?:trecho|fragmento|frase)\s*[""“]([^"”“]{4,140})["”“]\s*[,)]?\s*,?\s*a\s+(palavra|express[ãa]o)\s+destacada/i;
+
+/* escapa regex e tolera diferenças de espaço/quebra de linha entre a
+   citação (uma linha só) e o texto de apoio (pode ter quebrado ali) */
+function comoRegexTolerante(txt){
+  const escapado=txt.replace(/[.*+?^${}()|[\]\\]/g,"\\$&").replace(/\s+/g,"\\s+");
+  return new RegExp(escapado,"i");
+}
+
+/* Acha, dentro do texto de apoio, a ocorrência que corresponde ao
+   trecho citado no comando — e devolve a palavra ou expressão a marcar,
+   NA GRAFIA que ela tem no texto de apoio (não na do comando, que pode
+   ter sido reformatada). null se não achar com segurança. */
+function acharDestaqueNoCorpo(corpo, trecho, tipo){
+  if(!trecho) return null;
+  const limpo=trecho.trim().replace(/\.{2,}\s*$/,"").trim();
+  if(limpo.length<3) return null;
+  /* ancora pelos primeiros ~30 caracteres — o bastante para garantir
+     que é ESTA ocorrência, sem depender do trecho inteiro bater (a
+     citação às vezes é truncada com "...") */
+  const ancora=limpo.slice(0,Math.min(30,limpo.length));
+  const re=comoRegexTolerante(ancora);
+  for(const paragrafo of (corpo||[])){
+    const m=re.exec(paragrafo);
+    if(!m) continue;
+    const achado=m[0];
+    if(tipo==="palavra"){
+      const pm=/^[^\s,.;:!?"”“]+/.exec(achado);
+      if(!pm) continue;
+      return {paragrafo, inicio:m.index, texto:pm[0]};
+    }
+    return {paragrafo, inicio:m.index, texto:achado};
+  }
+  return null;
+}
+
+/* Recebe o ENUNCIADO BRUTO (texto corrido, parágrafos separados por
+   \n — o mesmo formato que `segmentarEnunciado` já lê) e devolve a
+   MESMA string com a palavra/expressão destacada marcada para
+   sublinhado, ou a string ORIGINAL, sem marca nenhuma, quando não
+   houver comando desse tipo ou a ocorrência não puder ser confirmada
+   com segurança. Nunca adivinha: sem ancoragem clara, não marca. */
+function marcarPalavraDestacada(enunciadoBruto){
+  const bruto=String(enunciadoBruto==null?"":enunciadoBruto);
+  if(temMarcas(bruto)) return bruto;      // já foi processado antes
+  const seg=segmentarEnunciado(bruto);
+  if(!seg.comando || !seg.corpo || !seg.corpo.length) return bruto;
+  const m=RE_TRECHO_DESTACADO.exec(seg.comando);
+  if(!m) return bruto;
+  const tipo=m[2].toLowerCase().startsWith("palavra")?"palavra":"expressao";
+  const achado=acharDestaqueNoCorpo(seg.corpo,m[1],tipo);
+  if(!achado) return bruto;
+
+  /* reconstrói o corpo com a marca inserida SÓ naquele parágrafo,
+     SÓ naquela posição — os outros parágrafos, e o resto deste,
+     seguem byte a byte como estavam */
+  const {paragrafo,inicio,texto}=achado;
+  const marcado=paragrafo.slice(0,inicio)+M_SUBL_INI+texto+M_SUBL_FIM+
+    paragrafo.slice(inicio+texto.length);
+  const linhas=bruto.split("\n");
+  const idx=linhas.findIndex(l=>l.trim()===paragrafo.trim());
+  if(idx<0) return bruto;                 // não deveria acontecer; recuo seguro
+  linhas[idx]=linhas[idx].replace(paragrafo,marcado);
+  return linhas.join("\n");
+}
+
 if(typeof module !== "undefined") module.exports =
   {desenharCartao, gerarProvas, gabaritoIndividual, montarPayload, encurtarNome, nomeCurtoQR, soAscii,
    pedacosDeNivel, remarcar, semMarcas, temMarcas, medidasQuestao, desenharQuestaoCol, prepararFontes, medirFigura,
    segmentarEnunciado, classificarCorpo, pareceFormula, unidadesQuestao, melhorCorte,
    grupoColado, empacotar, distribuirPagina, encherColuna, molduraDaPagina, fundoUtil, RODAPE, unidadesNaOrdem, paginasDaTurma, paginasNoPior, preFlightCheck, alternativasNaFigura, indicesFixos, ordemDaProva, paresDeOrdem, chavesDaTurma, charsDeNivel, cabecalho, larguraComNiveis,
-   AR_QUESTAO, AR_ALT, dadosDaFigura, temFigura, REGRA_GABARITO, alturaFaixaCabecalho, comTempero, TEMPEROS};
+   AR_QUESTAO, AR_ALT, dadosDaFigura, temFigura, REGRA_GABARITO, alturaFaixaCabecalho, comTempero, TEMPEROS,
+   marcarPalavraDestacada, acharDestaqueNoCorpo, M_SUBL_INI, M_SUBL_FIM, textoComNiveis};
