@@ -2105,8 +2105,30 @@ function gerarProvas(cfgEntrada, alunos, jsPDFctor){
    Basta achar ONDE esse trecho aparece no texto de apoio e sublinhar ali
    — na ocorrência certa, não em qualquer uma.
    ══════════════════════════════════════════════════════════════════ */
-const RE_TRECHO_DESTACADO=
-  /\bn[oa]\s+(?:trecho|fragmento|frase)\s*[""“]([^"”“]{4,140})["”“]\s*[,)]?\s*,?\s*a\s+(palavra|express[ãa]o)\s+destacada/i;
+/* A PRIMEIRA versão só reconhecia UMA frase: "No trecho '...', a
+   palavra/expressão destacada...". Bastou o comando vir escrito de
+   outro jeito — "...pela expressão destacada em '...' (2° parágrafo)
+   é" — para o padrão não bater e a marcação simplesmente não acontecer,
+   em silêncio, sem avisar que tinha ficado de fora.
+
+   A troca: em vez de UMA frase fixa, o sinal é a COMBINAÇÃO de duas
+   coisas em qualquer ordem, em qualquer construção — uma citação entre
+   aspas, e a palavra "destacada"/"destacado" em algum lugar do mesmo
+   comando. É o bastante para cobrir "no trecho '...', a expressão
+   destacada", "...expressão destacada em '...' é", "na expressão
+   destacada em '...', o autor..." e o que mais vier nessa família, sem
+   precisar prever cada frase possível. */
+const RE_TEM_DESTAQUE=/destacad[ao]/i;
+const RE_PRIMEIRA_CITACAO=/["“]([^"”“]{4,220})["”“]/;
+/* "palavra" (singular) só quando a palavra aparece isolada e "expressão"
+   não aparece no comando — qualquer outra combinação marca o trecho
+   INTEIRO entre aspas, que é o resultado seguro quando não dá para
+   distinguir com confiança. */
+function tipoDoDestaque(comando){
+  const temPalavra=/\bpalavra\b/i.test(comando);
+  const temExpressao=/\bexpress[ãa]o\b/i.test(comando);
+  return (temPalavra && !temExpressao) ? "palavra" : "expressao";
+}
 
 /* escapa regex e tolera diferenças de espaço/quebra de linha entre a
    citação (uma linha só) e o texto de apoio (pode ter quebrado ali) */
@@ -2153,10 +2175,11 @@ function marcarPalavraDestacada(enunciadoBruto){
   if(temMarcas(bruto)) return bruto;      // já foi processado antes
   const seg=segmentarEnunciado(bruto);
   if(!seg.comando || !seg.corpo || !seg.corpo.length) return bruto;
-  const m=RE_TRECHO_DESTACADO.exec(seg.comando);
-  if(!m) return bruto;
-  const tipo=m[2].toLowerCase().startsWith("palavra")?"palavra":"expressao";
-  const achado=acharDestaqueNoCorpo(seg.corpo,m[1],tipo);
+  if(!RE_TEM_DESTAQUE.test(seg.comando)) return bruto;
+  const cit=RE_PRIMEIRA_CITACAO.exec(seg.comando);
+  if(!cit) return bruto;
+  const tipo=tipoDoDestaque(seg.comando);
+  const achado=acharDestaqueNoCorpo(seg.corpo,cit[1],tipo);
   if(!achado) return bruto;
 
   /* reconstrói o corpo com a marca inserida SÓ naquele parágrafo,

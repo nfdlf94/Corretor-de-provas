@@ -66,6 +66,47 @@ setTimeout(() => {
   ok(marcadoExpr.includes(G.M_SUBL_INI+"grandes desafios estruturais"+G.M_SUBL_FIM),
      "\"expressão destacada\" marca o trecho INTEIRO, não só a primeira palavra");
 
+  /* ── 2b. outra construção de frase, com "destacada" ANTES da citação ──
+     O professor mandou um segundo exemplo: "...estabelecida pela
+     expressão destacada em 'Em certo ponto, o burro parou...' (2°
+     parágrafo) é" — nenhuma relação com "No trecho '...', a expressão
+     destacada", a frase que a primeira versão exigia. A detecção deixou
+     de procurar UMA frase fixa e passou a procurar a COMBINAÇÃO — uma
+     citação entre aspas, mais a palavra "destacada"/"destacado" em
+     qualquer lugar do comando. */
+  const outraConstrucao = [
+    "Leia o texto abaixo.", "A Fábula do Burro e do Cavalo",
+    "Um homem tinha um burro e um cavalo. Certo dia, carregou os dois de sal.",
+    "Em certo ponto, o burro parou e disse que não conseguia mais andar com aquele peso.",
+    "O cavalo sugeriu que ele repartisse a carga, pois assim seria mais leve para os dois.",
+    "Fonte: Fábulas Clássicas, 2010.",
+    "O trecho que apresenta a mesma relação estabelecida pela expressão " +
+      "destacada em \"Em certo ponto, o burro parou...\" (2° parágrafo) é"
+  ].join("\n");
+  const marcadoOutra = G.marcarPalavraDestacada(outraConstrucao);
+  ok(marcadoOutra.includes(G.M_SUBL_INI+"Em certo ponto, o burro parou"),
+     "a construção nova também é reconhecida, e a ocorrência certa marcada");
+
+  /* "destacada" ANTES da citação no comando, não depois */
+  const destacadaAntes = [
+    "Leia o texto abaixo.", "Um texto.", "O sol brilhava forte demais.",
+    "Fonte: Y.",
+    "Na expressão destacada em \"brilhava forte demais\", o autor quis dizer"
+  ].join("\n");
+  ok(G.marcarPalavraDestacada(destacadaAntes)
+       .includes(G.M_SUBL_INI+"brilhava forte demais"+G.M_SUBL_FIM),
+     "e funciona também quando \"destacada\" vem ANTES da citação, não " +
+     "só depois — é a ordem que quebrava a primeira versão");
+
+  /* citação, mas SEM a palavra "destacada" no comando: não é o padrão */
+  const citacaoSemDestaque = [
+    "Leia o texto abaixo.", "Um texto.", "Ele disse: \"vou embora\".",
+    "Fonte: X.", "No trecho \"vou embora\", o verbo indica"
+  ].join("\n");
+  ok(G.marcarPalavraDestacada(citacaoSemDestaque) === citacaoSemDestaque,
+     "mas uma citação comum, sem \"destacada\" no comando, não é tratada " +
+     "como se fosse — a combinação completa é exigida, não só a aspas");
+
   /* ── 3. sem o padrão "trecho ... destacada", nada muda ── */
   const semPadrao = [
     "Leia o texto abaixo.", "Um texto.", "Alguma coisa aqui.",

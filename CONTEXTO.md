@@ -5227,3 +5227,66 @@ desenhado com a largura exata da palavra, na posição certa, abaixo da
 linha de base; nenhuma interferência na checagem de expoente; e o
 encadeamento completo até `lerSimuladoDoc`, confirmando que a marcação
 acontece automaticamente na importação, sem passo manual.
+
+---
+
+## v99 — a detecção da "palavra destacada" era boa demais para UMA frase só
+
+O professor mandou um segundo exemplo, de outra questão do mesmo
+arquivo: *"O trecho que apresenta a mesma relação estabelecida pela
+**expressão destacada** em **'Em certo ponto, o burro parou...'** (2°
+parágrafo) é"*. A marcação não aconteceu — "o problema não foi
+resolvido".
+
+### A causa
+
+A v98 reconhecia só UMA construção: `"No trecho '...', a
+palavra/expressão destacada"`. Este comando é outra frase inteiramente
+— "destacada" vem ANTES da citação, não depois, e a estrutura da frase
+é diferente ("...estabelecida pela expressão destacada em '...' é", não
+"no trecho '...', a expressão destacada..."). O padrão fixo não bate, e
+a marcação simplesmente não acontecia — em silêncio, como qualquer caso
+sem ancoragem seria tratado.
+
+### A generalização
+
+Em vez de UMA frase fixa, o sinal passou a ser a COMBINAÇÃO de duas
+coisas, em qualquer ordem, em qualquer construção de frase:
+
+1. uma citação entre aspas no comando;
+2. a palavra "destacada"/"destacado" em algum lugar do MESMO comando.
+
+```js
+const RE_TEM_DESTAQUE=/destacad[ao]/i;
+const RE_PRIMEIRA_CITACAO=/["“]([^"”“]{4,220})["”“]/;
+```
+
+Isso cobre a frase antiga, a nova, e qualquer variação razoável da
+mesma família ("na expressão destacada em '...', o autor...", "...
+destacada em '...' é", etc.) sem precisar prever cada frase possível.
+
+A distinção "palavra" (marca só a primeira palavra) contra "expressão"
+(marca o trecho citado inteiro) passou a ser decidida por qual das duas
+palavras aparece no comando — "expressão" venceu sobre "palavra" quando
+as duas aparecem, e "expressão" é o padrão quando nenhuma das duas
+aparece explicitamente (mais seguro: marcar de menos nunca inventa
+conteúdo, marcar de mais poderia).
+
+### O que se manteve
+
+A palavra "destacada" sozinha, sem citação nenhuma no comando, continua
+sem acionar nada — a combinação completa é exigida. E uma citação comum
+sem "destacada" por perto também continua sem ser tocada: o app não
+passou a marcar toda citação que aparece num comando, só as que
+explicitamente se declaram destacadas.
+
+O professor confirmou, de passagem, que o arquivo de origem realmente
+usa sublinhado — a escolha de desenhar um traço (em vez de negrito) na
+v98 estava certa.
+
+### Suíte
+
+`teste83` ganhou três casos: a construção nova do professor,
+reconhecida e ancorada corretamente; "destacada" aparecendo ANTES da
+citação (a ordem que quebrava a v98); e uma citação comum sem
+"destacada" no comando, confirmando que ela continua fora do escopo.
