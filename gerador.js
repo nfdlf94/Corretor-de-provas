@@ -557,7 +557,18 @@ function segmentarEnunciado(texto){
     const antes = paras[i].slice(0, fim).trim();
     const depois = paras[i].slice(fim).trim();
     let fonte = antes, sobra = "";
-    if(!pareceReferencia(antes)){
+    /* `pareceReferencia` procura ano, "Disponível em", "In:" em QUALQUER
+       ponto do parágrafo. Quando o PDF cola o fim do texto de apoio à
+       referência ("...disse à SUPER. WESTPHAL, Cristina. Super
+       interessante. Abril, 2009. Fragmento."), o ano da referência faz o
+       parágrafo INTEIRO parecer referência, e o texto saía impresso em
+       letra miúda, cinza e alinhado à direita. Por isso, um parágrafo
+       longo que não COMEÇA como referência é separado primeiro: a
+       referência é o que começa na primeira fórmula forte
+       (AUTOR, Nome. / Disponível em / Fonte: / In:). */
+    const comecaComoRef = /^\s*(Fonte\s*:|Revista\s|Jornal\s|Dispon[ií]vel em|In:|[A-ZÀ-Ý]{2,}[,.]\s)/.test(antes);
+    const colada = !comecaComoRef && antes.length > 200 && inicioDaReferencia(antes) > 0;
+    if(colada || !pareceReferencia(antes)){
       /* a referência veio colada ao fim do texto de apoio: acha onde ela
          começa, senão o texto inteiro sairia impresso como se fosse a
          fonte, em letra miúda e alinhado à direita */
@@ -2222,7 +2233,11 @@ function marcarPalavraDestacada(enunciadoBruto){
   const marcado=paragrafo.slice(0,inicio)+M_SUBL_INI+texto+M_SUBL_FIM+
     paragrafo.slice(inicio+texto.length);
   const linhas=bruto.split("\n");
-  const idx=linhas.findIndex(l=>l.trim()===paragrafo.trim());
+  /* o parágrafo pode estar COLADO à referência na mesma linha do arquivo
+     (o PDF costura o fim do texto e a fonte) — por isso `includes`, não
+     igualdade; só o trecho do parágrafo é trocado, o resto da linha fica */
+  let idx=linhas.findIndex(l=>l.trim()===paragrafo.trim());
+  if(idx<0) idx=linhas.findIndex(l=>l.includes(paragrafo));
   if(idx<0) return bruto;                 // não deveria acontecer; recuo seguro
   linhas[idx]=linhas[idx].replace(paragrafo,marcado);
 
@@ -2242,7 +2257,8 @@ function marcarPalavraDestacada(enunciadoBruto){
   const textoNoComando=tipo==="palavra"
     ? (/^[^\s,.;:!?"”“]+/.exec(cit[1])||[cit[1]])[0]
     : cit[1];
-  const idxComando=linhas.findIndex(l=>l.trim()===seg.comando.trim());
+  let idxComando=linhas.findIndex(l=>l.trim()===seg.comando.trim());
+  if(idxComando<0) idxComando=linhas.findIndex(l=>l.includes(seg.comando.trim()));
   if(idxComando>=0 && linhas[idxComando].includes(seg.comando.trim())){
     const comandoMarcado=seg.comando.slice(0,inicioCit)+M_NEG_INI+
       textoNoComando+M_NEG_FIM+seg.comando.slice(inicioCit+textoNoComando.length);

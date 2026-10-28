@@ -5546,3 +5546,37 @@ diferentes a câmera demora um pouco mais para "pegar".
 alternativas), QR longo, fluxo da câmera 20+20 e 45+45, tela de quantidade,
 geração de PDF de 40 e 90 itens, `aplicarQR`. `teste29.js` atualizado (91 é
 recusado, `SAEPE_MAX === 90`).
+
+---
+
+## v105 — referência colada ao texto de apoio
+
+### Relato
+O professor subiu o arquivo do simulado e viu, em "O estresse faz bem", parte
+do texto lida como texto normal e o restante (junto com a fonte verdadeira)
+impresso como se fosse a referência (cinza, pequeno, à direita). Em "Turismo",
+a fonte aparecia como texto do quadro e o comando perdia o destaque.
+
+### Causa
+O PDF costura o fim do último parágrafo e a fonte na mesma linha. Em
+`segmentarEnunciado`, `pareceReferencia` aceita ano / "In:" / "Disponível em"
+em QUALQUER ponto do trecho, então o parágrafo inteiro virava `fonte`.
+Consequência em cadeia: `marcarPalavraDestacada` exigia a linha igual ao
+parágrafo e, com a fonte colada, não achava a linha — nenhum sublinhado.
+
+### O que mudou
+- `segmentarEnunciado`: se o trecho é longo (> 200 car.), não COMEÇA como
+  referência e traz uma referência no meio (`inicioDaReferencia > 0`), corta
+  ali: antes vira texto, depois vira `fonte`.
+- `marcarPalavraDestacada`: acha a linha do parágrafo/comando por `includes`
+  quando não há igualdade exata (referência e comando colados).
+
+### Cuidado ao ler
+Itálico do PDF de origem continua não sendo lido (o extrator só devolve
+texto corrido); o comando segue sem itálico. A expressão destacada é
+recuperada pelas aspas do comando (sublinhado no texto, negrito no comando).
+
+### Suíte
+`teste89.js`: estresse e Turismo colados, mesmos casos com a fonte em linha
+própria, "Disponível em" separada, marcação com fonte colada, texto com ano
+no meio não vira referência.
