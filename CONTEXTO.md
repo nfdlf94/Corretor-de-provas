@@ -5580,3 +5580,29 @@ recuperada pelas aspas do comando (sublinhado no texto, negrito no comando).
 `teste89.js`: estresse e Turismo colados, mesmos casos com a fonte em linha
 própria, "Disponível em" separada, marcação com fonte colada, texto com ano
 no meio não vira referência.
+
+---
+
+## v106 — tirinha/charge: referência abaixo da figura
+
+### Relato
+Capturas das questões "Maitena" (06) e "Mafalda" (14): a referência saía
+ACIMA do desenho. No material de origem (SAEPE_D11 e D22) ela fica logo
+abaixo dele.
+
+### Causa
+`medidasQuestao` sempre desenhou a figura DEPOIS de todas as partes de texto
+(instrução, título, corpo, fonte). Para texto + gráfico isso é certo; para
+tirinha/charge, onde a figura é o próprio texto de apoio, a fonte precisa
+vir depois dela.
+
+### O que mudou
+- `posFig` (onde a figura entra): quando há figura, fonte e NENHUM parágrafo
+  de corpo (e as alternativas não estão na figura), a figura entra antes da
+  fonte. Com texto corrido, ordem de sempre.
+- A figura que precede a fonte tem cola dura com ela (a referência não
+  atravessa sozinha para a outra coluna).
+
+### Suíte
+`teste90.js`: ordem instrução < figura < referência < comando (tirinha e
+charge), ordem antiga preservada com texto corrido, soma das alturas.

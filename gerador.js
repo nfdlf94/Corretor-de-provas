@@ -930,7 +930,15 @@ function medidasQuestao(doc, item, larg, fs, opcoes){
      não o apoio: vai DEPOIS do comando. Desenhá-la antes faria o aluno
      ver as cinco opções antes de saber o que procurar nelas. */
   const naFigura = alternativasNaFigura(item);
-  const posFig = partes.length + (naFigura && seg.comando ? 1 : 0);
+  let posFig = partes.length + (naFigura && seg.comando ? 1 : 0);
+  /* Tirinha, charge, cartaz: a FIGURA é o texto de apoio (não há
+     parágrafo nenhum) e a referência vem logo ABAIXO dela, como no
+     material de origem. Antes a fonte saía acima do desenho. Quando há
+     texto corrido, a ordem de sempre vale (texto, fonte, figura). */
+  if(fig && !naFigura && seg.fonte && !(seg.corpo || []).length){
+    const iFonte = partes.findIndex(pt => pt.tipo === "fonte");
+    if(iFonte >= 0) posFig = iFonte;
+  }
   /* Convenção: o comando sai em negrito por padrão — mas quando ele já
      tem a palavra/expressão destacada marcada (`marcarPalavraDestacada`,
      na importação), É ELA que carrega o negrito, sozinha; o resto do
@@ -1149,7 +1157,7 @@ function unidadesQuestao(doc, n, item, larg, fs, opcoes, m, rotuloBloco){
        comando. Figura de APOIO — tabela, gráfico para observar — pertence
        ao enunciado, e a cola é mole: rompe se o buraco valer mais. */
     if(i === m.posFig && m.fig)
-      push(figH, m.naFigura, desenharFig, !m.naFigura);
+      push(figH, m.naFigura || (pt.tipo === "fonte"), desenharFig, !m.naFigura && pt.tipo !== "fonte");
     const ultima = (i === m.partes.length - 1);
     const proxima = m.partes[i + 1];
     /* a parte ANTES da fonte segura a fonte: é assim que a referência
