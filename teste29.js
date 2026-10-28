@@ -95,11 +95,11 @@ setTimeout(() => {
   });
 
   /* 7. os limites do cartão */
-  ok(ev('(function(){try{montarLayout(31,5);return "passou";}catch(e){return "recusou";}})()') === "recusou",
-     "o cartão recusa 31 itens — acima do teto de 30");
+  ok(ev('(function(){try{montarLayout(91,5);return "passou";}catch(e){return "recusou";}})()') === "recusou",
+     "o cartão recusa 91 itens — acima do teto de 90 (v104; antes era 30)");
   ok(ev('(function(){try{montarLayout(4,5);return "passou";}catch(e){return "recusou";}})()') === "recusou",
      "o cartão recusa 4 itens — abaixo do mínimo de 5");
-  ok(ev("SAEPE_MAX") === 30, "o simulado é barrado no mesmo teto de 30 itens");
+  ok(ev("SAEPE_MAX") === 90, "o simulado é barrado no mesmo teto do cartão: 90 itens");
 
   /* 8. o QR carrega a assinatura do layout: um payload de 30 não é
         aceito como se fosse de 26 */

@@ -31,20 +31,20 @@ const PERFIS = {
     QR_X: 3.0, QR_Y: 7.0, QR_S: 26.0,
     Y0: 9.0, LABEL_X0: 34.0, LABEL_GAP: 6.5,
     MARGEM_DIR: 6.0, FOLGA_COL: 12.0,
-    colunas: nq => 3
+    colunas: nq => (nq <= 60 ? 3 : 4)
   }
 };
 const LIMITE_CLASSICO = 20;
 const perfilDe = nq => (nq > LIMITE_CLASSICO ? PERFIS.compacto : PERFIS.classico);
 
 const LETRAS = ["A", "B", "C", "D", "E"];
-const MIN_Q = 5, MAX_Q = 30;
+const MIN_Q = 5, MAX_Q = 90;
 
 function colunasDe(nq){ return perfilDe(nq).colunas(nq); }
 
 function montarLayout(nq, no){
   nq = parseInt(nq, 10); no = parseInt(no, 10);
-  if (!(nq >= MIN_Q && nq <= MAX_Q)) throw new Error("nq fora de 5..30");
+  if (!(nq >= MIN_Q && nq <= MAX_Q)) throw new Error("nq fora de " + MIN_Q + ".." + MAX_Q);
   if (no !== 4 && no !== 5) throw new Error("no deve ser 4 ou 5");
 
   const P = perfilDe(nq);

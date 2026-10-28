@@ -591,7 +591,7 @@ const guarda=(()=>{ let mem={},ok=false;
    morre aqui.
 
    TEM DE CASAR com o VERSAO do sw.js. */
-const VERSAO_APP="v100";
+const VERSAO_APP="v104";
 
 const $=s=>document.querySelector(s);
 /* `esc` também resolve as marcas de expoente e índice: nas telas elas
@@ -822,6 +822,27 @@ function compactarFiguras(){
       }
     });
   });
+  /* `sm.reserva[comp]` — até 60 questões por componente, por simulado,
+     guardadas na importação para a troca de questão (ver
+     `candidatosParaTrocar`) — é OUTRO lugar onde figura crua podia ficar
+     parada: vive em `E.simulados`, não em `E.provas`, então nunca passava
+     por aqui. Cada arquivo de Português com texto ilustrado multiplicava
+     o vazamento por até 60 — muito mais rápido que o das provas, que só
+     tem `nq` itens. Esta varredura compacta o que já ficou gravado assim
+     em sessões anteriores; a importação (mais abaixo) agora nunca grava
+     figura crua na reserva, então isto é só para o que já está salvo. */
+  (E.simulados||[]).forEach(sm=>{
+    const reserva=sm.reserva; if(!reserva) return;
+    Object.keys(reserva).forEach(comp=>{
+      (reserva[comp]||[]).forEach(item=>{
+        const q=item&&item.questao;
+        if(q && q.imagem && q.imagem.dados){
+          const r=poeFig({dados:q.imagem.dados, w:q.imagem.w, h:q.imagem.h});
+          if(r){ q.imagem=r; movidas++; }
+        }
+      });
+    });
+  });
   return movidas;
 }
 
@@ -832,23 +853,48 @@ async function migrarFigsParaOBanco(){
   return movidas;
 }
 
-let avisouEspaco=false;
+let avisouEspaco=false, ultimoAvisoEspaco=0;
+/* Faixa fixa no topo enquanto a última gravação NÃO coube no
+   armazenamento. O alerta antigo aparecia uma única vez por sessão — e o
+   app instalado na tela inicial fica aberto em segundo plano por dias:
+   depois do primeiro aviso, todas as gravações seguintes falhavam em
+   silêncio, o trabalho ficava só na memória da sessão e sumia ao fechar
+   o app. Agora a faixa fica até uma gravação dar certo, e o alerta volta
+   a cada 2 minutos. */
+function faixaSemSalvar(mostrar){
+  if(typeof document==="undefined" || !document.body) return;
+  let el=document.getElementById("faixaSemSalvar");
+  if(!mostrar){ if(el) el.remove(); return; }
+  if(!el){
+    el=document.createElement("div"); el.id="faixaSemSalvar";
+    el.style.cssText="position:fixed;top:0;left:0;right:0;z-index:9999;background:#c0392b;"+
+      "color:#fff;padding:10px 14px;font:600 14px/1.35 system-ui,sans-serif;text-align:center";
+    el.innerHTML='NÃO ESTÁ SALVANDO — o que você fizer agora some ao fechar o app. '+
+      '<button id="fssBackup" style="margin-left:8px;padding:6px 10px;border:0;border-radius:8px;'+
+      'font-weight:700">Baixar cópia agora</button>';
+    document.body.appendChild(el);
+    el.querySelector("#fssBackup").onclick=()=>{ try{ baixarBackup(); }catch(e){} };
+  }
+}
 function salvar(){
   let txt=JSON.stringify(E);
-  try{ localStorage.setItem("dbm_omr_v8",txt); return true; }
+  try{ localStorage.setItem("dbm_omr_v8",txt); faixaSemSalvar(false); return true; }
   catch(e){
     /* antes de desistir: pode haver figura com conteúdo ainda embutido —
        de uma migração que não terminou a tempo, ou de um canto que esta
        versão ainda não cobriu. Comprime e tenta UMA vez a mais. */
     if(compactarFiguras()){
       txt=JSON.stringify(E);
-      try{ localStorage.setItem("dbm_omr_v8",txt); return true; }catch(e2){}
+      try{ localStorage.setItem("dbm_omr_v8",txt); faixaSemSalvar(false); return true; }catch(e2){}
     }
     guarda.esc("dbm_omr_v8",txt);          // cai para a memória da sessão
-    if(!avisouEspaco){ avisouEspaco=true;
+    faixaSemSalvar(true);
+    if(!avisouEspaco || Date.now()-ultimoAvisoEspaco>120000){
+      avisouEspaco=true; ultimoAvisoEspaco=Date.now();
       alert("O armazenamento do navegador encheu — provavelmente por causa das figuras.\n\n"+
-            "O que você fizer agora vale só até fechar o app. Remova figuras de provas antigas "+
-            "ou exclua provas já corrigidas para liberar espaço."); }
+            "O que você fizer agora vale só até fechar o app. Toque em “Baixar cópia agora” "+
+            "(faixa vermelha no topo) para não perder o trabalho, e depois remova figuras de "+
+            "provas antigas ou exclua provas já corrigidas para liberar espaço."); }
     return false;
   }
 }
@@ -895,7 +941,7 @@ const primeiraDisc=t=>{const d=disciplinasDe(t).filter(viva)[0]||disciplinasDe(t
    já existiam. O que muda é a apuração: resultado, padrão de desempenho
    e acerto por descritor saem SEPARADOS por componente.
    ═══════════════════════════════════════════════════════════════════ */
-const SAEPE_NO=5, SAEPE_MIN=5, SAEPE_MAX=30;
+const SAEPE_NO=5, SAEPE_MIN=5, SAEPE_MAX=MAX_Q;   // o teto é o do cartão (layout.js)
 const COMPONENTES=[{id:"LP", nome:"Língua Portuguesa", curto:"L. Port."},
                    {id:"MAT",nome:"Matemática",        curto:"Mat."}];
 const nomeComp=c=>(COMPONENTES.find(x=>x.id===c)||{nome:c}).nome;
@@ -2365,11 +2411,13 @@ const resultadosComRegraVelha=pr=>
 /* Refaz as contas de todos os registros de uma prova a partir das
    respostas já lidas. Serve para quando o gabarito estava errado: as
    marcações do papel continuam válidas, só a conferência muda. */
-function recalcular(pr){
+function recalcular(pr,apenas){
   const t=turmaDe(pr.turma); if(!t) return 0;
   const letras=["A","B","C","D","E"].slice(0,pr.no);
   let n=0, mudaram=0;
-  E.res.filter(r=>r.prova===pr.id).forEach(r=>{
+  /* `apenas`: lista de registros a refazer (a reconexão de cartões só
+     mexe nos que acabou de mover); omitido, refaz a prova inteira */
+  E.res.filter(r=>r.prova===pr.id && (!apenas||apenas.includes(r))).forEach(r=>{
     const {oq,oa}=ordemDe(pr,t.nome,r.numero);
     let gab="";
     for(let i=0;i<pr.nq;i++){
@@ -3526,7 +3574,7 @@ function entregarLeitura(texto,p,no){
   const antes=casaForm||{};
   casaForm={codigo:velha?velha.codigo:(antes.codigo||""),
     titulo:velha?velha.titulo:(antes.titulo||""),
-    nq:Math.max(5,Math.min(30,lidas.questoes.length||10)),
+    nq:Math.max(5,Math.min(MAX_Q,lidas.questoes.length||10)),
     no:no||5, gab:lidas.gabarito.indexOf("?")<0?lidas.gabarito:"",
     habs:velha?(velha.habs||[]).join("\n"):(antes.habs||""),
     po:velha?pontosObj(velha):(antes.po!=null?antes.po:10),
@@ -3834,7 +3882,7 @@ function telaEditar(box){
       <div><label>Pontos discursivas</label>
       <input id="ePd" type="number" min="0" max="9" step="0.5" value="${pontosDisc(p)}"></div></div>
     <div class="duo"><div><label>Nº de questões</label>
-      <input id="eNq" type="number" min="5" max="30" value="${p.nq}"></div>
+      <input id="eNq" type="number" min="5" max="${MAX_Q}" value="${p.nq}"></div>
       <div><label>Alternativas</label>
       <select id="eNo"><option value="4"${p.no===4?" selected":""}>4 (A–D)</option>
         <option value="5"${p.no===5?" selected":""}>5 (A–E)</option></select></div></div>
@@ -3844,7 +3892,7 @@ function telaEditar(box){
     <div id="eAviso"></div>`;
   $("#mVolta").onclick=()=>{casaNivel="prova";montarCasa();};
   $("#eSalvar").onclick=()=>{
-    const nq=Math.max(5,Math.min(30,parseInt($("#eNq").value,10)||p.nq));
+    const nq=Math.max(5,Math.min(MAX_Q,parseInt($("#eNq").value,10)||p.nq));
     const no=parseInt($("#eNo").value,10)||p.no;
     const lim=LETRAS_ATE(no);
     const gab=$("#eGab").value.toUpperCase().replace(new RegExp("[^A-"+lim+"]","g"),"").slice(0,nq);
@@ -4710,7 +4758,7 @@ async function gerarPDF(p,t,modo){
         extra=`<br><b>Atenção:</b> os caracteres ${esc(doc.avisoCaracteres.join(" "))} não existem na fonte e não foram impressos.`;
       if(doc.avisoPaginas)
         extra+=`<br><b>Atenção:</b> saiu com ${doc.avisoPaginas} páginas por estudante,
-          acima do limite de 4. A letra já foi reduzida ao mínimo — para caber,
+          acima do limite de ${cfg.maxPaginas||4}. A letra já foi reduzida ao mínimo — para caber,
           corte questões ou encurte os enunciados.`;
       /* o que foi preciso mexer para a turma inteira caber no mesmo
          número de folhas — só a apresentação muda, nunca o conteúdo */
@@ -5081,6 +5129,17 @@ function telaSimulados(box){
         </div><span class="tag${(n||estado==="pronto para aplicar")?" ok":""}">${esc(estado)}</span>
         <span class="ch">›</span></button>`;}).join("");
   }
+  /* cartões lidos sem caderno: só contam acertos. Oferece ligar ao caderno. */
+  const soltos=fantasmasDaTurma(t.id);
+  soltos.forEach(f=>{
+    const n=E.res.filter(r=>r.prova===f.id).length, cands=candidatosDoFantasma(f);
+    h+=`<div class="aviso" style="margin-top:12px"><b>${n} ${n===1?"cartão corrigido está":"cartões corrigidos estão"}
+      sem simulado</b> (código “${esc(f.codigo)}”). Por isso aparecem só os acertos —
+      sem nível, habilidade, desempenho nem participação.<br>
+      Ligar ao caderno:
+      ${cands.map(c=>`<button class="btn sec" data-recon="${f.id}|${c.simulado}"
+        style="margin-top:8px">${esc(c.titulo||"Simulado")} · ${esc(c.codigo)}</button>`).join("")}</div>`;
+  });
   const P=planoParticipacao();
   h+=`<button class="btn" id="bNovoSim" style="margin-top:12px">Criar simulado</button>
     <button class="btn gho" id="bPlano" style="margin-top:9px">Participação ·
@@ -5102,6 +5161,14 @@ function telaSimulados(box){
       sm=criarSimuladoNaSerie(t);
     else sm=criarSimulado(t);
     casaSim=sm.id; casaNivel="simulado"; montarCasa(); };
+  box.querySelectorAll("[data-recon]").forEach(b=>b.onclick=()=>{
+    const [fid,sid]=b.dataset.recon.split("|");
+    const r=reconectarCartoes(fid,sid);
+    if(!r.ok){ alert("Não foi possível reconectar: "+r.motivo+"."); return; }
+    alert(r.movidos+" "+(r.movidos===1?"cartão ligado":"cartões ligados")+" a “"+r.caderno+"”."+
+      (r.jaTinham.length?"\n\n"+r.jaTinham.length+" já tinham uma correção mais recente nesse caderno; a dele foi mantida (nº "+r.jaTinham.join(", ")+").":"")+
+      (r.divergentes.length?"\n\n"+r.divergentes.length+" NÃO foram ligados porque a folha foi impressa com outra ordem de alternativas do que o app calcula hoje (nº "+r.divergentes.join(", ")+"). Leia esses cartões de novo no caderno certo.":""));
+    pintarResultados(); pintarDesempenho(); montarCasa(); });
   $("#bBanco").onclick=()=>{casaComp=casaComp||"LP";casaNivel="banco";montarCasa();};
   $("#bPlano").onclick=()=>{casaNivel="partPlano";montarCasa();};
   $("#bEvolucao").onclick=()=>{casaNivel="evolucao";montarCasa();};
@@ -5253,7 +5320,7 @@ function criarSimulado(t, matriz, tituloFixo, anoFixo){
     valorParticipacao:valorSugerido(), qtd:{LP:10,MAT:10},
     fontes:{}, criado:Date.now(), prova:null};
   const pr={id:uid("p"),turma:t.id,disciplina:null,simulado:sm.id,
-    codigo:codigoSugerido(t,ano),titulo:sm.titulo,
+    codigo:codigoLivre(t,ano),titulo:sm.titulo,
     nq:0,no:SAEPE_NO,gabC:"",periodo:null,
     comps:[],desc:[],habs:[],gabItens:[],orig:[],
     pontosObj:10,pontosDisc:0,questoes:[],discursivas:[],criada:Date.now()};
@@ -5275,6 +5342,20 @@ function sugerirEtapa(t){
 }
 const codigoSugerido=(t,ano)=>
   (String(t.nome).toUpperCase().replace(/[^A-Z0-9]/g,"")+"-SAEPE-"+String(ano).slice(2)).slice(0,16);
+/* O código é o que liga o cartão impresso à prova (vai no QR). O padrão era
+   igual para todos os simulados da turma no ano — dois simulados do mesmo
+   tamanho se confundiam. Agora cada simulado novo ganha um sufixo
+   (-2, -3…) se o código já estiver em uso nesta turma. */
+function codigoLivre(t,ano){
+  const base=codigoSugerido(t,ano);
+  const emUso=c=>E.provas.some(x=>x.turma===t.id && foldCodigo(x.codigo)===foldCodigo(c));
+  if(!emUso(base)) return base;
+  for(let n=2;n<100;n++){
+    const suf="-"+n, c=base.slice(0,16-suf.length)+suf;
+    if(!emUso(c)) return c;
+  }
+  return base;
+}
 
 /* ── criação e edição do simulado, em uma tela só ──────────────────
    Era um vaivém entre quatro telas (criar → simulado → importar →
@@ -5367,7 +5448,7 @@ function telaSimulado(box){
       esta quantidade, mesmo que os arquivos tragam mais questões.</p>
     <div class="duo">${COMPONENTES.map(c=>`<div>
       <label>${esc(c.nome)}</label>
-      <input id="smQ${c.id}" type="number" inputmode="numeric" min="0" max="30"
+      <input id="smQ${c.id}" type="number" inputmode="numeric" min="0" max="${SAEPE_MAX}"
         value="${qtdPedida(sm,c.id)}"></div>`).join("")}</div>
     ${pedidoTotal>SAEPE_MAX
       ? `<div class="aviso" style="margin-top:10px">O cartão-resposta comporta até
@@ -5377,7 +5458,7 @@ function telaSimulado(box){
          não sai cartão-resposta.</div>`:""}
     <label style="margin-top:12px">Limite de páginas do caderno</label>
     <select id="smMaxPag">
-      ${[0,2,4,6,8,10,12].map(n=>`<option value="${n}" ${
+      ${[0,2,4,6,8,10,12,14,16,20].map(n=>`<option value="${n}" ${
         maxPaginasDe(sm)===(n||SEM_LIMITE)?"selected":""}>${
         n?n+" páginas":"Sem limite"}</option>`).join("")}
     </select>
@@ -5579,11 +5660,19 @@ function telaSimulado(box){
   $("#smTit").onchange=trocouTit;
   $("#smEt").onchange=()=>{ sm.etapa=$("#smEt").value; guardar(); montarCasa(); };
   $("#smAno").onchange=()=>{ sm.ano=parseInt($("#smAno").value,10)||sm.ano; guardar(); };
-  $("#smCod").onchange=()=>{ pr.codigo=$("#smCod").value.trim().toUpperCase()||pr.codigo;
+  $("#smCod").onchange=()=>{
+    const novo=$("#smCod").value.trim().toUpperCase();
+    if(novo && E.provas.some(x=>x.id!==pr.id && x.turma===pr.turma &&
+        foldCodigo(x.codigo)===foldCodigo(novo)))
+      alert("Já existe outra prova nesta turma com o código “"+novo+"”.\n\n"+
+        "O código é o que liga o cartão impresso ao simulado. Com dois iguais, "+
+        "o app usa o que estiver aberto na hora de corrigir — funciona, mas "+
+        "é mais seguro usar códigos diferentes.");
+    pr.codigo=novo||pr.codigo;
     guardar(); refletirBarra(); };
   COMPONENTES.forEach(c=>{
     $("#smQ"+c.id).onchange=()=>{
-      const v=Math.max(0,Math.min(30,parseInt($("#smQ"+c.id).value,10)||0));
+      const v=Math.max(0,Math.min(SAEPE_MAX,parseInt($("#smQ"+c.id).value,10)||0));
       sm.qtd=sm.qtd||{}; sm.qtd[c.id]=v;
       ajustarQuantidade(sm,c.id);
       guardar(); montarCasa(); };
@@ -5876,6 +5965,24 @@ function telaSimulado(box){
       if(!lido.itens.length) throw new Error("não encontrei questões numeradas");
       /* a numeração é acertada AQUI, antes de qualquer coisa ser gravada */
       const norm=normalizarDescritores(lido, comp, sm.etapa);
+      /* figura crua para o poço ANTES de guardar qualquer questão —
+         `lido.itens` sai de `textoEFigurasDePdf`/`lerSimuladoDoc` com
+         `questao.imagem` ainda em `{dados,w,h}` (base64 inteiro). A
+         reserva abaixo guarda até 60 questões POR COMPONENTE POR
+         SIMULADO, para sempre (é a fonte da troca de questão — ver
+         `candidatosParaTrocar`), então se a imagem crua fosse para lá
+         ela multiplicava o vazamento de armazenamento por até 60 a cada
+         arquivo com figura — muito mais rápido que o das provas, que só
+         tem `nq` itens. Compactar aqui, antes de `sel`/`aplicarImportacao`
+         usarem os MESMOS objetos de questão, cobre os dois destinos de
+         uma vez. */
+      lido.itens.forEach(x=>{
+        const q=x.questao;
+        if(q && q.imagem && q.imagem.dados){
+          const r=poeFig({dados:q.imagem.dados, w:q.imagem.w, h:q.imagem.h});
+          if(r) q.imagem=r;
+        }
+      });
       const sel=selecionarItens(sm,comp,lido.itens);
       /* guarda TODAS as questões do arquivo. Se depois o caderno não
          couber nas páginas, dá para trocar uma questão comprida por
@@ -9133,7 +9240,7 @@ function telaNovaProva(box){
     <select id="fPer">${periodosDe(t).map(n=>
       `<option value="${n}"${(F.per||1)===n?" selected":""}>${esc(nomePeriodo(t,n))}</option>`).join("")}</select>
     <div class="duo"><div><label>Nº de questões</label>
-      <input id="fNq" type="number" min="5" max="30" value="${F.nq}"></div>
+      <input id="fNq" type="number" min="5" max="${MAX_Q}" value="${F.nq}"></div>
       <div><label>Alternativas</label>
       <select id="fNo"><option value="4"${F.no===4?" selected":""}>4 (A–D)</option>
         <option value="5"${F.no===5?" selected":""}>5 (A–E)</option></select></div></div>
@@ -9160,7 +9267,7 @@ Volume do prisma">${esc(F.habs)}</textarea>
       da turma e do número.</p>`;
   const sinc=()=>{
     F.codigo=$("#fCod").value.trim(); F.titulo=$("#fTit").value.trim();
-    F.nq=Math.max(5,Math.min(30,parseInt($("#fNq").value,10)||10));
+    F.nq=Math.max(5,Math.min(MAX_Q,parseInt($("#fNq").value,10)||10));
     F.no=parseInt($("#fNo").value,10);
     const lim=LETRAS_ATE(F.no);
     F.gab=$("#fGab").value.toUpperCase().replace(new RegExp("[^A-"+lim+"]","g"),"").slice(0,F.nq);
@@ -9388,12 +9495,107 @@ function analisar(imgData,aoVivo){
         alunoQR.turma+" · nº "+alunoQR.numero+" · "+L.R.filter(Boolean).length+"/"+NQ);
   return false;
 }
+/* ── cartão → prova ────────────────────────────────────────────────
+   O QR carrega o CÓDIGO da prova, e o código vai para o QR por `soAscii`:
+   "4º SIMULADO" chega como "4o SIMULADO". A busca antiga comparava
+   `x.codigo===codigo` ao pé da letra — então qualquer código com acento,
+   º, ª ou ç (digitado em "Código" no simulado) nunca casava, e o app
+   criava uma prova FANTASMA só com o gabarito do aluno: contava os
+   acertos, mas sem componente, descritor, nível, habilidade — e a nota
+   de participação, o desempenho e o nível do estudante não saíam.
+
+   O outro furo: o código padrão é o MESMO para todos os simulados da
+   turma no ano ("3AD-SAEPE-26"). Com dois simulados do mesmo tamanho, o
+   `find` devolvia o mais ANTIGO, e o cartão novo caía no simulado velho.
+
+   Agora: compara pelo código ASCII sem caixa, filtra por tamanho e por
+   turma, e no empate escolhe a prova que o professor abriu para
+   corrigir; depois dela, a mais recente. */
+const semAcentoTurma=x=>String(x||"").normalize("NFD").replace(/[̀-ͯ]/g,"")
+  .replace(/[ºª]/g,m=>m==="º"?"o":"a").toUpperCase().trim();
+const foldCodigo=c=>soAscii(c).toUpperCase().replace(/\s+/g," ").trim();
+function acharProvaDoQR(codigo,nq,no,turmaNome){
+  const cod=foldCodigo(codigo);
+  let c=E.provas.filter(x=>foldCodigo(x.codigo)===cod);
+  if(!c.length) return null;
+  const mesmoTamanho=c.filter(x=>x.nq===nq&&x.no===no);
+  if(mesmoTamanho.length) c=mesmoTamanho;
+  const daTurma=c.filter(x=>{ const t=turmaDe(x.turma);
+    return t && semAcentoTurma(t.nome)===semAcentoTurma(turmaNome); });
+  if(daTurma.length) c=daTurma;
+  if(c.length===1) return c[0];
+  const aberta=c.find(x=>x.id===E.ativa);
+  if(aberta) return aberta;
+  return c.slice().sort((a,b)=>(b.criada||0)-(a.criada||0))[0];
+}
+
+/* ── cartões soltos: reconectar ao caderno certo ───────────────────
+   Fantasma = prova sem caderno que só existe porque um cartão foi lido.
+   As provas criadas já com `origemQR` são certeza; as de versões
+   anteriores não tinham a marca, então reconhecemos pelo formato: sem
+   simulado, sem título, sem questões, sem componentes e com cartões. */
+const ehFantasma=p=>!!p && !p.simulado && !ehRecuperacao(p) &&
+  !(p.comps&&p.comps.length) && !(p.questoes&&p.questoes.length) &&
+  (p.origemQR || !p.titulo) &&
+  E.res.some(r=>r.prova===p.id);
+function candidatosDoFantasma(f){
+  const cod=foldCodigo(f.codigo);
+  return (E.simulados||[]).filter(sm=>sm.turma===f.turma).map(sm=>provaDoSim(sm))
+    .filter(p=>p && p.nq===f.nq && p.no===f.no)
+    .sort((a,b)=>(foldCodigo(b.codigo)===cod)-(foldCodigo(a.codigo)===cod) ||
+                 (b.criada||0)-(a.criada||0));
+}
+function fantasmasDaTurma(tid){
+  return E.provas.filter(p=>p.turma===tid && ehFantasma(p) &&
+    candidatosDoFantasma(p).length);
+}
+/* Liga os cartões da prova-fantasma ao caderno `simId`. Refaz as contas
+   a partir das MARCAÇÕES lidas (`R`), pelo caminho que já existe
+   (`recalcular`), então Rc, acertos, nota e componente saem exatamente
+   como se o cartão tivesse sido corrigido no caderno certo desde o
+   início. Um cartão impresso com outra ordem de alternativas do que o app
+   calcula hoje NÃO é movido — mapear as marcações dele para o caderno
+   daria item trocado —, e fica listado para ser lido de novo. */
+function reconectarCartoes(fantId, simId){
+  const f=provaDe(fantId), sm=simuladoDe(simId), pr=provaDoSim(sm);
+  const t=pr&&turmaDe(pr.turma);
+  if(!f||!pr||!t) return {ok:false, motivo:"caderno não encontrado"};
+  if(f.nq!==pr.nq||f.no!==pr.no)
+    return {ok:false, motivo:"o caderno tem "+pr.nq+" questões e os cartões são de "+f.nq};
+  const letras=["A","B","C","D","E"].slice(0,pr.no);
+  const movidos=[], divergentes=[], jaTinham=[];
+  E.res.filter(r=>r.prova===f.id).forEach(r=>{
+    const {oq,oa}=ordemDe(pr,t.nome,r.numero);
+    let gab="";
+    for(let i=0;i<pr.nq;i++){
+      const certa=letras.indexOf(pr.gabC[oq[i]]);
+      gab+=letras[oa[i].indexOf(certa)];
+    }
+    if(r.gab && r.gab!==gab){ divergentes.push(r.numero); return; }
+    const outro=E.res.find(x=>x!==r && x.prova===pr.id && x.numero===r.numero);
+    if(outro){
+      if((outro.t||0)>=(r.t||0)){ jaTinham.push(r.numero); E.res=E.res.filter(x=>x!==r); return; }
+      E.res=E.res.filter(x=>x!==outro);
+    }
+    r.prova=pr.id; r.turma=pr.turma; movidos.push(r);
+  });
+  recalcular(pr, movidos);
+  const sobrou=E.res.some(r=>r.prova===f.id);
+  if(!sobrou){
+    E.provas=E.provas.filter(x=>x.id!==f.id);
+    if(E.ativa===f.id){ E.ativa=pr.id; if(typeof refletirBarra==="function") refletirBarra(); }
+  }
+  salvar();
+  return {ok:true, movidos:movidos.length, divergentes, jaTinham,
+          fantasmaRemovido:!sobrou, caderno:sm.titulo||pr.titulo};
+}
+
 /* DBM2/DBM3 = 10 questões, 5 alternativas.  DBM4 traz a assinatura do layout. */
 function aplicarQR(p){
   const t=String(p).split("|");
   if(!/^DBM[234]$/.test(t[0]||"")||t.length<3) return false;
   const g=(t[2]||"").toUpperCase();
-  if(!/^[A-E]{5,30}$/.test(g)) return false;
+  if(!new RegExp("^[A-E]{5,"+MAX_Q+"}$").test(g)) return false;
   let nq=g.length, no=5;
   if(t[0]==="DBM4"){ const a=lerAssinatura(t[6]);
     if(a){ nq=a.nq; no=a.no; } }
@@ -9403,8 +9605,7 @@ function aplicarQR(p){
   if(!nome) return false;
 
   // achar (ou criar) a prova correspondente a este cartão
-  let pr=E.provas.find(x=>x.codigo===codigo&&x.nq===nq&&x.no===no)
-      || E.provas.find(x=>x.codigo===codigo);
+  let pr=acharProvaDoQR(codigo,nq,no,turma);
   if(!pr){
     /* o QR traz o nome da turma em ASCII (ver `soAscii`, no gerador):
        "3º Ano A" chega como "3o Ano A". A comparação ignora acentos. */
@@ -9419,9 +9620,15 @@ function aplicarQR(p){
         disciplinas:[{id:uid("d"),nome:"Disciplina",ativa:true}],
         alunos:[],periodo:{tipo:"bimestre",qtd:4},ativa:true};
       E.turmas.push(tu); }
+    /* `origemQR` marca a prova como FANTASMA: nasceu de um cartão cujo
+       código não bate com nenhuma prova cadastrada. Ela só conhece o
+       gabarito impresso no QR — conta acertos, mas não tem descritor,
+       nível, habilidade nem componente. A tela de conferência avisa, e
+       `reconectarCartoes` liga estes cartões ao caderno certo depois. */
     pr={id:uid("p"),turma:tu.id,disciplina:primeiraDisc(tu),
         codigo:codigo||"PROVA",titulo:"",nq,no,
-        gabC:inferirCanonico(g,turma,numero,nq,no),habs:[],criada:Date.now()};
+        gabC:inferirCanonico(g,turma,numero,nq,no),habs:[],criada:Date.now(),
+        origemQR:true};
     E.provas.push(pr);
   }
   const trocou=(pr.id!==E.ativa);
@@ -9517,6 +9724,12 @@ function montarPainel(){
   }
   const amb=atual.mark.map((m,i)=>m!=="OK"?i+1:0).filter(Boolean);
   const recados=[];
+  if(p.origemQR && !p.simulado)
+    recados.push(`ATENÇÃO: o código deste cartão (“${p.codigo}”) não bate com `+
+      `nenhum simulado ou prova cadastrado nesta turma. Se salvar, ele fica `+
+      `só com a contagem de acertos — sem nível, habilidade nem participação. `+
+      `Descarte, abra o simulado certo e leia de novo; ou salve agora e use `+
+      `“Reconectar cartões” na lista de simulados.`);
   if(amb.length) recados.push(`Questão ${amb.join(", ")}: sem marcação clara. Confira no papel.`);
   if(vig.divergem.length){
     const qs=`questã${vig.divergem.length===1?"o":"es"} ${vig.divergem.join(", ")}`;

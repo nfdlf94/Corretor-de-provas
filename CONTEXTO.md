@@ -5346,3 +5346,203 @@ da passagem intacto); um comando comum permanecendo `estilo:"bold"`
 inteiro; um comando marcado mudando para `estilo:"normal"`; o negrito não
 vazando para a linha seguinte; e a garantia de que nem sublinhado nem
 negrito interferem na checagem de "expoente sumiu".
+
+## v101 — a reserva da troca de questão vazava figura crua (4ª camada do "armazenamento encheu")
+
+Quinto aviso de "o armazenamento do navegador encheu — provavelmente por
+causa das figuras", mesmo depois de v83 (poço de figuras), v93 (tela de
+Figuras das questões) e v94 (`salvar()` se defende sozinho). As três vezes
+anteriores o vazamento estava sempre no mesmo lugar: `E.provas[].
+questoes[].imagem`. `compactarFiguras()` varria exatamente ali.
+
+Mas a v95 (troca de questão por outra do mesmo descritor) abriu uma porta
+nova: ao importar um arquivo, `sm.reserva[comp]` passou a guardar até 60
+questões INTEIRAS daquele arquivo — é a fonte de `candidatosParaTrocar`.
+Essas questões vinham direto de `lido.itens`, com `questao.imagem` ainda
+em `{dados,w,h}` (base64 cru), porque a montagem da reserva nunca chamava
+`poeFig`. E `sm.reserva` mora em `E.simulados`, um array TOTALMENTE
+separado de `E.provas` — `compactarFiguras()` nunca olhava lá, nem na
+varredura normal nem na auto-defesa do `salvar()`.
+
+O efeito: um único arquivo de Português com texto ilustrado multiplicava
+o vazamento por até 60 — muito mais rápido que o de `E.provas`, que só
+tem `nq` itens por caderno (ex.: 30). E como a reserva é escrita ANTES do
+`salvar()` da própria importação, a cota podia estourar bem na hora de
+importar — exatamente a cena relatada: "Lendo
+4º_Simulado_SAEPE_Portugues_3EM.pdf…" com o aviso de armazenamento
+aparecendo no meio.
+
+### O que mudou
+
+- `compactarFiguras()` agora varre também `E.simulados[].reserva[comp][]`,
+  compactando qualquer `questao.imagem.dados` que tenha ficado gravado
+  assim em sessões anteriores — mesmo tratamento que já dava a
+  `E.provas`, estendido ao segundo lugar onde figura crua podia morar.
+  Isto limpa retroativamente o que já está salvo no navegador do
+  professor.
+- Na importação (o `onchange` do envio de arquivo), cada item de
+  `lido.itens` tem sua imagem passada por `poeFig` ANTES de `sm.reserva`
+  ser montada — e antes de `selecionarItens` ser chamada, que usa os
+  MESMOS objetos de questão. Uma mutação só, na origem, cobre os dois
+  destinos (a reserva e o caderno que vai para `E.provas` via
+  `aplicarImportacao`/`gravarCaderno`) de uma vez, porque ambos
+  referenciam o mesmo objeto `questao`.
+- Como todo consumidor da imagem (geração de PDF, pré-visualização, troca
+  de questão) já lê exclusivamente por `dadosFig()` — o "único jeito" já
+  estabelecido desde a v83 —, trocar `{dados}` por `{ref}` na origem é
+  transparente: nada downstream precisou mudar.
+
+### O que não mudou
+
+A lógica de troca de questão (`candidatosParaTrocar`, `trocarQuestaoDoCaderno`,
+`trocasPossiveis`) continua igual — ela só move o objeto `questao` de um
+lugar para o outro, nunca lê `.dados` diretamente.
+
+### Suíte
+
+`teste85.js` — a varredura retroativa compactando 60 itens de uma reserva
+gravada à moda antiga (com conferência de peso, antes/depois, e leitura
+pela referência do primeiro ao último item); deduplicação de figura igual
+dentro da mesma reserva; a cena exata do relato (estouro de cota durante
+a importação, com a reserva recém-criada ainda crua) resolvida sem
+mostrar o alerta ao professor; e a confirmação, no próprio código-fonte,
+de que a compactação na importação acontece ANTES da reserva ser
+montada — não só na rede de segurança.
+
+## v102 — cartões que não achavam o caderno (prova "fantasma") e simulados que se confundiam
+
+O professor excluiu simulados antigos, importou o novo, corrigiu — e o app
+contava os acertos, mas não gerava nível, habilidade, desempenho
+individual nem nota de participação: "como se o arquivo original da prova
+tivesse sumido e ficou apenas o gabarito do estudante".
+
+### Causa (reproduzida no teste86)
+
+O cartão impresso liga-se à prova pelo CÓDIGO, que viaja no QR passado por
+`soAscii` (acento, ª/º, ç somem: "4º SIMULADO" → "4o SIMULADO"). `aplicarQR`
+comparava `x.codigo===codigo` ao pé da letra. Código com qualquer caractere
+fora do ASCII (campo "Código" do simulado é livre) nunca casava, e o app
+criava uma prova FANTASMA: id novo, `gabC` inferido do próprio QR, sem
+`simulado`, `comps`, `desc`, `hab`, `niv`. Era ela que recebia os cartões.
+`apurarComp`/participação/habilidade dependem de `comps` e do descritor
+por item — a fantasma não tem nenhum.
+
+Segundo furo, encontrado no mesmo exame: o código padrão
+(`codigoSugerido`) é IGUAL para todos os simulados da turma no ano
+("3AD-SAEPE-26"). Com dois simulados do mesmo tamanho, o `find` devolvia o
+mais ANTIGO — o cartão do simulado novo caía no velho.
+
+### O que mudou
+
+- `acharProvaDoQR`: compara o código dobrado (`foldCodigo` = `soAscii` +
+  caixa alta + espaços), filtra por tamanho (nq/no) e por turma (sem
+  acento), e no empate prefere a prova ABERTA para correção, depois a mais
+  recente. Substitui o `find` literal.
+- `codigoLivre`: simulado novo recebe sufixo (-2, -3…) se o código já
+  existe na turma. O campo "Código" avisa quando se digita um duplicado.
+- Prova criada por cartão sem caderno nasce com `origemQR:true`, e a tela
+  de conferência diz na hora que aquele cartão ficará só com acertos.
+- `ehFantasma` / `candidatosDoFantasma` / `fantasmasDaTurma` /
+  `reconectarCartoes`: reconhece as fantasmas JÁ criadas (sem a marca,
+  pelo formato: sem simulado, título, questões, componentes, com cartões),
+  e a lista de simulados da turma mostra "N cartões corrigidos estão sem
+  simulado" com um botão por caderno compatível (mesma turma, mesmo
+  tamanho). Reconectar move os cartões e refaz as contas a partir das
+  marcações lidas (`recalcular(pr, apenas)`, que ganhou o parâmetro
+  `apenas` — mexe só nos cartões movidos). Cartão cuja folha foi impressa
+  com outra ordem de alternativas do que o app calcula hoje NÃO é movido
+  (mapear as marcações daria item trocado) e é listado para ser lido de
+  novo. Cartão duplicado vale o mais recente. A fantasma some quando
+  esvazia.
+
+### Limite conhecido
+
+Cartões que já caíram no simulado ANTIGO por causa do segundo furo
+(mesmo código, mesmo tamanho) não têm como ser detectados: o app não sabe
+de qual folha vieram. Só vale daqui para a frente.
+
+### Suíte
+
+`teste86.js`: código com º, acento, ç, minúsculas; desempate entre dois
+simulados de mesmo código; código novo sempre distinto; reconexão com
+apuração por componente e nível por estudante (cartões gerados pela ordem
+do caderno REAL, que é o que o QR carrega); folha de outra ordem não
+movida; a tela de simulados mostra o aviso e o botão funciona; cartão
+sem correspondência vira fantasma marcada.
+
+## v103 — falha de gravação deixa de ser silenciosa
+
+Relato: o simulado novo foi importado, gerado e corrigido, mas ao reabrir o
+app o caderno voltou vazio ("Nenhuma questão carregada") enquanto os
+cartões lidos continuavam lá. Sem os dados do aparelho não dá para provar a
+causa; a hipótese que explica tudo: a gravação da importação não coube,
+`salvar()` caiu para a memória da sessão (`guarda.esc` → `mem`), e o aviso
+de "armazenamento cheio" só aparecia UMA vez por sessão (`avisouEspaco`).
+O app instalado na tela inicial fica aberto em segundo plano por dias —
+depois do primeiro alerta, toda gravação seguinte falhava sem aviso, e ao
+fechar o app o estado voltava ao último que coube.
+
+### O que mudou
+
+- `faixaSemSalvar`: faixa vermelha fixa no topo, "NÃO ESTÁ SALVANDO", com o
+  botão "Baixar cópia agora" (`baixarBackup`). Fica até uma gravação dar
+  certo.
+- O alerta volta a cada 2 minutos enquanto a falha durar (antes: uma vez
+  por sessão). `avisouEspaco` continua existindo (os testes 75/85 o usam).
+
+### Não resolvido por esta versão
+
+Reconstruir um caderno que já se perdeu. Reimportar o arquivo sorteia
+(`Math.random` em `selecionarItens`) outras questões e nada guarda a
+semente; o botão "Reconectar cartões" da v102 só oferece cadernos com o
+mesmo número de questões, então não aparece quando o caderno está vazio.
+A saída é manual: reconstruir a partir do caderno impresso, conferindo
+contra o gabarito impresso de cada estudante (`r.gab`), que serve de
+soma de verificação.
+
+### Suíte
+
+`teste87.js`: faixa aparece na falha, alerta não repete dentro de 2 min,
+volta depois, e a faixa some quando a gravação dá certo.
+
+## v104 — simulados com mais de 30 itens
+
+### Relato
+
+Simulado de 20 questões por disciplina (40 no total) não saía: o app só
+aceitava 30 itens no total, ou seja, 15 + 15. O professor pediu o limite
+removido — ele diz quanto quer, o app faz.
+
+### Causa
+
+O teto era do CARTÃO-RESPOSTA (`layout.js`: `MAX_Q = 30`). O simulado só
+repetia o número (`SAEPE_MAX = 30`), e havia mais cinco lugares com o 30 fixo:
+campo de quantidade por componente, clamp do `onchange`, formulário e edição
+da prova avulsa, e a regex que valida o gabarito do QR (`{5,30}`).
+
+### O que mudou
+
+- Teto único `MAX_Q = 90` em `layout.js` (45 + 45); `SAEPE_MAX = MAX_Q` e
+  todos os campos/clamps/regex passam a usá-lo.
+- Até 30 itens a geometria do cartão é exatamente a de antes (os cadernos
+  já impressos continuam sendo lidos). Compacto passa a ter 4 colunas acima
+  de 60 itens (`colunas: nq <= 60 ? 3 : 4`): 90 itens = 172 × 136 mm, cabe
+  na A4. 40 itens = 3 colunas, 86 mm de altura.
+- Mensagem "acima do limite de 4" da geração agora diz o limite de páginas
+  real do simulado; opções de limite de páginas ganharam 14, 16 e 20.
+- Esta versão carrega também v101–v103 (reserva compactada, reconexão de
+  cartões, faixa "não está salvando").
+
+### Cuidado ao ler
+
+`fiduciais` depende da proporção do layout ativo: um cartão de 90 itens na
+frente da câmera com o layout de 40 ativo só é achado quando o app gira os
+formatos (28 quadros sem cartão). Já era assim; com formatos muito
+diferentes a câmera demora um pouco mais para "pegar".
+
+### Suíte
+
+`teste88.js`: teto de 90, geometria, leitura de 31 a 90 itens (4 e 5
+alternativas), QR longo, fluxo da câmera 20+20 e 45+45, tela de quantidade,
+geração de PDF de 40 e 90 itens, `aplicarQR`. `teste29.js` atualizado (91 é
+recusado, `SAEPE_MAX === 90`).
